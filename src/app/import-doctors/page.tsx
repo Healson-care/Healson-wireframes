@@ -71,6 +71,8 @@ export default function ImportDoctorsPage() {
         license_number: r.license_number,
         is_published: false,
         is_active: true,
+        verification_status: "ממתין" as const,
+        agreements: [],
         consultation_types: [],
         exam_types: [],
         clinic_locations: [],

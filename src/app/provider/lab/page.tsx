@@ -53,6 +53,20 @@ export default function ProviderLabPage() {
                   <StatusBadge status={r.status} kind="referral" />
                 </div>
                 {r.results && <p className="text-sm text-slate-600 mt-3 rounded-lg bg-slate-50 p-3">{r.results}</p>}
+                {r.result_files && r.result_files.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {r.result_files.map((f, i) => (
+                      <a
+                        key={i}
+                        href={f.data_url}
+                        download={f.file_name}
+                        className="text-xs text-primary hover:underline"
+                      >
+                        {f.file_name}
+                      </a>
+                    ))}
+                  </div>
+                )}
               </Card>
             </motion.div>
           ))}

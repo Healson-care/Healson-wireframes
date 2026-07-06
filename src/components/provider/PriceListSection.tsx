@@ -7,13 +7,13 @@ import { Dialog, ConfirmDialog } from "@/components/ui/Dialog";
 import { Input } from "@/components/ui/Input";
 import { EmptyState } from "@/components/ui/Misc";
 import { formatCurrency, generateId } from "@/lib/utils";
-import { KUPOT, Kupah, PriceByKupah } from "@/types";
+import { INSURANCE_LAYERS, InsuranceLayer, LAYER_LABELS, PriceByLayer } from "@/types";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 
 export interface PriceListEntry {
   id: string;
   name: string;
-  prices: PriceByKupah[];
+  prices: PriceByLayer[];
   [extra: string]: unknown;
 }
 
@@ -37,18 +37,14 @@ export function PriceListSection({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [extraValue, setExtraValue] = useState<string>("");
-  const [prices, setPrices] = useState<Record<Kupah, string>>({
-    כללית: "",
-    מכבי: "",
-    מאוחדת: "",
-    לאומית: "",
-  });
+  const emptyPrices = (): Record<InsuranceLayer, string> => ({ S: "", K: "", B: "", H: "" });
+  const [prices, setPrices] = useState<Record<InsuranceLayer, string>>(emptyPrices());
 
   function openCreate() {
     setEditingId(null);
     setName("");
     setExtraValue("");
-    setPrices({ כללית: "", מכבי: "", מאוחדת: "", לאומית: "" });
+    setPrices(emptyPrices());
     setOpen(true);
   }
 
@@ -56,8 +52,8 @@ export function PriceListSection({
     setEditingId(item.id);
     setName(item.name);
     setExtraValue(String(item[extraFieldKey] ?? ""));
-    const map: Record<Kupah, string> = { כללית: "", מכבי: "", מאוחדת: "", לאומית: "" };
-    item.prices.forEach((p) => (map[p.kupah] = String(p.price)));
+    const map = emptyPrices();
+    item.prices.forEach((p) => (map[p.layer] = String(p.price)));
     setPrices(map);
     setOpen(true);
   }
@@ -67,7 +63,7 @@ export function PriceListSection({
       id: editingId ?? generateId("item"),
       name,
       [extraFieldKey]: extraFieldType === "number" ? Number(extraValue) : extraValue,
-      prices: KUPOT.map((k) => ({ kupah: k, price: Number(prices[k]) || 0 })),
+      prices: INSURANCE_LAYERS.filter((l) => prices[l] !== "").map((l) => ({ layer: l, price: Number(prices[l]) || 0 })),
     };
     if (editingId) {
       onChange(items.map((i) => (i.id === editingId ? newItem : i)));
@@ -109,8 +105,8 @@ export function PriceListSection({
               </div>
               <div className="mt-3 grid grid-cols-2 gap-1.5 text-xs">
                 {item.prices.map((p) => (
-                  <div key={p.kupah} className="flex justify-between rounded-md bg-slate-50 px-2 py-1">
-                    <span className="text-slate-500">{p.kupah}</span>
+                  <div key={p.layer} className="flex justify-between rounded-md bg-slate-50 px-2 py-1">
+                    <span className="text-slate-500">{LAYER_LABELS[p.layer]}</span>
                     <span className="font-medium text-slate-700">{formatCurrency(p.price)}</span>
                   </div>
                 ))}
@@ -130,15 +126,15 @@ export function PriceListSection({
             onChange={(e) => setExtraValue(e.target.value)}
             required
           />
+          <p className="text-xs text-slate-400">מחיר לשכבת ביטוח — השאירו ריק אם הספק לא עובד מול שכבה זו</p>
           <div className="grid grid-cols-2 gap-2">
-            {KUPOT.map((k) => (
+            {INSURANCE_LAYERS.map((l) => (
               <Input
-                key={k}
-                label={`מחיר (${k})`}
+                key={l}
+                label={`מחיר ${LAYER_LABELS[l]} (${l})`}
                 type="number"
-                value={prices[k]}
-                onChange={(e) => setPrices({ ...prices, [k]: e.target.value })}
-                required
+                value={prices[l]}
+                onChange={(e) => setPrices({ ...prices, [l]: e.target.value })}
               />
             ))}
           </div>

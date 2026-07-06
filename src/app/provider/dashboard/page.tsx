@@ -15,6 +15,7 @@ import { CardListSkeleton, Skeleton } from "@/components/ui/Skeleton";
 import { PriceListEntry, PriceListSection } from "@/components/provider/PriceListSection";
 import { ClinicsSection } from "@/components/provider/ClinicsSection";
 import { ReferralFormsSection } from "@/components/provider/ReferralFormsSection";
+import { AgreementsSection } from "@/components/provider/AgreementsSection";
 import {
   LayoutDashboard,
   Shield,
@@ -27,9 +28,12 @@ import {
   Users,
   CheckCircle2,
   BadgeCheck,
+  Handshake,
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { DAY_LABELS } from "@/lib/medical-tree";
+
+const LANGUAGE_OPTIONS = ["עברית", "ערבית", "רוסית", "אנגלית"];
 
 export default function ProviderDashboardPage() {
   const currentUser = useStore((s) => s.currentUser);
@@ -55,7 +59,10 @@ export default function ProviderDashboardPage() {
     specialty: "",
     license_number: "",
     license_issuer: "",
+    license_issue_date: "",
+    license_expiry_date: "",
   });
+  const [languages, setLanguages] = useState<string[]>([]);
 
   const [licenseLoadedFor, setLicenseLoadedFor] = useState<string | null>(null);
   if (provider && provider.id !== licenseLoadedFor) {
@@ -66,7 +73,10 @@ export default function ProviderDashboardPage() {
       specialty: provider.specialty ?? "",
       license_number: provider.license_number ?? "",
       license_issuer: provider.license_issuer ?? "",
+      license_issue_date: provider.license_issue_date ?? "",
+      license_expiry_date: provider.license_expiry_date ?? "",
     });
+    setLanguages(provider.languages ?? []);
   }
 
   if (!provider || !currentUser) {
@@ -81,17 +91,22 @@ export default function ProviderDashboardPage() {
     );
   }
 
-  const isVerified = !!(provider.license_number && provider.display_name && provider.specialty);
+  const isVerified = provider.verification_status === "מאושר";
   const myPatients = patients.filter((p) => p.assigned_provider === provider.id);
   const myOrders = orders.filter((o) => o.provider_id === provider.id);
-  const completedRevenue = myOrders
-    .filter((o) => o.status === "הושלם")
-    .reduce((sum, o) => sum + o.final_price, 0);
+  const completedOrders = myOrders.filter((o) => o.status === "הושלם");
+  const completedRevenue = completedOrders.reduce((sum, o) => sum + o.final_price, 0);
+  const commissionPaid = completedOrders.reduce((sum, o) => sum + (o.commission_amount ?? 0), 0);
+  const netPayout = completedOrders.reduce((sum, o) => sum + (o.provider_payout_amount ?? o.final_price), 0);
 
   function saveLicense(e: React.FormEvent) {
     e.preventDefault();
-    upsertProviderProfile(currentUser!.id, licenseForm);
+    upsertProviderProfile(currentUser!.id, { ...licenseForm, languages });
     showToast("פרטי הרישיון נשמרו בהצלחה", { variant: "success" });
+  }
+
+  function toggleLanguage(lang: string) {
+    setLanguages((prev) => (prev.includes(lang) ? prev.filter((l) => l !== lang) : [...prev, lang]));
   }
 
   return (
@@ -122,12 +137,14 @@ export default function ProviderDashboardPage() {
               <h2 className="font-semibold text-slate-900">
                 {provider.title} {provider.display_name}
               </h2>
-              {isVerified ? (
+              {provider.verification_status === "מאושר" ? (
                 <Badge tone="green">
-                  <BadgeCheck className="h-3 w-3" /> מאומת
+                  <BadgeCheck className="h-3 w-3" /> מאושר
                 </Badge>
+              ) : provider.verification_status === "נדחה" ? (
+                <Badge tone="red">נדחה{provider.rejection_reason ? `: ${provider.rejection_reason}` : ""}</Badge>
               ) : (
-                <Badge tone="amber">השלם פרופיל</Badge>
+                <Badge tone="amber">ממתין לאישור Healson</Badge>
               )}
               {provider.is_published && <Badge tone="blue">פעיל</Badge>}
             </div>
@@ -157,6 +174,7 @@ export default function ProviderDashboardPage() {
         <TabsList className="mb-4 flex-wrap">
           <TabsTrigger value="overview" icon={<LayoutDashboard className="h-3.5 w-3.5" />}>סקירה</TabsTrigger>
           <TabsTrigger value="license" icon={<Shield className="h-3.5 w-3.5" />}>רישיון</TabsTrigger>
+          <TabsTrigger value="agreements" icon={<Handshake className="h-3.5 w-3.5" />}>הסדרים</TabsTrigger>
           <TabsTrigger value="consultations" icon={<Stethoscope className="h-3.5 w-3.5" />}>ייעוצים</TabsTrigger>
           <TabsTrigger value="exams" icon={<FlaskConical className="h-3.5 w-3.5" />}>בדיקות</TabsTrigger>
           <TabsTrigger value="clinics" icon={<MapPin className="h-3.5 w-3.5" />}>מרפאות</TabsTrigger>
@@ -170,10 +188,10 @@ export default function ProviderDashboardPage() {
           <div className="grid sm:grid-cols-3 gap-3 mb-4">
             <StatCard label="מטופלים" value={myPatients.length} icon={<Users className="h-4 w-4" />} tone="blue" />
             <StatCard
-              label="סטטוס פרופיל"
-              value={isVerified ? "מאומת" : "לא הושלם"}
+              label="סטטוס אישור Healson"
+              value={provider.verification_status}
               icon={<CheckCircle2 className="h-4 w-4" />}
-              tone={isVerified ? "green" : "amber"}
+              tone={isVerified ? "green" : provider.verification_status === "נדחה" ? "rose" : "amber"}
             />
             <StatCard
               label="הכנסות (הושלם)"
@@ -189,8 +207,10 @@ export default function ProviderDashboardPage() {
             <CardContent className="text-sm text-slate-600 flex flex-col gap-2">
               <ChecklistItem ok={!!provider.license_number} label="מספר רישיון" />
               <ChecklistItem ok={!!provider.specialty} label="תחום התמחות" />
+              <ChecklistItem ok={provider.agreements.length > 0} label="הגדרת הסדרי ביטוח (S/K/B/H)" />
               <ChecklistItem ok={provider.consultation_types.length > 0} label="לפחות סוג ייעוץ אחד" />
               <ChecklistItem ok={provider.clinic_locations.length > 0} label="לפחות מרפאה אחת" />
+              <ChecklistItem ok={isVerified} label="אושר על ידי צוות Healson" />
               <ChecklistItem ok={provider.is_published} label="פרופיל פורסם" />
             </CardContent>
           </Card>
@@ -236,12 +256,49 @@ export default function ProviderDashboardPage() {
                   value={licenseForm.license_issuer}
                   onChange={(e) => setLicenseForm({ ...licenseForm, license_issuer: e.target.value })}
                 />
+                <Input
+                  label="תאריך הנפקת רישיון"
+                  type="date"
+                  value={licenseForm.license_issue_date}
+                  onChange={(e) => setLicenseForm({ ...licenseForm, license_issue_date: e.target.value })}
+                />
+                <Input
+                  label="תאריך תפוגת רישיון"
+                  type="date"
+                  value={licenseForm.license_expiry_date}
+                  onChange={(e) => setLicenseForm({ ...licenseForm, license_expiry_date: e.target.value })}
+                />
+                <div className="sm:col-span-2">
+                  <p className="text-sm font-medium text-slate-700 mb-2">שפות</p>
+                  <div className="flex flex-wrap gap-2">
+                    {LANGUAGE_OPTIONS.map((lang) => (
+                      <button
+                        key={lang}
+                        type="button"
+                        onClick={() => toggleLanguage(lang)}
+                        className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                          languages.includes(lang) ? "bg-primary text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                        }`}
+                      >
+                        {lang}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <Button type="submit" className="sm:col-span-2 self-start mt-2">
                   שמור פרטי רישיון
                 </Button>
               </form>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="agreements">
+          <AgreementsSection
+            providerId={provider.id}
+            agreements={provider.agreements}
+            onChange={(agreements) => upsertProviderProfile(currentUser!.id, { agreements })}
+          />
         </TabsContent>
 
         <TabsContent value="consultations">
@@ -308,14 +365,18 @@ export default function ProviderDashboardPage() {
         </TabsContent>
 
         <TabsContent value="payments">
-          <div className="grid sm:grid-cols-3 gap-3 mb-4">
-            <StatCard label="הכנסה כוללת" value={formatCurrency(completedRevenue)} tone="green" />
-            <StatCard label="עסקאות שהושלמו" value={myOrders.filter((o) => o.status === "הושלם").length} tone="blue" />
-            <StatCard label="עסקאות בתהליך" value={myOrders.filter((o) => o.status !== "הושלם" && o.status !== "בוטל").length} tone="amber" />
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+            <StatCard label="הכנסה ברוטו" value={formatCurrency(completedRevenue)} tone="green" />
+            <StatCard label="עמלת Healson" value={formatCurrency(commissionPaid)} tone="rose" />
+            <StatCard label="תשלום נטו לספק" value={formatCurrency(netPayout)} tone="purple" />
+            <StatCard label="עסקאות שהושלמו" value={completedOrders.length} tone="blue" />
           </div>
           <Card>
             <CardHeader>
               <CardTitle>עסקאות אחרונות</CardTitle>
+              <p className="text-sm text-slate-500">
+                עמלת Healson הנוכחית: {provider.commission_rate ?? 15}% לעסקה
+              </p>
             </CardHeader>
             <CardContent>
               {myOrders.length === 0 ? (
@@ -325,7 +386,12 @@ export default function ProviderDashboardPage() {
                   {myOrders.slice(0, 10).map((o) => (
                     <div key={o.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm">
                       <span className="text-slate-700">{o.patient_name} · {o.item_name}</span>
-                      <span className="font-medium text-slate-900">{formatCurrency(o.final_price)}</span>
+                      <div className="text-left">
+                        <span className="font-medium text-slate-900">{formatCurrency(o.final_price)}</span>
+                        {o.commission_amount !== undefined && (
+                          <p className="text-xs text-slate-400">עמלה {formatCurrency(o.commission_amount)} · נטו {formatCurrency(o.provider_payout_amount ?? 0)}</p>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>

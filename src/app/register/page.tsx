@@ -3,26 +3,45 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Mail, Lock } from "lucide-react";
+import { Mail, Lock, User as UserIcon, Phone } from "lucide-react";
 import { AuthLayout } from "@/components/layouts/AuthLayout";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { useStore } from "@/lib/store";
+import {
+  ConsentCheckboxes,
+  ConsentValues,
+  areRequiredConsentsChecked,
+} from "@/components/patient/ConsentCheckboxes";
+import {
+  EMPTY_INSURANCE_PROFILE,
+  InsuranceProfileForm,
+  InsuranceProfileValue,
+} from "@/components/patient/InsuranceProfileForm";
+
+type Phase = "credentials" | "otp" | "profile" | "consent";
 
 export default function RegisterPage() {
   const router = useRouter();
   const register = useStore((s) => s.register);
   const verifyOtp = useStore((s) => s.verifyOtp);
   const resendOtp = useStore((s) => s.resendOtp);
+  const currentUser = useStore((s) => s.currentUser);
+  const completePatientRegistration = useStore((s) => s.completePatientRegistration);
   const showToast = useStore((s) => s.showToast);
 
+  const [phase, setPhase] = useState<Phase>("credentials");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [showOtp, setShowOtp] = useState(false);
   const [otpCode, setOtpCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [insurance, setInsurance] = useState<InsuranceProfileValue>(EMPTY_INSURANCE_PROFILE);
+  const [consents, setConsents] = useState<ConsentValues>({});
 
   function handleRegister(e: React.FormEvent) {
     e.preventDefault();
@@ -36,7 +55,7 @@ export default function RegisterPage() {
       const result = register(email, password);
       setLoading(false);
       if (result.ok) {
-        setShowOtp(true);
+        setPhase("otp");
         showToast("קוד אימות נשלח", { description: `קוד הדגמה: ${result.otpHint}`, variant: "success" });
       }
     }, 300);
@@ -53,7 +72,7 @@ export default function RegisterPage() {
         setError(result.error ?? "שגיאה באימות");
         return;
       }
-      router.push("/client");
+      setPhase("profile");
     }, 300);
   }
 
@@ -62,7 +81,30 @@ export default function RegisterPage() {
     if (otp) showToast("קוד חדש נשלח לאימייל", { description: `קוד הדגמה: ${otp}` });
   }
 
-  if (showOtp) {
+  function handleProfileSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setPhase("consent");
+  }
+
+  function handleFinish() {
+    if (!currentUser) return;
+    completePatientRegistration(
+      currentUser.id,
+      {
+        full_name: fullName,
+        phone,
+        kupah: insurance.kupah,
+        k_level: insurance.k_level || undefined,
+        has_b_insurance: insurance.has_b_insurance,
+        b_insurance_company: insurance.has_b_insurance ? insurance.b_insurance_company : undefined,
+        b_policy_number: insurance.has_b_insurance ? insurance.b_policy_number : undefined,
+      },
+      consents
+    );
+    router.push("/client");
+  }
+
+  if (phase === "otp") {
     return (
       <AuthLayout>
         <h1 className="text-lg font-semibold text-slate-900 mb-1">אימות קוד</h1>
@@ -90,6 +132,38 @@ export default function RegisterPage() {
             שלח קוד מחדש
           </button>
         </form>
+      </AuthLayout>
+    );
+  }
+
+  if (phase === "profile") {
+    return (
+      <AuthLayout>
+        <h1 className="text-lg font-semibold text-slate-900 mb-1">פרטים ופרופיל ביטוחי</h1>
+        <p className="text-sm text-slate-500 mb-5">נדרש לפני שמירת נתוני בריאות במערכת</p>
+        <form onSubmit={handleProfileSubmit} className="flex flex-col gap-3">
+          <Input label="שם מלא" icon={<UserIcon className="h-4 w-4" />} value={fullName} onChange={(e) => setFullName(e.target.value)} required />
+          <Input label="טלפון נייד" icon={<Phone className="h-4 w-4" />} value={phone} onChange={(e) => setPhone(e.target.value)} required />
+          <div className="h-px bg-slate-100 my-1" />
+          <InsuranceProfileForm value={insurance} onChange={setInsurance} />
+          <Button type="submit" className="w-full mt-2">
+            המשך להסכמות
+          </Button>
+        </form>
+      </AuthLayout>
+    );
+  }
+
+  if (phase === "consent") {
+    const canFinish = areRequiredConsentsChecked(consents);
+    return (
+      <AuthLayout>
+        <h1 className="text-lg font-semibold text-slate-900 mb-1">הסכמות</h1>
+        <p className="text-sm text-slate-500 mb-5">אנא סמנו את ההסכמות הנדרשות כדי להמשיך</p>
+        <ConsentCheckboxes value={consents} onChange={setConsents} />
+        <Button className="w-full mt-4" disabled={!canFinish} onClick={handleFinish}>
+          סיום ההרשמה
+        </Button>
       </AuthLayout>
     );
   }

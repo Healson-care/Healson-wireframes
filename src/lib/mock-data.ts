@@ -2,6 +2,9 @@ import {
   Appointment,
   Branch,
   CatalogItem,
+  ConsentRecord,
+  CONSENT_DOCUMENT_VERSION,
+  DsrRequest,
   Lead,
   LabReferral,
   Order,
@@ -10,7 +13,8 @@ import {
   User,
 } from "@/types";
 import { generateId, isoDateDaysFromNow } from "./utils";
-import { MEDICAL_TREE } from "./medical-tree";
+import { SEED_SKILL_DOMAINS, SEED_SKILL_SUBDOMAINS } from "./medical-tree";
+import { resolveCatalogPrice } from "./pricing";
 
 // ---------------------------------------------------------------------------
 // Demo accounts — used by the mock auth flow (see src/lib/store.ts).
@@ -65,17 +69,23 @@ const provider2: ProviderProfile = {
   license_expiry_date: isoDateDaysFromNow(900),
   is_published: true,
   is_active: true,
+  verification_status: "מאושר",
+  commission_rate: 12,
   created_date: isoDateDaysFromNow(-400),
+  agreements: [
+    { id: generateId("agr"), provider_id: "prov_2", layer: "K", kupah_list: ["כללית", "מכבי", "מאוחדת", "לאומית"] },
+    { id: generateId("agr"), provider_id: "prov_2", layer: "B", insurance_companies: ["כלל", "הראל"] },
+    { id: generateId("agr"), provider_id: "prov_2", layer: "H" },
+  ],
   consultation_types: [
     {
       id: generateId("ct"),
       name: "ייעוץ קרדיולוגי כללי",
       duration_minutes: 30,
       prices: [
-        { kupah: "כללית", price: 420 },
-        { kupah: "מכבי", price: 400 },
-        { kupah: "מאוחדת", price: 410 },
-        { kupah: "לאומית", price: 430 },
+        { layer: "K", price: 130 },
+        { layer: "B", price: 60 },
+        { layer: "H", price: 420 },
       ],
     },
     {
@@ -83,10 +93,9 @@ const provider2: ProviderProfile = {
       name: "בדיקת מאמץ",
       duration_minutes: 45,
       prices: [
-        { kupah: "כללית", price: 650 },
-        { kupah: "מכבי", price: 620 },
-        { kupah: "מאוחדת", price: 640 },
-        { kupah: "לאומית", price: 660 },
+        { layer: "K", price: 200 },
+        { layer: "B", price: 90 },
+        { layer: "H", price: 650 },
       ],
     },
   ],
@@ -96,10 +105,9 @@ const provider2: ProviderProfile = {
       name: "אקו לב",
       lab_code: "ECHO-01",
       prices: [
-        { kupah: "כללית", price: 800 },
-        { kupah: "מכבי", price: 780 },
-        { kupah: "מאוחדת", price: 790 },
-        { kupah: "לאומית", price: 810 },
+        { layer: "K", price: 260 },
+        { layer: "B", price: 120 },
+        { layer: "H", price: 800 },
       ],
     },
   ],
@@ -150,17 +158,23 @@ const provider1: ProviderProfile = {
   license_expiry_date: isoDateDaysFromNow(700),
   is_published: true,
   is_active: true,
+  verification_status: "מאושר",
+  commission_rate: 15,
   created_date: isoDateDaysFromNow(-600),
+  agreements: [
+    { id: generateId("agr"), provider_id: "prov_1", layer: "S", kupah_list: ["כללית", "מכבי", "מאוחדת", "לאומית"] },
+    { id: generateId("agr"), provider_id: "prov_1", layer: "K", kupah_list: ["כללית", "מכבי"] },
+    { id: generateId("agr"), provider_id: "prov_1", layer: "H" },
+  ],
   consultation_types: [
     {
       id: generateId("ct"),
       name: "ייעוץ אורתופדי - ברך",
       duration_minutes: 30,
       prices: [
-        { kupah: "כללית", price: 450 },
-        { kupah: "מכבי", price: 430 },
-        { kupah: "מאוחדת", price: 440 },
-        { kupah: "לאומית", price: 460 },
+        { layer: "S", price: 45 },
+        { layer: "K", price: 120 },
+        { layer: "H", price: 450 },
       ],
     },
     {
@@ -168,10 +182,9 @@ const provider1: ProviderProfile = {
       name: "חוות דעת שנייה",
       duration_minutes: 20,
       prices: [
-        { kupah: "כללית", price: 380, discount: 10 },
-        { kupah: "מכבי", price: 360 },
-        { kupah: "מאוחדת", price: 370 },
-        { kupah: "לאומית", price: 390 },
+        { layer: "S", price: 35 },
+        { layer: "K", price: 100 },
+        { layer: "H", price: 390 },
       ],
     },
   ],
@@ -181,10 +194,8 @@ const provider1: ProviderProfile = {
       name: "בדיקת MRI לברך",
       lab_code: "MRI-KNEE",
       prices: [
-        { kupah: "כללית", price: 1200 },
-        { kupah: "מכבי", price: 1150 },
-        { kupah: "מאוחדת", price: 1180 },
-        { kupah: "לאומית", price: 1220 },
+        { layer: "K", price: 350 },
+        { layer: "H", price: 1200 },
       ],
     },
   ],
@@ -227,7 +238,9 @@ const provider3: ProviderProfile = {
   license_number: "MD-93221",
   is_published: false,
   is_active: true,
+  verification_status: "ממתין",
   created_date: isoDateDaysFromNow(-40),
+  agreements: [],
   consultation_types: [],
   exam_types: [],
   clinic_locations: [],
@@ -237,52 +250,43 @@ const provider3: ProviderProfile = {
 export const SEED_PROVIDERS: ProviderProfile[] = [provider1, provider2, provider3];
 
 // ---------------------------------------------------------------------------
-// Catalog items — derived from the medical tree, 1-3 items per sub-domain.
+// Catalog items — derived from the skill taxonomy, 2 items per sub-domain.
 // ---------------------------------------------------------------------------
 function buildCatalog(): CatalogItem[] {
   const items: CatalogItem[] = [];
-  let code = 1000;
-  for (const domain of MEDICAL_TREE) {
-    for (const sub of domain.subDomains) {
-      const staff =
-        domain.key === "orthopedics"
-          ? provider1.display_name
-          : domain.key === "cardiology"
-          ? provider2.display_name
-          : provider3.display_name;
+  let tavarCode = 100000;
+  for (const domain of SEED_SKILL_DOMAINS) {
+    const providerId =
+      domain.slug === "orthopedics" ? provider1.id : domain.slug === "cardiology" ? provider2.id : provider3.id;
+    const subdomains = SEED_SKILL_SUBDOMAINS.filter((s) => s.domain_id === domain.id);
 
+    for (const sub of subdomains) {
       items.push({
         id: generateId("cat"),
-        item_name: `ייעוץ ${domain.label} - ${sub.label}`,
-        item_code: `CAT-${code++}`,
-        domain: domain.label,
-        sub_domain: sub.label,
-        service_type: "ייעוץ",
-        staff_name: staff,
+        tavar_code: String(tavarCode++),
+        name_he: `ייעוץ ${domain.name_he} - ${sub.name_he}`,
+        skill_domain_id: domain.id,
+        skill_subdomain_id: sub.id,
+        service_type: "consultation",
+        base_price: 350 + Math.round(Math.random() * 150),
+        typical_duration_min: 30,
+        requires_referral: false,
+        provider_id: providerId,
         is_active: true,
-        price_K: [
-          { kupah: "כללית", price: 350 + Math.round(Math.random() * 150) },
-          { kupah: "מכבי", price: 330 + Math.round(Math.random() * 150) },
-          { kupah: "מאוחדת", price: 340 + Math.round(Math.random() * 150) },
-          { kupah: "לאומית", price: 360 + Math.round(Math.random() * 150) },
-        ],
       });
 
       items.push({
         id: generateId("cat"),
-        item_name: `בדיקת דימות - ${sub.label}`,
-        item_code: `CAT-${code++}`,
-        domain: domain.label,
-        sub_domain: sub.label,
-        service_type: "דימות",
-        staff_name: staff,
+        tavar_code: String(tavarCode++),
+        name_he: `בדיקת דימות - ${sub.name_he}`,
+        skill_domain_id: domain.id,
+        skill_subdomain_id: sub.id,
+        service_type: "diagnostics",
+        base_price: 900 + Math.round(Math.random() * 400),
+        typical_duration_min: 45,
+        requires_referral: true,
+        provider_id: providerId,
         is_active: true,
-        price_K: [
-          { kupah: "כללית", price: 900 + Math.round(Math.random() * 400) },
-          { kupah: "מכבי", price: 870 + Math.round(Math.random() * 400) },
-          { kupah: "מאוחדת", price: 880 + Math.round(Math.random() * 400), discount: 5 },
-          { kupah: "לאומית", price: 910 + Math.round(Math.random() * 400) },
-        ],
       });
     }
   }
@@ -309,23 +313,96 @@ const PATIENT_NAMES = [
   "אסף נחום",
 ];
 
-export const SEED_PATIENTS: Patient[] = PATIENT_NAMES.map((name, i) => ({
-  id: generateId("pat"),
-  full_name: name,
-  email: `${name.split(" ")[0]}${i}@example.co.il`,
-  phone: `05${i % 2 === 0 ? "2" : "4"}-${1000000 + i * 1234}`,
-  id_number: `${200000000 + i * 37}`,
-  kupah: (["כללית", "מכבי", "מאוחדת", "לאומית"] as const)[i % 4],
-  status: i % 5 === 0 ? "לא פעיל" : i % 7 === 0 ? "ממתין" : "פעיל",
-  assigned_provider: i % 3 === 0 ? provider1.id : i % 3 === 1 ? provider2.id : undefined,
-  created_date: isoDateDaysFromNow(-i * 17),
-  user_id: i === 0 ? DEMO_PATIENT_USER.id : undefined,
-}));
+const B_INSURANCE_COMPANIES = ["כלל", "הראל", "מגדל"];
 
-// Make sure demo patient user has a matching Patient record.
+export const SEED_PATIENTS: Patient[] = PATIENT_NAMES.map((name, i) => {
+  const hasK = i % 3 === 0;
+  const hasB = i % 4 === 1;
+  return {
+    id: generateId("pat"),
+    full_name: name,
+    email: `${name.split(" ")[0]}${i}@example.co.il`,
+    phone: `05${i % 2 === 0 ? "2" : "4"}-${1000000 + i * 1234}`,
+    id_number: `${200000000 + i * 37}`,
+    kupah: (["כללית", "מכבי", "מאוחדת", "לאומית"] as const)[i % 4],
+    k_level: hasK ? (["בסיס", "זהב", "פלטינום", "מושלם"] as const)[i % 4] : undefined,
+    has_b_insurance: hasB,
+    b_insurance_company: hasB ? B_INSURANCE_COMPANIES[i % B_INSURANCE_COMPANIES.length] : undefined,
+    b_policy_number: hasB ? `POL-${100000 + i * 91}` : undefined,
+    status: i % 5 === 0 ? "לא פעיל" : i % 7 === 0 ? "ממתין" : "פעיל",
+    assigned_provider: i % 3 === 0 ? provider1.id : i % 3 === 1 ? provider2.id : undefined,
+    created_date: isoDateDaysFromNow(-i * 17),
+    user_id: i === 0 ? DEMO_PATIENT_USER.id : undefined,
+  };
+});
+
+// Make sure demo patient user has a matching Patient record, with a full
+// insurance profile so the SKBH pricing demo has something to show.
 SEED_PATIENTS[0].full_name = DEMO_PATIENT_USER.full_name;
 SEED_PATIENTS[0].email = DEMO_PATIENT_USER.email;
 SEED_PATIENTS[0].status = "פעיל";
+SEED_PATIENTS[0].k_level = "זהב";
+SEED_PATIENTS[0].has_b_insurance = true;
+SEED_PATIENTS[0].b_insurance_company = "כלל";
+SEED_PATIENTS[0].b_policy_number = "POL-100000";
+
+// ---------------------------------------------------------------------------
+// Consent records (§4.2, §11.1) — required consents granted at signup for
+// every seeded patient; demo patient also has an optional analytics grant.
+// ---------------------------------------------------------------------------
+export const SEED_CONSENT_RECORDS: ConsentRecord[] = SEED_PATIENTS.flatMap((p) => {
+  const records: ConsentRecord[] = [
+    {
+      id: generateId("consent"),
+      patient_id: p.id,
+      consent_type: "health_data_storage",
+      version: CONSENT_DOCUMENT_VERSION,
+      granted: true,
+      granted_at: p.created_date,
+    },
+    {
+      id: generateId("consent"),
+      patient_id: p.id,
+      consent_type: "provider_transfer",
+      version: CONSENT_DOCUMENT_VERSION,
+      granted: true,
+      granted_at: p.created_date,
+    },
+  ];
+  if (p.id === SEED_PATIENTS[0].id) {
+    records.push({
+      id: generateId("consent"),
+      patient_id: p.id,
+      consent_type: "analytics",
+      version: CONSENT_DOCUMENT_VERSION,
+      granted: true,
+      granted_at: p.created_date,
+    });
+  }
+  return records;
+});
+
+// ---------------------------------------------------------------------------
+// Data subject rights requests (§11.2) — a couple of demo rows for the
+// admin DSR queue.
+// ---------------------------------------------------------------------------
+export const SEED_DSR_REQUESTS: DsrRequest[] = [
+  {
+    id: generateId("dsr"),
+    patient_id: SEED_PATIENTS[1].id,
+    type: "export",
+    status: "ממתין",
+    requested_at: isoDateDaysFromNow(-2),
+  },
+  {
+    id: generateId("dsr"),
+    patient_id: SEED_PATIENTS[2].id,
+    type: "erasure",
+    status: "ממתין",
+    requested_at: isoDateDaysFromNow(-5),
+    notes: "מטופל ביקש למחוק את חשבונו לאחר סיום הטיפול",
+  },
+];
 
 // ---------------------------------------------------------------------------
 // Leads
@@ -395,11 +472,17 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
 );
 
 // ---------------------------------------------------------------------------
-// Orders
+// Orders — final price resolved from the reference catalog price by the
+// booking patient's SKBH layer, with Healson's commission split out.
 // ---------------------------------------------------------------------------
 export const SEED_ORDERS: Order[] = SEED_APPOINTMENTS.slice(0, 16).map(
   (appt, i) => {
     const item = SEED_CATALOG[i % SEED_CATALOG.length];
+    const patient = SEED_PATIENTS.find((p) => p.id === appt.created_by_id);
+    const resolved = resolveCatalogPrice(item.base_price, patient);
+    const provider = SEED_PROVIDERS.find((p) => p.id === appt.provider_id);
+    const commissionRate = provider?.commission_rate ?? 15;
+    const commissionAmount = Math.round((resolved.price * commissionRate) / 100);
     const statusPool: Order["status"][] = [
       "ממתין",
       "מאושר",
@@ -407,6 +490,7 @@ export const SEED_ORDERS: Order[] = SEED_APPOINTMENTS.slice(0, 16).map(
       "הושלם",
       "בוטל",
     ];
+    const status = statusPool[i % statusPool.length];
     return {
       id: generateId("ord"),
       item_id: item.id,
@@ -415,9 +499,15 @@ export const SEED_ORDERS: Order[] = SEED_APPOINTMENTS.slice(0, 16).map(
       provider_name: appt.provider_name,
       created_by_id: appt.created_by_id,
       patient_name: appt.client_name,
-      final_price: item.price_K.find((p) => p.kupah === appt.kupah)?.price ?? 400,
-      status: statusPool[i % statusPool.length],
+      final_price: resolved.price,
+      status,
       created_date: isoDateDaysFromNow(-i * 3),
+      payment_status: status === "הושלם" ? "שולם במלואו" : status === "בוטל" ? "הוחזר" : "מקדמה שולמה",
+      deposit_amount: Math.round(resolved.price * 0.3),
+      balance_amount: Math.round(resolved.price * 0.7),
+      commission_rate: commissionRate,
+      commission_amount: commissionAmount,
+      provider_payout_amount: resolved.price - commissionAmount,
     };
   }
 );

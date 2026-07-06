@@ -3,16 +3,22 @@
 import { motion } from "framer-motion";
 import { Star, MapPin, Languages } from "lucide-react";
 import { Avatar } from "@/components/ui/Misc";
-import { ProviderProfile } from "@/types";
+import { formatCurrency } from "@/lib/utils";
+import { resolveProviderPrice } from "@/lib/pricing";
+import { LAYER_LABELS, Patient, ProviderProfile } from "@/types";
 
 export function DoctorCard({
   provider,
+  patient,
   onSelect,
 }: {
   provider: ProviderProfile;
+  patient?: Patient | null;
   onSelect: () => void;
 }) {
   const primaryClinic = provider.clinic_locations.find((c) => c.is_primary) ?? provider.clinic_locations[0];
+  const consultation = provider.consultation_types[0];
+  const resolvedPrice = consultation ? resolveProviderPrice(consultation.prices, provider.agreements, patient) : null;
   return (
     <motion.button
       onClick={onSelect}
@@ -51,9 +57,19 @@ export function DoctorCard({
           </span>
         )}
       </div>
-      <span className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-primary transition-all group-hover:gap-2">
-        קביעת תור ←
-      </span>
+      <div className="mt-1 flex w-full items-center justify-between">
+        {resolvedPrice ? (
+          <span className="text-sm font-semibold text-slate-800">
+            {formatCurrency(resolvedPrice.price)}{" "}
+            <span className="text-xs font-normal text-emerald-600">{LAYER_LABELS[resolvedPrice.layer]}</span>
+          </span>
+        ) : (
+          <span className="text-xs text-slate-400">הרשמה להצגת מחיר</span>
+        )}
+        <span className="inline-flex items-center gap-1 text-sm font-medium text-primary transition-all group-hover:gap-2">
+          קביעת תור ←
+        </span>
+      </div>
     </motion.button>
   );
 }

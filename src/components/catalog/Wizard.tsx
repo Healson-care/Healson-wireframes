@@ -1,12 +1,12 @@
 "use client";
 
-import { ReactNode } from "react";
 import { cn, formatCurrency } from "@/lib/utils";
-import { BodyRegionMeta, BODY_REGIONS, KUPAH_LOGOS } from "@/lib/medical-tree";
-import { CatalogItem, Kupah } from "@/types";
+import { BodyRegionMeta, BODY_REGIONS } from "@/lib/medical-tree";
+import { resolveCatalogPrice } from "@/lib/pricing";
+import { CatalogItem, LAYER_LABELS, Patient } from "@/types";
 import { Check } from "lucide-react";
 
-export const STEP_LABELS = ["איזור בגוף", "קופת חולים", "תחום רפואי", "תת-תחום", "תוצאות"];
+export const STEP_LABELS = ["איזור בגוף", "תחום רפואי", "תת-תחום", "תוצאות"];
 
 export function StepIndicator({ step }: { step: number }) {
   return (
@@ -54,47 +54,68 @@ export function BodyMap({ onSelect }: { onSelect: (region: BodyRegionMeta) => vo
   );
 }
 
+export interface SelectableOption {
+  id: string;
+  label: string;
+}
+
 export function OptionGrid({
   options,
   onSelect,
-  renderIcon,
 }: {
-  options: string[];
-  onSelect: (value: string) => void;
-  renderIcon?: (value: string) => ReactNode;
+  options: SelectableOption[];
+  onSelect: (id: string) => void;
 }) {
   return (
     <div className="grid grid-cols-2 gap-3">
       {options.map((opt) => (
         <button
-          key={opt}
-          onClick={() => onSelect(opt)}
+          key={opt.id}
+          onClick={() => onSelect(opt.id)}
           className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-4 text-right transition hover:border-primary hover:shadow-md hover:-translate-y-0.5"
         >
-          {renderIcon && <span className="text-xl">{renderIcon(opt)}</span>}
-          <span className="text-sm font-medium text-slate-700">{opt}</span>
+          <span className="text-sm font-medium text-slate-700">{opt.label}</span>
         </button>
       ))}
     </div>
   );
 }
 
-export function KupahLogo({ kupah }: { kupah: string }) {
-  return <span className="text-xl">{KUPAH_LOGOS[kupah] ?? "🏥"}</span>;
+/** Reference price breakdown by SKBH layer, for staff-facing lookup tools
+ * (/catalog, /medical) that aren't tied to one specific logged-in patient. */
+export function PriceCalculator({ item }: { item: CatalogItem }) {
+  const layers = (["K", "B", "H"] as const).map((layer) => ({
+    layer,
+    price:
+      layer === "K"
+        ? Math.round(item.base_price * 0.25)
+        : layer === "B"
+        ? Math.round(item.base_price * 0.15)
+        : item.base_price,
+  }));
+  return (
+    <div className="flex flex-col gap-1">
+      {layers.map((l) => (
+        <div key={l.layer} className="flex items-center justify-between gap-3 text-xs">
+          <span className="text-slate-400">{LAYER_LABELS[l.layer]}</span>
+          <span className="font-semibold text-primary">{formatCurrency(l.price)}</span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
-export function PriceCalculator({ item, kupah }: { item: CatalogItem; kupah: Kupah }) {
-  const priceEntry = item.price_K.find((p) => p.kupah === kupah);
-  if (!priceEntry) return <p className="text-sm text-slate-400">אין מחיר עבור קופה זו</p>;
-  const discount = priceEntry.discount ?? 0;
-  const finalPrice = priceEntry.price - (priceEntry.price * discount) / 100;
+/** Actual price for the logged-in patient, resolved from their SKBH profile
+ * (§7.1) — used on the patient-facing catalog search. */
+export function PatientPriceTag({ item, patient }: { item: CatalogItem; patient: Patient | null | undefined }) {
+  if (!patient) {
+    return <span className="text-sm text-slate-400">התחברו לצפייה במחיר</span>;
+  }
+  const resolved = resolveCatalogPrice(item.base_price, patient);
   return (
-    <div className="flex items-baseline gap-2">
-      {discount > 0 && (
-        <span className="text-sm text-slate-400 line-through">{formatCurrency(priceEntry.price)}</span>
-      )}
-      <span className="text-lg font-bold text-primary">{formatCurrency(finalPrice)}</span>
-      {discount > 0 && <span className="text-xs font-medium text-emerald-600">{discount}% הנחה</span>}
+    <div className="flex items-baseline gap-1.5">
+      <span className="text-lg font-bold text-primary">{formatCurrency(resolved.price)}</span>
+      <span className="text-xs font-medium text-emerald-600">{LAYER_LABELS[resolved.layer]}</span>
     </div>
   );
 }

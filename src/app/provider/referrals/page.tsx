@@ -11,7 +11,8 @@ import { Dialog } from "@/components/ui/Dialog";
 import { Input, Select, Textarea } from "@/components/ui/Input";
 import { DataTable, DataTableColumn } from "@/components/ui/DataTable";
 import { formatDateHe } from "@/lib/utils";
-import { Plus, FileText } from "lucide-react";
+import { fileToDataUrl } from "@/lib/file";
+import { Plus, FileText, Upload } from "lucide-react";
 import { LabReferral, REFERRAL_STATUSES, ReferralStatus } from "@/types";
 
 export default function ProviderReferralsPage() {
@@ -24,6 +25,11 @@ export default function ProviderReferralsPage() {
 
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ patient_id: "", test_type: "", lab_code: "", notes: "" });
+
+  const [uploadFor, setUploadFor] = useState<LabReferral | null>(null);
+  const [resultsText, setResultsText] = useState("");
+  const [resultFile, setResultFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   const myPatients = useMemo(
     () => patients.filter((p) => p.assigned_provider === provider?.id),
@@ -55,6 +61,29 @@ export default function ProviderReferralsPage() {
     showToast("ההפניה נוצרה בהצלחה", { variant: "success" });
     setOpen(false);
     setForm({ patient_id: "", test_type: "", lab_code: "", notes: "" });
+  }
+
+  function openUpload(r: LabReferral) {
+    setUploadFor(r);
+    setResultsText(r.results ?? "");
+    setResultFile(null);
+  }
+
+  async function handleUploadResults() {
+    if (!uploadFor) return;
+    setUploading(true);
+    const newFile = resultFile
+      ? { file_name: resultFile.name, uploaded_at: new Date().toISOString(), data_url: await fileToDataUrl(resultFile) }
+      : null;
+    updateLabReferral(uploadFor.id, {
+      results: resultsText,
+      result_files: newFile ? [...(uploadFor.result_files ?? []), newFile] : uploadFor.result_files,
+      status: "הושלם",
+      completed_date: new Date().toISOString(),
+    });
+    setUploading(false);
+    setUploadFor(null);
+    showToast("תוצאות הבדיקה הועלו למטופל", { variant: "success" });
   }
 
   return (
@@ -113,7 +142,39 @@ export default function ProviderReferralsPage() {
             },
           ] satisfies DataTableColumn<LabReferral>[]
         }
+        rowActions={(r) => (
+          <Button variant="outline" size="sm" onClick={() => openUpload(r)}>
+            <Upload className="h-3.5 w-3.5" /> העלאת תוצאות
+          </Button>
+        )}
       />
+
+      <Dialog
+        open={!!uploadFor}
+        onClose={() => setUploadFor(null)}
+        title="העלאת תוצאות בדיקה"
+        description={uploadFor ? `עבור ${uploadFor.patient_name} · ${uploadFor.test_types.join(", ")}` : undefined}
+      >
+        <div className="flex flex-col gap-3">
+          <Textarea label="סיכום תוצאות" value={resultsText} onChange={(e) => setResultsText(e.target.value)} />
+          <label className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 px-4 py-3 text-sm text-slate-600 cursor-pointer hover:border-primary">
+            <Upload className="h-4 w-4" />
+            {resultFile ? resultFile.name : "בחר קובץ (PDF / JPG / PNG)"}
+            <input
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png"
+              className="hidden"
+              onChange={(e) => setResultFile(e.target.files?.[0] ?? null)}
+            />
+          </label>
+          {uploadFor?.result_files && uploadFor.result_files.length > 0 && (
+            <p className="text-xs text-slate-400">קבצים קיימים: {uploadFor.result_files.map((f) => f.file_name).join(", ")}</p>
+          )}
+          <Button onClick={handleUploadResults} loading={uploading}>
+            שמור ושלח למטופל
+          </Button>
+        </div>
+      </Dialog>
 
       <Dialog open={open} onClose={() => setOpen(false)} title="הפניה חדשה למעבדה">
         <form onSubmit={handleCreate} className="flex flex-col gap-3">

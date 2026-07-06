@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { BarChartSimple, LineChartSimple } from "@/components/charts/SimpleCharts";
 import { buildMonthlyData, formatCurrency, monthOverMonthTrend } from "@/lib/utils";
-import { Users, CalendarDays, CreditCard, FlaskConical, Activity, Building2 } from "lucide-react";
+import { Users, CalendarDays, CreditCard, FlaskConical, Activity, Building2, TrendingUp, ArrowLeftRight } from "lucide-react";
 
 export default function AdminDashboardHome() {
   const patients = useStore((s) => s.patients);
@@ -18,13 +18,15 @@ export default function AdminDashboardHome() {
   const providers = useStore((s) => s.providers);
   const branches = useStore((s) => s.branches);
   const labReferrals = useStore((s) => s.labReferrals);
+  const leads = useStore((s) => s.leads);
 
   const activePatients = patients.filter((p) => p.status === "פעיל").length;
   const pendingAppts = appointments.filter((a) => a.status === "ממתין לאישור").length;
-  const totalRevenue = orders
-    .filter((o) => o.status === "הושלם")
-    .reduce((sum, o) => sum + (o.final_price || 0), 0);
+  const completedOrders = orders.filter((o) => o.status === "הושלם");
+  const totalRevenue = completedOrders.reduce((sum, o) => sum + (o.final_price || 0), 0);
   const pendingReferrals = labReferrals.filter((r) => r.status === "ממתין לעיבוד").length;
+  const convertedLeads = leads.filter((l) => l.status === "הומר").length;
+  const conversionRate = leads.length > 0 ? Math.round((convertedLeads / leads.length) * 100) : 0;
 
   const patientMonthly = buildMonthlyData(patients, (p) => p.created_date);
   const apptMonthly = buildMonthlyData(appointments, (a) => a.date);
@@ -61,7 +63,21 @@ export default function AdminDashboardHome() {
         }
       />
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
+        <StatCard
+          label="שירותים שיצאו לפועל"
+          value={completedOrders.length}
+          subtitle="North Star Metric — §1.2"
+          icon={<TrendingUp className="h-4 w-4" />}
+          tone="success"
+        />
+        <StatCard
+          label="המרת ליד ללקוח"
+          value={`${conversionRate}%`}
+          subtitle={`${convertedLeads} מתוך ${leads.length} לידים`}
+          icon={<ArrowLeftRight className="h-4 w-4" />}
+          tone="indigo"
+        />
         <StatCard
           label="מטופלים פעילים"
           value={activePatients}

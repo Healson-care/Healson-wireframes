@@ -5,23 +5,28 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ClientLayout } from "@/components/layouts/ClientLayout";
 import { useStore } from "@/lib/store";
 import { useCurrentPatient } from "@/lib/useCurrentPatient";
+import { resolveCatalogPrice } from "@/lib/pricing";
 import {
   BodyMap,
-  KupahLogo,
   OptionGrid,
-  PriceCalculator,
+  PatientPriceTag,
+  SelectableOption,
   StepIndicator,
 } from "@/components/catalog/Wizard";
 import { BodyRegionMeta } from "@/lib/medical-tree";
 import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/Misc";
-import { KUPOT, Kupah } from "@/types";
 import { Dialog } from "@/components/ui/Dialog";
 import { Input } from "@/components/ui/Input";
 import { Search, RotateCcw } from "lucide-react";
+import { SERVICE_TYPE_LABELS } from "@/types";
 
 export default function ClientSearchPage() {
   const catalog = useStore((s) => s.catalog);
+  const skillDomains = useStore((s) => s.skillDomains);
+  const skillSubdomains = useStore((s) => s.skillSubdomains);
+  const providers = useStore((s) => s.providers);
   const addAppointment = useStore((s) => s.addAppointment);
   const addOrder = useStore((s) => s.addOrder);
   const showToast = useStore((s) => s.showToast);
@@ -30,9 +35,8 @@ export default function ClientSearchPage() {
 
   const [step, setStep] = useState(0);
   const [bodyRegion, setBodyRegion] = useState<BodyRegionMeta | null>(null);
-  const [kupah, setKupah] = useState<Kupah | null>(null);
-  const [domain, setDomain] = useState<string | null>(null);
-  const [subDomain, setSubDomain] = useState<string | null>(null);
+  const [domainId, setDomainId] = useState<string | null>(null);
+  const [subdomainId, setSubdomainId] = useState<string | null>(null);
 
   const [bookingItemId, setBookingItemId] = useState<string | null>(null);
   const [bookingDate, setBookingDate] = useState("");
@@ -40,45 +44,42 @@ export default function ClientSearchPage() {
 
   const activeCatalog = useMemo(() => catalog.filter((c) => c.is_active), [catalog]);
 
-  const domains = useMemo(() => {
-    if (!kupah) return [];
-    const set = new Set(
-      activeCatalog.filter((i) => i.price_K.some((p) => p.kupah === kupah)).map((i) => i.domain)
-    );
-    const list = Array.from(set).sort((a, b) => a.localeCompare(b, "he"));
+  const domainOptions: SelectableOption[] = useMemo(() => {
+    const usedIds = new Set(activeCatalog.map((i) => i.skill_domain_id));
+    const list = skillDomains.filter((d) => usedIds.has(d.id)).map((d) => ({ id: d.id, label: d.name_he }));
     if (bodyRegion) {
       list.sort((a, b) => {
-        const aPriority = bodyRegion.domains.includes(a) ? -1 : 0;
-        const bPriority = bodyRegion.domains.includes(b) ? -1 : 0;
+        const aPriority = bodyRegion.domains.includes(a.label) ? -1 : 0;
+        const bPriority = bodyRegion.domains.includes(b.label) ? -1 : 0;
         return aPriority - bPriority;
       });
     }
     return list;
-  }, [activeCatalog, kupah, bodyRegion]);
+  }, [activeCatalog, skillDomains, bodyRegion]);
 
-  const subDomains = useMemo(() => {
-    if (!domain || !kupah) return [];
-    const set = new Set(
-      activeCatalog
-        .filter((i) => i.domain === domain && i.price_K.some((p) => p.kupah === kupah))
-        .map((i) => i.sub_domain)
+  const subdomainOptions: SelectableOption[] = useMemo(() => {
+    if (!domainId) return [];
+    const usedIds = new Set(
+      activeCatalog.filter((i) => i.skill_domain_id === domainId).map((i) => i.skill_subdomain_id)
     );
-    return Array.from(set).sort((a, b) => a.localeCompare(b, "he"));
-  }, [activeCatalog, domain, kupah]);
+    return skillSubdomains
+      .filter((sd) => sd.domain_id === domainId && usedIds.has(sd.id))
+      .map((sd) => ({ id: sd.id, label: sd.name_he }));
+  }, [activeCatalog, skillSubdomains, domainId]);
 
   const results = useMemo(() => {
-    if (!domain || !subDomain || !kupah) return [];
-    return activeCatalog.filter(
-      (i) => i.domain === domain && i.sub_domain === subDomain && i.price_K.some((p) => p.kupah === kupah)
-    );
-  }, [activeCatalog, domain, subDomain, kupah]);
+    if (!domainId || !subdomainId) return [];
+    return activeCatalog.filter((i) => i.skill_domain_id === domainId && i.skill_subdomain_id === subdomainId);
+  }, [activeCatalog, domainId, subdomainId]);
+
+  const domainLabel = skillDomains.find((d) => d.id === domainId)?.name_he;
+  const subdomainLabel = skillSubdomains.find((sd) => sd.id === subdomainId)?.name_he;
 
   function handleReset() {
     setStep(0);
     setBodyRegion(null);
-    setKupah(null);
-    setDomain(null);
-    setSubDomain(null);
+    setDomainId(null);
+    setSubdomainId(null);
   }
 
   function openBooking(itemId: string) {
@@ -91,34 +92,42 @@ export default function ClientSearchPage() {
 
   function confirmBooking() {
     const item = activeCatalog.find((c) => c.id === bookingItemId);
-    if (!item || !kupah) return;
-    const priceEntry = item.price_K.find((p) => p.kupah === kupah);
-    const finalPrice = priceEntry ? priceEntry.price - (priceEntry.price * (priceEntry.discount ?? 0)) / 100 : 0;
+    if (!item) return;
+    const resolved = resolveCatalogPrice(item.base_price, patient);
+    const provider = providers.find((p) => p.id === item.provider_id);
+    const commissionRate = provider?.commission_rate ?? 15;
+    const commissionAmount = Math.round((resolved.price * commissionRate) / 100);
 
     addAppointment({
       client_name: currentUser?.full_name ?? "מטופל",
       client_phone: currentUser?.phone,
-      provider_id: undefined,
-      provider_name: item.staff_name ?? "—",
-      service_name: item.item_name,
+      provider_id: item.provider_id,
+      provider_name: provider ? `${provider.title ?? ""} ${provider.display_name}`.trim() : "—",
+      service_name: item.name_he,
       date: bookingDate,
       time: bookingTime,
-      duration_minutes: 30,
+      duration_minutes: item.typical_duration_min ?? 30,
       status: "ממתין לאישור",
-      kupah,
+      kupah: patient?.kupah,
       notes: "",
       created_by_id: patient?.id ?? currentUser?.id,
     });
 
     addOrder({
       item_id: item.id,
-      item_name: item.item_name,
-      provider_id: undefined,
-      provider_name: item.staff_name ?? "—",
+      item_name: item.name_he,
+      provider_id: item.provider_id,
+      provider_name: provider ? provider.display_name : "—",
       created_by_id: patient?.id ?? currentUser?.id,
       patient_name: currentUser?.full_name ?? "מטופל",
-      final_price: finalPrice,
+      final_price: resolved.price,
       status: "ממתין",
+      payment_status: "מקדמה שולמה",
+      deposit_amount: Math.round(resolved.price * 0.3),
+      balance_amount: Math.round(resolved.price * 0.7),
+      commission_rate: commissionRate,
+      commission_amount: commissionAmount,
+      provider_payout_amount: resolved.price - commissionAmount,
     });
 
     showToast("התור נוצר בהצלחה", { description: "ניתן לעקוב אחר הסטטוס במסך התורים שלי", variant: "success" });
@@ -131,7 +140,7 @@ export default function ClientSearchPage() {
         <div className="text-center mb-6">
           <p className="text-3xl mb-1">🔍</p>
           <h1 className="text-lg font-bold text-slate-900">חיפוש שירות בריאות</h1>
-          <p className="text-sm text-slate-500">בחרו את האזור, הקופה והתחום הרפואי המתאימים לכם</p>
+          <p className="text-sm text-slate-500">בחרו את האזור והתחום הרפואי המתאימים לכם — המחיר יוצג לפי הביטוח שלכם</p>
         </div>
 
         <StepIndicator step={step} />
@@ -156,34 +165,30 @@ export default function ClientSearchPage() {
             {step === 1 && (
               <div>
                 <Breadcrumb label={bodyRegion?.label} onBack={() => setStep(0)} />
-                <div className="grid grid-cols-2 gap-3">
-                  {KUPOT.map((k) => (
-                    <button
-                      key={k}
-                      onClick={() => {
-                        setKupah(k);
-                        setStep(2);
-                      }}
-                      className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-4 transition hover:border-primary hover:shadow-md hover:-translate-y-0.5"
-                    >
-                      <KupahLogo kupah={k} />
-                      <span className="text-sm font-medium text-slate-700">{k}</span>
-                    </button>
-                  ))}
-                </div>
+                {domainOptions.length === 0 ? (
+                  <EmptyState title="לא נמצאו תחומים זמינים" action={<ResetButton onReset={handleReset} />} />
+                ) : (
+                  <OptionGrid
+                    options={domainOptions}
+                    onSelect={(id) => {
+                      setDomainId(id);
+                      setStep(2);
+                    }}
+                  />
+                )}
               </div>
             )}
 
             {step === 2 && (
               <div>
-                <Breadcrumb label={kupah ?? undefined} onBack={() => setStep(1)} />
-                {domains.length === 0 ? (
-                  <EmptyState title="לא נמצאו תחומים זמינים עבור קופה זו" action={<ResetButton onReset={handleReset} />} />
+                <Breadcrumb label={domainLabel} onBack={() => setStep(1)} />
+                {subdomainOptions.length === 0 ? (
+                  <EmptyState title="לא נמצאו תתי-תחומים עבור תחום זה" action={<ResetButton onReset={handleReset} />} />
                 ) : (
                   <OptionGrid
-                    options={domains}
-                    onSelect={(d) => {
-                      setDomain(d);
+                    options={subdomainOptions}
+                    onSelect={(id) => {
+                      setSubdomainId(id);
                       setStep(3);
                     }}
                   />
@@ -193,31 +198,19 @@ export default function ClientSearchPage() {
 
             {step === 3 && (
               <div>
-                <Breadcrumb label={domain ?? undefined} onBack={() => setStep(2)} />
-                {subDomains.length === 0 ? (
-                  <EmptyState title="לא נמצאו תתי-תחומים עבור תחום זה" action={<ResetButton onReset={handleReset} />} />
-                ) : (
-                  <OptionGrid
-                    options={subDomains}
-                    onSelect={(sd) => {
-                      setSubDomain(sd);
-                      setStep(4);
-                    }}
-                  />
-                )}
-              </div>
-            )}
-
-            {step === 4 && (
-              <div>
                 <div className="flex flex-wrap gap-1.5 mb-4">
-                  {[bodyRegion?.label, kupah, domain, subDomain].filter(Boolean).map((chip, i) => (
+                  {[bodyRegion?.label, domainLabel, subdomainLabel].filter(Boolean).map((chip, i) => (
                     <span key={`${i}-${chip}`} className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
                       {chip}
                     </span>
                   ))}
                 </div>
                 <p className="text-sm text-slate-500 mb-3">תוצאות ({results.length})</p>
+                {!patient && (
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+                    השלימו את הפרופיל הביטוחי שלכם בעמוד הפרופיל כדי לראות מחיר מותאם אישית.
+                  </p>
+                )}
                 {results.length === 0 ? (
                   <EmptyState title="לא נמצאו שירותים" action={<ResetButton onReset={handleReset} />} />
                 ) : (
@@ -232,11 +225,11 @@ export default function ClientSearchPage() {
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div>
-                            <p className="font-medium text-slate-900">{item.item_name}</p>
-                            <p className="text-xs text-slate-400">{item.item_code}</p>
-                            {item.staff_name && <p className="text-xs text-slate-500 mt-1">{item.staff_name}</p>}
+                            <p className="font-medium text-slate-900">{item.name_he}</p>
+                            <p className="text-xs text-slate-400">{SERVICE_TYPE_LABELS[item.service_type]}</p>
+                            {item.requires_referral && <Badge tone="amber" className="mt-1">דורש הפניה</Badge>}
                           </div>
-                          {kupah && <PriceCalculator item={item} kupah={kupah} />}
+                          <PatientPriceTag item={item} patient={patient} />
                         </div>
                         <Button size="sm" className="w-full mt-3" onClick={() => openBooking(item.id)}>
                           קבע תור

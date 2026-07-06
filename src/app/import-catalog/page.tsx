@@ -8,43 +8,75 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { DataTable, DataTableColumn } from "@/components/ui/DataTable";
 import { Upload, CheckCircle2, AlertTriangle } from "lucide-react";
-import { KUPOT } from "@/types";
+import { SERVICE_TYPE_LABELS, ServiceType, SkillDomain, SkillSubdomain } from "@/types";
 
 interface ParsedRow {
-  item_name: string;
-  item_code: string;
-  domain: string;
-  sub_domain: string;
-  staff_name: string;
-  prices: number[];
+  name_he: string;
+  tavar_code: string;
+  domain_name: string;
+  subdomain_name: string;
+  service_type_label: string;
+  base_price: number;
+  typical_duration_min: number | undefined;
+  requires_referral: boolean;
   error?: string;
 }
 
-const SAMPLE_CSV = `item_name,item_code,domain,sub_domain,staff_name,kupah_1_price,kupah_2_price,kupah_3_price,kupah_4_price
-ייעוץ אורתופדי - מרפק,CAT-9001,אורתופדיה,מרפק,ד"ר אבי לוי,420,400,410,430
-בדיקת CT - בטן,CAT-9002,גסטרואנטרולוגיה,קולונוסקופיה ומערכת העיכול,ד"ר מיכל ברק,1100,1050,1080,1120
-ייעוץ עיניים - רשתית,CAT-9003,רפואת עיניים,קטרקט ועדשות,,380,360,,400`;
+const SAMPLE_CSV = `name_he,tavar_code,domain_name,subdomain_name,service_type_label,base_price,typical_duration_min,requires_referral
+ייעוץ אורתופדי - מרפק,100050,אורתופדיה,כתף,ייעוץ,420,30,לא
+בדיקת CT - בטן,100051,גסטרואנטרולוגיה,קולונוסקופיה ומערכת העיכול,בדיקות,1100,45,כן
+ייעוץ עיניים - רשתית,100052,רפואת עיניים,קטרקט ועדשות,ייעוץ,380,20,לא`;
 
-function parseCsv(text: string): ParsedRow[] {
+function reverseServiceType(label: string): ServiceType | undefined {
+  return (Object.keys(SERVICE_TYPE_LABELS) as ServiceType[]).find((key) => SERVICE_TYPE_LABELS[key] === label.trim());
+}
+
+function parseCsv(text: string, skillDomains: SkillDomain[], skillSubdomains: SkillSubdomain[]): ParsedRow[] {
   const lines = text.trim().split(/\r?\n/);
   const [, ...rows] = lines;
   return rows
     .filter((r) => r.trim())
     .map((line) => {
       const cells = line.split(",").map((c) => c.trim());
-      const [item_name, item_code, domain, sub_domain, staff_name, p1, p2, p3, p4] = cells;
-      const prices = [p1, p2, p3, p4].map((p) => Number(p));
+      const [name_he, tavar_code, domain_name, subdomain_name, service_type_label, priceStr, durationStr, referralStr] = cells;
+      const base_price = Number(priceStr);
+      const typical_duration_min = durationStr ? Number(durationStr) : undefined;
+      const requires_referral = ["כן", "true", "1"].includes((referralStr ?? "").trim().toLowerCase());
+
+      const domain = skillDomains.find((d) => d.name_he === domain_name);
+      const subdomain = skillSubdomains.find((sd) => sd.name_he === subdomain_name && sd.domain_id === domain?.id);
+      const serviceType = reverseServiceType(service_type_label ?? "");
+
       const error =
-        !item_name || !item_code
-          ? "שם או קוד פריט חסר"
-          : prices.some((p) => Number.isNaN(p))
-          ? "מחיר לא תקין"
+        !name_he
+          ? "שם שירות חסר"
+          : Number.isNaN(base_price)
+          ? "מחיר תב״ר לא תקין"
+          : !domain
+          ? `תחום "${domain_name}" לא קיים בטקסונומיה`
+          : !subdomain
+          ? `תת-תחום "${subdomain_name}" לא קיים תחת התחום`
+          : !serviceType
+          ? `סוג שירות "${service_type_label}" אינו מוכר`
           : undefined;
-      return { item_name, item_code, domain, sub_domain, staff_name, prices, error };
+
+      return {
+        name_he,
+        tavar_code,
+        domain_name,
+        subdomain_name,
+        service_type_label,
+        base_price,
+        typical_duration_min,
+        requires_referral,
+        error,
+      };
     });
 }
 
 export default function ImportCatalogPage() {
+  const skillDomains = useStore((s) => s.skillDomains);
+  const skillSubdomains = useStore((s) => s.skillSubdomains);
   const bulkAddCatalogItems = useStore((s) => s.bulkAddCatalogItems);
   const showToast = useStore((s) => s.showToast);
   const [rows, setRows] = useState<ParsedRow[]>([]);
@@ -53,30 +85,35 @@ export default function ImportCatalogPage() {
   function handleFile(file: File) {
     const reader = new FileReader();
     reader.onload = () => {
-      setRows(parseCsv(String(reader.result ?? "")));
+      setRows(parseCsv(String(reader.result ?? ""), skillDomains, skillSubdomains));
       setImported(false);
     };
     reader.readAsText(file);
   }
 
   function loadSample() {
-    setRows(parseCsv(SAMPLE_CSV));
+    setRows(parseCsv(SAMPLE_CSV, skillDomains, skillSubdomains));
     setImported(false);
   }
 
   function confirmImport() {
     const valid = rows.filter((r) => !r.error);
     const count = bulkAddCatalogItems(
-      valid.map((r) => ({
-        item_name: r.item_name,
-        item_code: r.item_code,
-        domain: r.domain,
-        sub_domain: r.sub_domain,
-        service_type: "ייעוץ",
-        staff_name: r.staff_name || undefined,
-        is_active: true,
-        price_K: KUPOT.map((k, i) => ({ kupah: k, price: r.prices[i] || 0 })),
-      }))
+      valid.map((r) => {
+        const domain = skillDomains.find((d) => d.name_he === r.domain_name)!;
+        const subdomain = skillSubdomains.find((sd) => sd.name_he === r.subdomain_name && sd.domain_id === domain.id)!;
+        return {
+          name_he: r.name_he,
+          tavar_code: r.tavar_code || undefined,
+          skill_domain_id: domain.id,
+          skill_subdomain_id: subdomain.id,
+          service_type: reverseServiceType(r.service_type_label)!,
+          base_price: r.base_price,
+          typical_duration_min: r.typical_duration_min,
+          requires_referral: r.requires_referral,
+          is_active: true,
+        };
+      })
     );
     showToast(`יובאו ${count} פריטי קטלוג בהצלחה`, { variant: "success" });
     setImported(true);
@@ -107,7 +144,7 @@ export default function ImportCatalogPage() {
             טען נתוני דוגמה
           </Button>
           <span className="text-xs text-slate-400">
-            עמודות: item_name, item_code, domain, sub_domain, staff_name, kupah_1..4_price
+            עמודות: name_he, tavar_code, domain_name, subdomain_name, service_type_label, base_price, typical_duration_min, requires_referral
           </span>
         </CardContent>
       </Card>
@@ -131,10 +168,11 @@ export default function ImportCatalogPage() {
               emptyTitle="אין שורות"
               columns={
                 [
-                  { key: "name", header: "שם פריט", render: (r) => r.item_name },
-                  { key: "code", header: "קוד", render: (r) => <span className="text-slate-500">{r.item_code}</span> },
-                  { key: "domain", header: "תחום", render: (r) => <span className="text-slate-500">{r.domain}</span> },
-                  { key: "subdomain", header: "תת-תחום", render: (r) => <span className="text-slate-500">{r.sub_domain}</span> },
+                  { key: "name", header: "שם שירות", render: (r) => r.name_he },
+                  { key: "code", header: "תב״ר", render: (r) => <span className="text-slate-500">{r.tavar_code}</span> },
+                  { key: "domain", header: "תחום", render: (r) => <span className="text-slate-500">{r.domain_name}</span> },
+                  { key: "subdomain", header: "תת-תחום", render: (r) => <span className="text-slate-500">{r.subdomain_name}</span> },
+                  { key: "price", header: "מחיר", render: (r) => <span className="text-slate-500">₪{r.base_price}</span> },
                   {
                     key: "status",
                     header: "סטטוס",

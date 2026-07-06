@@ -22,6 +22,8 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
+import { useCurrentPatient } from "@/lib/useCurrentPatient";
+import { resolveProviderPrice } from "@/lib/pricing";
 import { Button } from "@/components/ui/Button";
 import { Input, Select } from "@/components/ui/Input";
 import { Logo } from "@/components/shared/Logo";
@@ -31,7 +33,17 @@ import { HoldTimer } from "@/components/book/HoldTimer";
 import { EmptyState } from "@/components/ui/Misc";
 import { formatCurrency, buildIcsDataUrl } from "@/lib/utils";
 import { KUPAH_LOGOS } from "@/lib/medical-tree";
-import { KUPOT, Kupah, ProviderProfile } from "@/types";
+import {
+  ConsentCheckboxes,
+  ConsentValues,
+  areRequiredConsentsChecked,
+} from "@/components/patient/ConsentCheckboxes";
+import {
+  EMPTY_INSURANCE_PROFILE,
+  InsuranceProfileForm,
+  InsuranceProfileValue,
+} from "@/components/patient/InsuranceProfileForm";
+import { KUPOT, Kupah, LAYER_LABELS, ProviderProfile } from "@/types";
 
 const HOLD_SECONDS = 180;
 
@@ -69,6 +81,7 @@ export default function BookPage() {
   const addAppointment = useStore((s) => s.addAppointment);
   const addOrder = useStore((s) => s.addOrder);
   const showToast = useStore((s) => s.showToast);
+  const patient = useCurrentPatient();
 
   const [step, setStep] = useState(0);
 
@@ -84,17 +97,23 @@ export default function BookPage() {
   // Step 1: lead capture
   const [leadForm, setLeadForm] = useState({ full_name: "", phone: "", email: "" });
 
-  // Step 2: slot selection + hold
+  // Step 2: consent (§4.2, §11.1)
+  const [consents, setConsents] = useState<ConsentValues>({});
+
+  // Step 3: insurance profile (§4.3, §7.1)
+  const [insurance, setInsurance] = useState<InsuranceProfileValue>(EMPTY_INSURANCE_PROFILE);
+
+  // Step 4: slot selection + hold
   const [days] = useState<DaySlots[]>(() => buildDays());
   const [activeDayIdx, setActiveDayIdx] = useState(0);
   const [selectedSlot, setSelectedSlot] = useState<{ date: string; time: string; label: string } | null>(null);
   const [holdExpiresAt, setHoldExpiresAt] = useState<number | null>(null);
 
-  // Step 3: payment
+  // Step 5: payment
   const [payMethod, setPayMethod] = useState<"card" | "apple" | "google">("card");
   const [paying, setPaying] = useState(false);
 
-  // Step 4: result
+  // Step 6: result
   const [confirmation, setConfirmation] = useState<{
     fileNumber: string;
     price: number;
@@ -125,44 +144,65 @@ export default function BookPage() {
       if (city && !p.clinic_locations.some((c) => c.city === city)) return false;
       if (specialty && p.specialty !== specialty) return false;
       if (language && !(p.languages ?? []).includes(language)) return false;
-      if (kupah && !p.consultation_types.some((ct) => ct.prices.some((pr) => pr.kupah === kupah))) return false;
+      if (
+        kupah &&
+        !p.agreements.some(
+          (a) => (a.layer === "S" || a.layer === "K") && (!a.kupah_list?.length || a.kupah_list.includes(kupah))
+        )
+      )
+        return false;
       if (query && !`${p.display_name} ${p.specialty}`.includes(query)) return false;
       return true;
     });
   }, [publishedProviders, city, specialty, language, kupah, query]);
 
   const consultation = selectedProvider?.consultation_types[0];
-  const price = useMemo(() => {
-    if (!consultation) return 0;
-    const entry = consultation.prices.find((p) => p.kupah === (kupah || "כללית"));
-    return entry ? entry.price - (entry.price * (entry.discount ?? 0)) / 100 : consultation.prices[0]?.price ?? 0;
-  }, [consultation, kupah]);
+  const resolvedPrice = useMemo(() => {
+    if (!consultation || !selectedProvider) return null;
+    return resolveProviderPrice(consultation.prices, selectedProvider.agreements, patient);
+  }, [consultation, selectedProvider, patient]);
+  const price = resolvedPrice?.price ?? consultation?.prices.find((p) => p.layer === "H")?.price ?? 0;
 
   // Only ever invoked from the slot button's onClick — safe to read the clock here.
   function selectSlot(date: string, time: string, label: string) {
     setSelectedSlot({ date, time, label });
     // eslint-disable-next-line react-hooks/purity -- event handler, not render logic
     setHoldExpiresAt(Date.now() + HOLD_SECONDS * 1000);
-    setStep(3);
+    setStep(5);
   }
 
   const handleHoldExpire = useCallback(() => {
     showToast("ה-Hold פג", { description: "התור שוחרר. רוצה לנסות שוב?", variant: "destructive" });
     setSelectedSlot(null);
     setHoldExpiresAt(null);
-    setStep(2);
+    setStep(4);
   }, [showToast]);
 
   function handleLeadSubmit(e: React.FormEvent) {
     e.preventDefault();
-    quickRegisterPatient(leadForm);
     setStep(2);
+  }
+
+  function handleConsentContinue() {
+    setInsurance((i) => ({ ...i, kupah: (kupah || i.kupah) as Kupah }));
+    setStep(3);
+  }
+
+  function handleInsuranceSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    quickRegisterPatient(
+      { ...leadForm, kupah: insurance.kupah, k_level: insurance.k_level || undefined, has_b_insurance: insurance.has_b_insurance, b_insurance_company: insurance.has_b_insurance ? insurance.b_insurance_company : undefined, b_policy_number: insurance.has_b_insurance ? insurance.b_policy_number : undefined },
+      consents
+    );
+    setStep(4);
   }
 
   function handlePay() {
     if (!selectedProvider || !selectedSlot) return;
     setPaying(true);
     setTimeout(() => {
+      const commissionRate = selectedProvider.commission_rate ?? 15;
+      const commissionAmount = Math.round((price * commissionRate) / 100);
       addAppointment({
         client_name: leadForm.full_name,
         client_phone: leadForm.phone,
@@ -173,7 +213,7 @@ export default function BookPage() {
         time: selectedSlot.time,
         duration_minutes: consultation?.duration_minutes ?? 30,
         status: "מאושר",
-        kupah: (kupah || "כללית") as Kupah,
+        kupah: insurance.kupah,
         notes: "",
       });
       addOrder({
@@ -183,6 +223,12 @@ export default function BookPage() {
         patient_name: leadForm.full_name,
         final_price: price,
         status: "מאושר",
+        payment_status: "מקדמה שולמה",
+        deposit_amount: Math.round(price * 0.3),
+        balance_amount: Math.round(price * 0.7),
+        commission_rate: commissionRate,
+        commission_amount: commissionAmount,
+        provider_payout_amount: price - commissionAmount,
       });
       const icsUrl = buildIcsDataUrl({
         title: `תור ל-${selectedProvider.display_name}`,
@@ -195,7 +241,7 @@ export default function BookPage() {
       const fileNumber = Math.random().toString(36).slice(2, 8).toUpperCase();
       setConfirmation({ fileNumber, price, icsUrl });
       setPaying(false);
-      setStep(4);
+      setStep(6);
     }, 1200);
   }
 
@@ -281,6 +327,7 @@ export default function BookPage() {
                   <DoctorCard
                     key={p.id}
                     provider={p}
+                    patient={patient}
                     onSelect={() => {
                       setSelectedProvider(p);
                       setStep(1);
@@ -299,7 +346,7 @@ export default function BookPage() {
             </button>
             <div className="text-center mb-6">
               <h2 className="text-xl font-bold text-slate-900">כמה פרטים ונמשיך</h2>
-              <p className="text-slate-500 text-sm mt-1">3 שדות בלבד — בלי סיסמה, בלי טפסים מסובכים</p>
+              <p className="text-slate-500 text-sm mt-1">בלי סיסמה, בלי טפסים מסובכים</p>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex gap-2 mb-5">
@@ -339,7 +386,7 @@ export default function BookPage() {
                   required
                 />
                 <Button type="submit" size="lg" className="mt-2">
-                  המשך לבחירת תור <ArrowLeft className="h-4 w-4" />
+                  המשך להסכמות <ArrowLeft className="h-4 w-4" />
                 </Button>
               </form>
             </div>
@@ -347,8 +394,49 @@ export default function BookPage() {
         )}
 
         {step === 2 && selectedProvider && (
-          <motion.div key="step2" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition} className="max-w-2xl mx-auto">
+          <motion.div key="step2" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition} className="max-w-md mx-auto">
             <button onClick={() => setStep(1)} className="text-sm text-primary mb-4 flex items-center gap-1">
+              <ArrowRight className="h-3.5 w-3.5" /> חזרה
+            </button>
+            <div className="text-center mb-6">
+              <h2 className="text-xl font-bold text-slate-900">הסכמות</h2>
+              <p className="text-slate-500 text-sm mt-1">אנא סמנו את ההסכמות הנדרשות לפני שמירת נתוני הבריאות שלכם</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <ConsentCheckboxes value={consents} onChange={setConsents} />
+              <Button
+                size="lg"
+                className="w-full mt-5"
+                disabled={!areRequiredConsentsChecked(consents)}
+                onClick={handleConsentContinue}
+              >
+                המשך לפרופיל ביטוחי <ArrowLeft className="h-4 w-4" />
+              </Button>
+            </div>
+          </motion.div>
+        )}
+
+        {step === 3 && selectedProvider && (
+          <motion.div key="step3" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition} className="max-w-md mx-auto">
+            <button onClick={() => setStep(2)} className="text-sm text-primary mb-4 flex items-center gap-1">
+              <ArrowRight className="h-3.5 w-3.5" /> חזרה
+            </button>
+            <div className="text-center mb-6">
+              <h2 className="text-xl font-bold text-slate-900">פרופיל ביטוחי</h2>
+              <p className="text-slate-500 text-sm mt-1">המחיר שיוצג לכם מותאם לשכבת הביטוח שלכם מול הרופא שנבחר</p>
+            </div>
+            <form onSubmit={handleInsuranceSubmit} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <InsuranceProfileForm value={insurance} onChange={setInsurance} />
+              <Button type="submit" size="lg" className="w-full mt-5">
+                המשך לבחירת תור <ArrowLeft className="h-4 w-4" />
+              </Button>
+            </form>
+          </motion.div>
+        )}
+
+        {step === 4 && selectedProvider && (
+          <motion.div key="step4" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition} className="max-w-2xl mx-auto">
+            <button onClick={() => setStep(3)} className="text-sm text-primary mb-4 flex items-center gap-1">
               <ArrowRight className="h-3.5 w-3.5" /> חזרה
             </button>
             <div className="text-center mb-6">
@@ -393,9 +481,9 @@ export default function BookPage() {
           </motion.div>
         )}
 
-        {step === 3 && selectedProvider && selectedSlot && holdExpiresAt && (
-          <motion.div key="step3" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition} className="max-w-md mx-auto">
-            <button onClick={() => setStep(2)} className="text-sm text-primary mb-4 flex items-center gap-1">
+        {step === 5 && selectedProvider && selectedSlot && holdExpiresAt && (
+          <motion.div key="step5" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition} className="max-w-md mx-auto">
+            <button onClick={() => setStep(4)} className="text-sm text-primary mb-4 flex items-center gap-1">
               <ArrowRight className="h-3.5 w-3.5" /> שינוי תור
             </button>
             <div className="text-center mb-4">
@@ -418,8 +506,14 @@ export default function BookPage() {
               </div>
               <div className="flex items-center justify-between text-sm mt-2">
                 <span className="text-slate-500">קופת חולים</span>
-                <span className="font-medium text-slate-900">{kupah || "כללית"}</span>
+                <span className="font-medium text-slate-900">{insurance.kupah}</span>
               </div>
+              {resolvedPrice && (
+                <div className="flex items-center justify-between text-sm mt-2">
+                  <span className="text-slate-500">שכבת ביטוח</span>
+                  <span className="font-medium text-emerald-700">{LAYER_LABELS[resolvedPrice.layer]}</span>
+                </div>
+              )}
               <div className="h-px bg-slate-100 my-3" />
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold text-slate-700">מקדמה לתשלום</span>
@@ -468,8 +562,8 @@ export default function BookPage() {
           </motion.div>
         )}
 
-        {step === 4 && confirmation && selectedProvider && selectedSlot && (
-          <motion.div key="step4" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition} className="max-w-md mx-auto text-center">
+        {step === 6 && confirmation && selectedProvider && selectedSlot && (
+          <motion.div key="step6" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition} className="max-w-md mx-auto text-center">
             <ConfettiBurst />
             <motion.div
               className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100"

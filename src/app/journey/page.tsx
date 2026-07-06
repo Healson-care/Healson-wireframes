@@ -76,7 +76,7 @@ export default function JourneyPage() {
       <div className="grid sm:grid-cols-3 gap-4 mt-5">
         <Card>
           <CardHeader>
-            <CardTitle>שיעור הסבה (לידים → מטופלים)</CardTitle>
+            <CardTitle>שיעור המרה (לידים → מטופלים)</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold text-primary">
