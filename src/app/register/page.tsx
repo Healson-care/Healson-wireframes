@@ -3,11 +3,12 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Mail, Lock, User as UserIcon, Phone } from "lucide-react";
+import { Mail, Lock, User as UserIcon, Phone, IdCard, Calendar } from "lucide-react";
 import { AuthLayout } from "@/components/layouts/AuthLayout";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { useStore } from "@/lib/store";
+import { isValidIsraeliId } from "@/lib/utils";
 import {
   ConsentCheckboxes,
   ConsentValues,
@@ -28,6 +29,7 @@ export default function RegisterPage() {
   const resendOtp = useStore((s) => s.resendOtp);
   const currentUser = useStore((s) => s.currentUser);
   const completePatientRegistration = useStore((s) => s.completePatientRegistration);
+  const patients = useStore((s) => s.patients);
   const showToast = useStore((s) => s.showToast);
 
   const [phase, setPhase] = useState<Phase>("credentials");
@@ -40,6 +42,8 @@ export default function RegisterPage() {
 
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
+  const [idNumber, setIdNumber] = useState("");
+  const [dateOfBirth, setDateOfBirth] = useState("");
   const [insurance, setInsurance] = useState<InsuranceProfileValue>(EMPTY_INSURANCE_PROFILE);
   const [consents, setConsents] = useState<ConsentValues>({});
 
@@ -83,6 +87,15 @@ export default function RegisterPage() {
 
   function handleProfileSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setError("");
+    if (!isValidIsraeliId(idNumber)) {
+      setError("מספר תעודת זהות לא תקין");
+      return;
+    }
+    if (patients.some((p) => p.id_number === idNumber.trim())) {
+      setError("תעודת זהות זו כבר רשומה במערכת");
+      return;
+    }
     setPhase("consent");
   }
 
@@ -93,11 +106,14 @@ export default function RegisterPage() {
       {
         full_name: fullName,
         phone,
+        id_number: idNumber.trim(),
+        date_of_birth: dateOfBirth,
         kupah: insurance.kupah,
         k_level: insurance.k_level || undefined,
         has_b_insurance: insurance.has_b_insurance,
         b_insurance_company: insurance.has_b_insurance ? insurance.b_insurance_company : undefined,
         b_policy_number: insurance.has_b_insurance ? insurance.b_policy_number : undefined,
+        address: insurance.address || undefined,
       },
       consents
     );
@@ -141,8 +157,30 @@ export default function RegisterPage() {
       <AuthLayout>
         <h1 className="text-lg font-semibold text-slate-900 mb-1">פרטים ופרופיל ביטוחי</h1>
         <p className="text-sm text-slate-500 mb-5">נדרש לפני שמירת נתוני בריאות במערכת</p>
+        {error && (
+          <div className="mb-4 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
+            {error}
+          </div>
+        )}
         <form onSubmit={handleProfileSubmit} className="flex flex-col gap-3">
           <Input label="שם מלא" icon={<UserIcon className="h-4 w-4" />} value={fullName} onChange={(e) => setFullName(e.target.value)} required />
+          <Input
+            label="תעודת זהות"
+            icon={<IdCard className="h-4 w-4" />}
+            value={idNumber}
+            onChange={(e) => setIdNumber(e.target.value)}
+            inputMode="numeric"
+            maxLength={9}
+            required
+          />
+          <Input
+            label="תאריך לידה"
+            type="date"
+            icon={<Calendar className="h-4 w-4" />}
+            value={dateOfBirth}
+            onChange={(e) => setDateOfBirth(e.target.value)}
+            required
+          />
           <Input label="טלפון נייד" icon={<Phone className="h-4 w-4" />} value={phone} onChange={(e) => setPhone(e.target.value)} required />
           <div className="h-px bg-slate-100 my-1" />
           <InsuranceProfileForm value={insurance} onChange={setInsurance} />

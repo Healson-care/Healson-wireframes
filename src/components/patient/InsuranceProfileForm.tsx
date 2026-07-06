@@ -1,7 +1,7 @@
 "use client";
 
 import { Input, Select } from "@/components/ui/Input";
-import { KUPOT, K_LEVELS, Kupah, KLevel } from "@/types";
+import { KUPOT, K_LEVELS_BY_KUPAH, Kupah, KLevel } from "@/types";
 
 export interface InsuranceProfileValue {
   kupah: Kupah;
@@ -9,6 +9,7 @@ export interface InsuranceProfileValue {
   has_b_insurance: boolean;
   b_insurance_company: string;
   b_policy_number: string;
+  address: string;
 }
 
 export const EMPTY_INSURANCE_PROFILE: InsuranceProfileValue = {
@@ -17,6 +18,7 @@ export const EMPTY_INSURANCE_PROFILE: InsuranceProfileValue = {
   has_b_insurance: false,
   b_insurance_company: "",
   b_policy_number: "",
+  address: "",
 };
 
 /** Patient insurance profile fields (§4.3) — kupah (S), optional K-level
@@ -33,7 +35,9 @@ export function InsuranceProfileForm({
       <Select
         label="קופת חולים"
         value={value.kupah}
-        onChange={(e) => onChange({ ...value, kupah: e.target.value as Kupah })}
+        onChange={(e) =>
+          onChange({ ...value, kupah: e.target.value as Kupah, k_level: "" })
+        }
         required
       >
         {KUPOT.map((k) => (
@@ -49,7 +53,7 @@ export function InsuranceProfileForm({
         onChange={(e) => onChange({ ...value, k_level: e.target.value as KLevel | "" })}
       >
         <option value="">אין ביטוח קופה נוסף</option>
-        {K_LEVELS.map((level) => (
+        {K_LEVELS_BY_KUPAH[value.kupah].map((level) => (
           <option key={level} value={level}>
             {level}
           </option>
@@ -81,6 +85,14 @@ export function InsuranceProfileForm({
           />
         </div>
       )}
+
+      <Input
+        label="כתובת (אופציונלי)"
+        placeholder="רחוב, מספר, עיר"
+        value={value.address}
+        onChange={(e) => onChange({ ...value, address: e.target.value })}
+      />
+      <p className="text-xs text-slate-400 -mt-2">לצורך שליחת תוצאות בדיקות ומול חברות הביטוח</p>
     </div>
   );
 }
