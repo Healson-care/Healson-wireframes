@@ -191,7 +191,15 @@ export default function BookPage() {
   function handleInsuranceSubmit(e: React.FormEvent) {
     e.preventDefault();
     quickRegisterPatient(
-      { ...leadForm, kupah: insurance.kupah, k_level: insurance.k_level || undefined, has_b_insurance: insurance.has_b_insurance, b_insurance_company: insurance.has_b_insurance ? insurance.b_insurance_company : undefined, b_policy_number: insurance.has_b_insurance ? insurance.b_policy_number : undefined },
+      {
+        ...leadForm,
+        kupah: insurance.kupah,
+        k_level: insurance.k_level || undefined,
+        has_b_insurance: insurance.has_b_insurance,
+        b_insurance_company: insurance.has_b_insurance ? insurance.b_insurance_company : undefined,
+        b_policy_number: insurance.has_b_insurance ? insurance.b_policy_number : undefined,
+        address: insurance.address || undefined,
+      },
       consents
     );
     setStep(4);

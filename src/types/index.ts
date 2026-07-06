@@ -23,8 +23,17 @@ export const LAYER_LABELS: Record<InsuranceLayer, string> = {
   H: "פרטי מלא",
 };
 
-export const K_LEVELS = ["בסיס", "זהב", "פלטינום", "מושלם"] as const;
-export type KLevel = (typeof K_LEVELS)[number];
+// Supplemental HMO insurance (שב"ן) plan names are branded per-kupah, not a
+// shared generic tier list — e.g. מאוחדת sells "מאוחדת עדיף"/"מאוחדת שיא",
+// כללית sells "כללית זהב"/"כללית מושלם"/"כללית פלטינום".
+export const K_LEVELS_BY_KUPAH = {
+  "כללית": ["כללית זהב", "כללית מושלם", "כללית פלטינום"],
+  "מכבי": ["מכבי כסף", "מכבי זהב"],
+  "מאוחדת": ["מאוחדת עדיף", "מאוחדת שיא"],
+  "לאומית": ["לאומית כסף", "לאומית זהב"],
+} as const satisfies Record<Kupah, readonly string[]>;
+
+export type KLevel = (typeof K_LEVELS_BY_KUPAH)[Kupah][number];
 
 export interface PriceByLayer {
   layer: InsuranceLayer;
@@ -204,6 +213,8 @@ export interface Patient {
   email?: string;
   phone?: string;
   id_number?: string;
+  date_of_birth?: string;
+  address?: string;
   parent_name?: string;
   kupah: Kupah;
   k_level?: KLevel;

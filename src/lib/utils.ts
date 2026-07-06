@@ -39,6 +39,19 @@ export function formatDateHe(iso?: string): string {
   }
 }
 
+/** Standard Israeli teudat zehut checksum (9 digits, weighted mod-10). */
+export function isValidIsraeliId(id: string): boolean {
+  const cleaned = id.trim();
+  if (!/^\d{1,9}$/.test(cleaned)) return false;
+  const padded = cleaned.padStart(9, "0");
+  let sum = 0;
+  for (let i = 0; i < 9; i++) {
+    const weighted = Number(padded[i]) * ((i % 2) + 1);
+    sum += weighted > 9 ? weighted - 9 : weighted;
+  }
+  return sum % 10 === 0;
+}
+
 export function initials(name: string): string {
   const parts = name.trim().split(" ").filter(Boolean);
   if (parts.length === 0) return "?";

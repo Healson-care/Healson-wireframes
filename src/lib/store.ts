@@ -52,6 +52,7 @@ export interface InsuranceProfileInput {
   has_b_insurance?: boolean;
   b_insurance_company?: string;
   b_policy_number?: string;
+  address?: string;
 }
 
 export type RegistrationConsents = Partial<Record<ConsentType, boolean>>;
@@ -70,7 +71,7 @@ interface AuthState {
   loginAsDemo: (role: Role) => void;
   completePatientRegistration: (
     userId: string,
-    data: { full_name: string; phone?: string } & InsuranceProfileInput,
+    data: { full_name: string; phone?: string; id_number: string; date_of_birth: string } & InsuranceProfileInput,
     consents: RegistrationConsents
   ) => Patient;
   quickRegisterPatient: (
@@ -266,6 +267,9 @@ export const useStore = create<Store>()(
           full_name: data.full_name,
           email: user?.email,
           phone: data.phone,
+          id_number: data.id_number,
+          date_of_birth: data.date_of_birth,
+          address: data.address,
           kupah: data.kupah,
           k_level: data.k_level,
           has_b_insurance: data.has_b_insurance,
@@ -294,6 +298,7 @@ export const useStore = create<Store>()(
               has_b_insurance: data.has_b_insurance,
               b_insurance_company: data.b_insurance_company,
               b_policy_number: data.b_policy_number,
+              address: data.address,
             });
           }
           if (consents) {
@@ -321,6 +326,7 @@ export const useStore = create<Store>()(
           has_b_insurance: data.has_b_insurance,
           b_insurance_company: data.b_insurance_company,
           b_policy_number: data.b_policy_number,
+          address: data.address,
           status: "פעיל",
           user_id: newUser.id,
         });

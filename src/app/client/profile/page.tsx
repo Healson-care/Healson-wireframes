@@ -14,11 +14,13 @@ import {
   InsuranceProfileValue,
 } from "@/components/patient/InsuranceProfileForm";
 import { CONSENT_LABELS, CONSENT_REQUIRED, CONSENT_TYPES, ConsentType } from "@/types";
+import { isValidIsraeliId } from "@/lib/utils";
 import { ShieldOff, FileDown } from "lucide-react";
 
 export default function ClientProfilePage() {
   const currentUser = useStore((s) => s.currentUser);
   const updatePatient = useStore((s) => s.updatePatient);
+  const patients = useStore((s) => s.patients);
   const showToast = useStore((s) => s.showToast);
   const patient = useCurrentPatient();
 
@@ -27,9 +29,11 @@ export default function ClientProfilePage() {
     email: "",
     phone: "",
     id_number: "",
+    date_of_birth: "",
     parent_name: "",
   });
   const [insurance, setInsurance] = useState<InsuranceProfileValue>(EMPTY_INSURANCE_PROFILE);
+  const [error, setError] = useState("");
 
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const loadKey = patient?.id ?? currentUser?.id ?? null;
@@ -42,6 +46,7 @@ export default function ClientProfilePage() {
         email: patient.email ?? "",
         phone: patient.phone ?? "",
         id_number: patient.id_number ?? "",
+        date_of_birth: patient.date_of_birth ?? "",
         parent_name: patient.parent_name ?? "",
       });
       setInsurance({
@@ -50,6 +55,7 @@ export default function ClientProfilePage() {
         has_b_insurance: !!patient.has_b_insurance,
         b_insurance_company: patient.b_insurance_company ?? "",
         b_policy_number: patient.b_policy_number ?? "",
+        address: patient.address ?? "",
       });
     } else if (currentUser) {
       setForm((f) => ({ ...f, full_name: currentUser.full_name, email: currentUser.email }));
@@ -58,6 +64,18 @@ export default function ClientProfilePage() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setError("");
+    if (form.id_number && !isValidIsraeliId(form.id_number)) {
+      setError("מספר תעודת זהות לא תקין");
+      return;
+    }
+    if (
+      form.id_number &&
+      patients.some((p) => p.id_number === form.id_number.trim() && p.id !== patient?.id)
+    ) {
+      setError("תעודת זהות זו כבר רשומה במערכת");
+      return;
+    }
     if (patient) {
       updatePatient(patient.id, {
         ...form,
@@ -66,6 +84,7 @@ export default function ClientProfilePage() {
         has_b_insurance: insurance.has_b_insurance,
         b_insurance_company: insurance.has_b_insurance ? insurance.b_insurance_company : undefined,
         b_policy_number: insurance.has_b_insurance ? insurance.b_policy_number : undefined,
+        address: insurance.address || undefined,
       });
     }
     showToast("הפרופיל נשמר בהצלחה", { variant: "success" });
@@ -76,6 +95,11 @@ export default function ClientProfilePage() {
       <PageHeader title="הפרופיל שלי" description="פרטים אישיים, פרטי ביטוח וזכויות נושא המידע" />
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        {error && (
+          <div className="rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
+            {error}
+          </div>
+        )}
         <Card>
           <CardHeader>
             <CardTitle>פרטים אישיים</CardTitle>
@@ -97,11 +121,22 @@ export default function ClientProfilePage() {
               label="טלפון"
               value={form.phone}
               onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              required
             />
             <Input
               label="תעודת זהות"
               value={form.id_number}
               onChange={(e) => setForm({ ...form, id_number: e.target.value })}
+              inputMode="numeric"
+              maxLength={9}
+              required
+            />
+            <Input
+              label="תאריך לידה"
+              type="date"
+              value={form.date_of_birth}
+              onChange={(e) => setForm({ ...form, date_of_birth: e.target.value })}
+              required
             />
             <Input
               label="שם הורה (אם המטופל קטין)"
