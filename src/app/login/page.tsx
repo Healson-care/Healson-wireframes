@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Mail, Lock, ChevronDown } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { AuthLayout } from "@/components/layouts/AuthLayout";
+import { PatientTypeToggle } from "@/components/shared/PatientTypeToggle";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { useStore } from "@/lib/store";
@@ -50,6 +51,7 @@ export default function LoginPage() {
 
   return (
     <AuthLayout>
+      <PatientTypeToggle active="existing" />
       <h1 className="text-lg font-semibold text-slate-900 mb-1">התחברות</h1>
       <p className="text-sm text-slate-500 mb-5">היכנסו לחשבון שלכם כדי להמשיך</p>
 

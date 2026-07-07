@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Mail, Lock, User as UserIcon, Phone, IdCard, Calendar } from "lucide-react";
 import { AuthLayout } from "@/components/layouts/AuthLayout";
+import { PatientTypeToggle } from "@/components/shared/PatientTypeToggle";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { useStore } from "@/lib/store";
@@ -208,6 +209,7 @@ export default function RegisterPage() {
 
   return (
     <AuthLayout>
+      <PatientTypeToggle active="new" />
       <h1 className="text-lg font-semibold text-slate-900 mb-1">יצירת חשבון</h1>
       <p className="text-sm text-slate-500 mb-5">הצטרפו לפלטפורמת HEALSON</p>
 
