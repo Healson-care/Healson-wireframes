@@ -141,6 +141,8 @@ interface EntitiesState {
   updateCatalogItem: (id: string, data: Partial<CatalogItem>) => void;
   deleteCatalogItem: (id: string) => void;
   bulkAddCatalogItems: (items: Omit<CatalogItem, "id">[]) => number;
+  bulkDeleteCatalogItems: (ids: string[]) => void;
+  bulkSetCatalogItemsActive: (ids: string[], is_active: boolean) => void;
   bulkAddProviders: (items: Omit<ProviderProfile, "id" | "created_date">[]) => number;
 
   addSkillDomain: (d: Omit<SkillDomain, "id">) => SkillDomain;
@@ -479,6 +481,14 @@ export const useStore = create<Store>()(
         set((s) => ({ catalog: [...records, ...s.catalog] }));
         return records.length;
       },
+      bulkDeleteCatalogItems: (ids) => {
+        const idSet = new Set(ids);
+        set((s) => ({ catalog: s.catalog.filter((c) => !idSet.has(c.id)) }));
+      },
+      bulkSetCatalogItemsActive: (ids, is_active) => {
+        const idSet = new Set(ids);
+        set((s) => ({ catalog: s.catalog.map((c) => (idSet.has(c.id) ? { ...c, is_active } : c)) }));
+      },
       bulkAddProviders: (items) => {
         const records = items.map((p) => ({
           ...p,
@@ -500,6 +510,7 @@ export const useStore = create<Store>()(
         set((s) => ({
           skillDomains: s.skillDomains.filter((d) => d.id !== id),
           skillSubdomains: s.skillSubdomains.filter((sd) => sd.domain_id !== id),
+          catalog: s.catalog.filter((c) => c.skill_domain_id !== id),
         })),
       addSkillSubdomain: (sd) => {
         const record: SkillSubdomain = { ...sd, id: generateId("sub") };
@@ -509,7 +520,10 @@ export const useStore = create<Store>()(
       updateSkillSubdomain: (id, data) =>
         set((s) => ({ skillSubdomains: s.skillSubdomains.map((sd) => (sd.id === id ? { ...sd, ...data } : sd)) })),
       deleteSkillSubdomain: (id) =>
-        set((s) => ({ skillSubdomains: s.skillSubdomains.filter((sd) => sd.id !== id) })),
+        set((s) => ({
+          skillSubdomains: s.skillSubdomains.filter((sd) => sd.id !== id),
+          catalog: s.catalog.filter((c) => c.skill_subdomain_id !== id),
+        })),
 
       grantConsent: (patientId, type, version = CONSENT_DOCUMENT_VERSION) => {
         const record: ConsentRecord = {
