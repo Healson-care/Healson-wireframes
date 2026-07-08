@@ -20,6 +20,7 @@ import {
   SkillSubdomain,
   ToastItem,
   User,
+  WaitlistEntry,
 } from "@/types";
 import {
   SEED_APPOINTMENTS,
@@ -103,6 +104,7 @@ interface EntitiesState {
   appointments: Appointment[];
   orders: Order[];
   labReferrals: LabReferral[];
+  waitlist: WaitlistEntry[];
   branches: typeof SEED_BRANCHES;
   consentRecords: ConsentRecord[];
   dsrRequests: DsrRequest[];
@@ -136,6 +138,8 @@ interface EntitiesState {
 
   addLabReferral: (r: Omit<LabReferral, "id" | "created_date">) => LabReferral;
   updateLabReferral: (id: string, data: Partial<LabReferral>) => void;
+
+  addWaitlistEntry: (w: Omit<WaitlistEntry, "id" | "created_date" | "status">) => WaitlistEntry;
 
   addCatalogItem: (c: Omit<CatalogItem, "id">) => CatalogItem;
   updateCatalogItem: (id: string, data: Partial<CatalogItem>) => void;
@@ -364,6 +368,7 @@ export const useStore = create<Store>()(
       appointments: SEED_APPOINTMENTS,
       orders: SEED_ORDERS,
       labReferrals: SEED_LAB_REFERRALS,
+      waitlist: [],
       branches: SEED_BRANCHES,
       consentRecords: SEED_CONSENT_RECORDS,
       dsrRequests: SEED_DSR_REQUESTS,
@@ -467,6 +472,12 @@ export const useStore = create<Store>()(
         set((s) => ({
           labReferrals: s.labReferrals.map((r) => (r.id === id ? { ...r, ...data } : r)),
         })),
+
+      addWaitlistEntry: (w) => {
+        const record: WaitlistEntry = { ...w, id: generateId("wait"), status: "ממתין", created_date: new Date().toISOString() };
+        set((s) => ({ waitlist: [record, ...s.waitlist] }));
+        return record;
+      },
 
       addCatalogItem: (c) => {
         const record: CatalogItem = { ...c, id: generateId("cat") };

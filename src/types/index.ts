@@ -369,6 +369,25 @@ export interface Appointment {
   referral_document?: UploadedFile;
 }
 
+export type WaitlistStatus = "ממתין" | "נוצר קשר" | "בוטל";
+export const WAITLIST_STATUSES: WaitlistStatus[] = ["ממתין", "נוצר קשר", "בוטל"];
+
+// A patient's request to be notified if a specific (currently taken) slot
+// opens up — offered inline when they click an unavailable slot in the
+// booking flow (both /book and the client personal-area search share this).
+export interface WaitlistEntry {
+  id: string;
+  provider_id: string;
+  provider_name: string;
+  client_name: string;
+  client_phone?: string;
+  date: string; // yyyy-MM-dd
+  time: string; // HH:mm
+  status: WaitlistStatus;
+  created_by_id?: string; // patient id
+  created_date: string;
+}
+
 export interface Order {
   id: string;
   item_id?: string;
