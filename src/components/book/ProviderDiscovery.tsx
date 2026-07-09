@@ -6,6 +6,7 @@ import { Input, Select } from "@/components/ui/Input";
 import { EmptyState } from "@/components/ui/Misc";
 import { DoctorCard } from "@/components/book/DoctorCard";
 import { KUPAH_LOGOS } from "@/lib/medical-tree";
+import { getRegionForCity } from "@/lib/constants";
 import { useStore } from "@/lib/store";
 import { KUPOT, Kupah, Patient, ProviderProfile } from "@/types";
 
@@ -14,7 +15,9 @@ export function ProviderDiscovery({
   patient,
   defaultKupah = "",
   title = "מצאו את הרופא המתאים לכם",
-  description = "סננו לפי סניף, תחום, שפה וקופת חולים — ותוצאות מתעדכנות מיידית",
+  description = "סננו לפי אזור, תחום, שפה וקופת חולים — ותוצאות מתעדכנות מיידית",
+  showLanguageFilter = true,
+  showKupahFilter = true,
   onSelect,
   onKupahChange,
 }: {
@@ -23,6 +26,8 @@ export function ProviderDiscovery({
   defaultKupah?: Kupah | "";
   title?: string;
   description?: string;
+  showLanguageFilter?: boolean;
+  showKupahFilter?: boolean;
   onSelect: (provider: ProviderProfile) => void;
   onKupahChange?: (kupah: Kupah | "") => void;
 }) {
@@ -31,7 +36,7 @@ export function ProviderDiscovery({
   const skillSubdomains = useStore((s) => s.skillSubdomains);
 
   const [query, setQuery] = useState("");
-  const [city, setCity] = useState("");
+  const [region, setRegion] = useState("");
   const [domainId, setDomainId] = useState("");
   const [subdomainId, setSubdomainId] = useState("");
   const [language, setLanguage] = useState("");
@@ -49,9 +54,9 @@ export function ProviderDiscovery({
 
   const publishedProviders = useMemo(() => providers.filter((p) => p.is_published), [providers]);
 
-  const cities = useMemo(() => {
+  const regions = useMemo(() => {
     const set = new Set<string>();
-    publishedProviders.forEach((p) => p.clinic_locations.forEach((c) => set.add(c.city)));
+    publishedProviders.forEach((p) => p.clinic_locations.forEach((c) => set.add(getRegionForCity(c.city))));
     return Array.from(set);
   }, [publishedProviders]);
 
@@ -95,10 +100,11 @@ export function ProviderDiscovery({
 
   const filteredProviders = useMemo(() => {
     return publishedProviders.filter((p) => {
-      if (city && !p.clinic_locations.some((c) => c.city === city)) return false;
+      if (region && !p.clinic_locations.some((c) => getRegionForCity(c.city) === region)) return false;
       if (domainProviderIds && !domainProviderIds.has(p.id)) return false;
-      if (language && !(p.languages ?? []).includes(language)) return false;
+      if (showLanguageFilter && language && !(p.languages ?? []).includes(language)) return false;
       if (
+        showKupahFilter &&
         kupah &&
         !p.agreements.some(
           (a) => (a.layer === "S" || a.layer === "K") && (!a.kupah_list?.length || a.kupah_list.includes(kupah))
@@ -108,7 +114,7 @@ export function ProviderDiscovery({
       if (query && !`${p.display_name} ${p.specialty}`.includes(query)) return false;
       return true;
     });
-  }, [publishedProviders, city, domainProviderIds, language, kupah, query]);
+  }, [publishedProviders, region, domainProviderIds, showLanguageFilter, language, showKupahFilter, kupah, query]);
 
   return (
     <div>
@@ -125,11 +131,11 @@ export function ProviderDiscovery({
           onChange={(e) => setQuery(e.target.value)}
           className="lg:col-span-2"
         />
-        <Select value={city} onChange={(e) => setCity(e.target.value)}>
-          <option value="">כל הסניפים</option>
-          {cities.map((c) => (
-            <option key={c} value={c}>
-              {c}
+        <Select value={region} onChange={(e) => setRegion(e.target.value)}>
+          <option value="">כל האזורים</option>
+          {regions.map((r) => (
+            <option key={r} value={r}>
+              {r}
             </option>
           ))}
         </Select>
@@ -149,17 +155,19 @@ export function ProviderDiscovery({
             </option>
           ))}
         </Select>
-        <Select value={kupah} onChange={(e) => updateKupah(e.target.value as Kupah | "")}>
-          <option value="">כל הקופות</option>
-          {KUPOT.map((k) => (
-            <option key={k} value={k}>
-              {KUPAH_LOGOS[k]} {k}
-            </option>
-          ))}
-        </Select>
+        {showKupahFilter && (
+          <Select value={kupah} onChange={(e) => updateKupah(e.target.value as Kupah | "")}>
+            <option value="">כל הקופות</option>
+            {KUPOT.map((k) => (
+              <option key={k} value={k}>
+                {KUPAH_LOGOS[k]} {k}
+              </option>
+            ))}
+          </Select>
+        )}
       </div>
 
-      {languages.length > 0 && (
+      {showLanguageFilter && languages.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-6 -mt-3">
           {languages.map((l) => (
             <button

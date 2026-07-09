@@ -156,9 +156,15 @@ export default function ClientSearchPage() {
   return (
     <ClientLayout>
       <div className="max-w-2xl mx-auto">
-        {!patient && step === 0 && (
-          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
-            השלימו את הפרופיל הביטוחי שלכם בעמוד הפרופיל כדי לראות מחיר מותאם אישית.
+        {step === 0 && (
+          <p
+            className={`text-xs rounded-lg px-3 py-2 mb-4 border ${
+              patient ? "text-emerald-700 bg-emerald-50 border-emerald-200" : "text-amber-700 bg-amber-50 border-amber-200"
+            }`}
+          >
+            {patient
+              ? "המחיר לכל רופא מוצג בהתאם לפרופיל הביטוחי שלך."
+              : "השלימו את הפרופיל הביטוחי שלכם בעמוד הפרופיל כדי לראות מחיר מותאם אישית."}
           </p>
         )}
 
@@ -174,9 +180,10 @@ export default function ClientSearchPage() {
               <ProviderDiscovery
                 providers={providers}
                 patient={patient}
-                defaultKupah={patient?.kupah ?? ""}
                 title="חיפוש שירות בריאות"
-                description="מצאו את הרופא המתאים לכם — המחיר יוצג לפי הביטוח שלכם"
+                description="סננו לפי אזור ותחום — המחיר יוצג לפי הביטוח שלכם"
+                showLanguageFilter={false}
+                showKupahFilter={false}
                 onSelect={(p) => {
                   if (!patient) {
                     showToast("השלימו הרשמה כדי לקבוע תור", {
