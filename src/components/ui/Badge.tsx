@@ -43,9 +43,9 @@ export function Badge({ className, tone = "neutral", ...props }: BadgeProps) {
 }
 
 const APPOINTMENT_TONE: Record<string, Tone> = {
-  "ממתין לאישור": "warning",
+  "ממתין לתשלום מקדמה": "warning",
   "מאושר": "info",
-  "הושלם": "success",
+  "בוצע": "success",
   "בוטל": "danger",
 };
 

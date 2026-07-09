@@ -55,12 +55,16 @@ export interface PriceByKupah {
   discount?: number;
 }
 
-export type AppointmentStatus = "ממתין לאישור" | "מאושר" | "הושלם" | "בוטל";
+// Booking-lifecycle status from the patient's point of view (§waitlist/booking):
+// slot picked -> ממתין לתשלום מקדמה -> (payment succeeds) -> מאושר -> (service
+// rendered) -> בוצע. בוטל is reachable from any pre-בוצע state (patient/admin/
+// provider cancel, or a payment hold expiring unpaid).
+export type AppointmentStatus = "ממתין לתשלום מקדמה" | "מאושר" | "בוצע" | "בוטל";
 
 export const APPOINTMENT_STATUSES: AppointmentStatus[] = [
-  "ממתין לאישור",
+  "ממתין לתשלום מקדמה",
   "מאושר",
-  "הושלם",
+  "בוצע",
   "בוטל",
 ];
 

@@ -94,7 +94,7 @@ export default function ProviderAppointmentsPage() {
                       <StatusBadge status={a.status} kind="appointment" />
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2 justify-end">
-                      {a.status === "ממתין לאישור" && (
+                      {a.status === "ממתין לתשלום מקדמה" && (
                         <Button
                           size="sm"
                           onClick={() => {
@@ -110,17 +110,17 @@ export default function ProviderAppointmentsPage() {
                           size="sm"
                           variant="secondary"
                           onClick={() => {
-                            updateAppointment(a.id, { status: "הושלם" });
-                            showToast("התור סומן כהושלם", { variant: "success" });
+                            updateAppointment(a.id, { status: "בוצע" });
+                            showToast("התור סומן כבוצע", { variant: "success" });
                           }}
                         >
-                          סמן כהושלם
+                          סמן כבוצע
                         </Button>
                       )}
                       <Button size="sm" variant="outline" onClick={() => openEdit(a.id)}>
                         <Pencil className="h-3.5 w-3.5" /> עריכה
                       </Button>
-                      {a.status !== "בוטל" && a.status !== "הושלם" && (
+                      {a.status !== "בוטל" && a.status !== "בוצע" && (
                         <Button size="sm" variant="destructive" onClick={() => setCancelId(a.id)}>
                           <X className="h-3.5 w-3.5" /> בטל
                         </Button>

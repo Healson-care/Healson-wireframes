@@ -27,6 +27,7 @@ import {
   WaitlistEntry,
 } from "@/types";
 import {
+  DEMO_NEW_PATIENT_USER,
   SEED_APPOINTMENTS,
   SEED_BRANCHES,
   SEED_CATALOG,
@@ -107,7 +108,7 @@ interface AuthState {
   forgotPassword: (email: string) => { ok: boolean };
   resetPassword: (newPassword: string) => { ok: boolean };
   logout: () => void;
-  loginAsDemo: (role: Role) => void;
+  loginAsDemo: (role: Role, patientVariant?: "new" | "existing") => void;
   completePatientRegistration: (
     userId: string,
     data: { full_name: string; phone?: string; id_number: string; date_of_birth: string } & InsuranceProfileInput,
@@ -276,7 +277,20 @@ export const useStore = create<Store>()(
         get().loginAsDemo("patient");
       },
 
-      loginAsDemo: (role) => {
+      loginAsDemo: (role, patientVariant) => {
+        if (role === "patient" && patientVariant === "new") {
+          // Reset the demo "new patient" account to a pristine lead on every
+          // click — otherwise completing registration once (which links a
+          // Patient record and overwrites the name/phone on this fixed demo
+          // id) would permanently turn it into an "existing patient" for
+          // every future demo run, making the lead flow undemonstrable.
+          set((s) => ({
+            users: s.users.map((u) => (u.id === DEMO_NEW_PATIENT_USER.id ? { ...DEMO_NEW_PATIENT_USER } : u)),
+            patients: s.patients.filter((p) => p.user_id !== DEMO_NEW_PATIENT_USER.id),
+            currentUser: { ...DEMO_NEW_PATIENT_USER },
+          }));
+          return;
+        }
         const user = get().users.find((u) => u.role === role) ?? null;
         set({ currentUser: user });
       },
@@ -737,11 +751,13 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 2,
+      version: 3,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
-      // records) is not backwards compatible with anything persisted under
-      // v1 — discard old state on the version bump so the app reseeds clean.
-      migrate: (persistedState, version) => (version < 2 ? ({} as Store) : (persistedState as Store)),
+      // records), and the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER
+      // seed account, are not backwards compatible with anything persisted
+      // under an earlier version — discard old state on a version bump so
+      // the app reseeds clean instead of silently missing new demo/seed data.
+      migrate: (persistedState, version) => (version < 3 ? ({} as Store) : (persistedState as Store)),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);
       },

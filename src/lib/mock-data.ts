@@ -32,6 +32,17 @@ export const DEMO_PATIENT_USER: User = {
   created_date: isoDateDaysFromNow(-120),
 };
 
+// A patient-role user with no linked Patient record — used by the "מטופל
+// חדש" demo login so the demo can show the pre-registration experience
+// (no insurance profile yet => no prices, booking gated to /register).
+export const DEMO_NEW_PATIENT_USER: User = {
+  id: "user_patient_new",
+  email: "new-patient@demo.co.il",
+  full_name: "מטופל חדש",
+  role: "patient",
+  created_date: isoDateDaysFromNow(-1),
+};
+
 export const DEMO_PROVIDER_USER: User = {
   id: "user_provider_1",
   email: "provider@demo.co.il",
@@ -51,6 +62,7 @@ export const DEMO_ADMIN_USER: User = {
 
 export const SEED_USERS: User[] = [
   DEMO_PATIENT_USER,
+  DEMO_NEW_PATIENT_USER,
   DEMO_PROVIDER_USER,
   DEMO_ADMIN_USER,
 ];
@@ -488,10 +500,10 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
     const patient = SEED_PATIENTS[i % SEED_PATIENTS.length];
     const hour = 8 + (i % 9);
     const statusPool: Appointment["status"][] = [
-      "ממתין לאישור",
+      "ממתין לתשלום מקדמה",
       "מאושר",
       "מאושר",
-      "הושלם",
+      "בוצע",
       "בוטל",
     ];
     return {

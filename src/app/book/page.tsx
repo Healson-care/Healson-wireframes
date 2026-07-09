@@ -43,6 +43,7 @@ export default function BookPage() {
   const providers = useStore((s) => s.providers);
   const quickRegisterPatient = useStore((s) => s.quickRegisterPatient);
   const addAppointment = useStore((s) => s.addAppointment);
+  const updateAppointment = useStore((s) => s.updateAppointment);
   const addOrder = useStore((s) => s.addOrder);
   const showToast = useStore((s) => s.showToast);
   const patient = useCurrentPatient();
@@ -66,6 +67,7 @@ export default function BookPage() {
   const [activeDayIdx, setActiveDayIdx] = useState(0);
   const [selectedSlot, setSelectedSlot] = useState<{ date: string; time: string; label: string } | null>(null);
   const [holdExpiresAt, setHoldExpiresAt] = useState<number | null>(null);
+  const [pendingAppointmentId, setPendingAppointmentId] = useState<string | null>(null);
   const [waitlistSlot, setWaitlistSlot] = useState<{ date: string; time: string; label: string } | null>(null);
 
   // Step 5: payment
@@ -85,19 +87,49 @@ export default function BookPage() {
   const price = resolvedPrice?.price ?? consultation?.prices.find((p) => p.layer === "H")?.price ?? 0;
 
   // Only ever invoked from the slot button's onClick — safe to read the clock here.
+  // Creating the appointment here (not at payment time) is deliberate: from the
+  // moment a slot is picked it's "ממתין לתשלום מקדמה" in the patient's history,
+  // even if they never complete payment.
   function selectSlot(date: string, time: string, label: string) {
+    if (!selectedProvider) return;
+    const appointment = addAppointment({
+      client_name: leadForm.full_name,
+      client_phone: leadForm.phone,
+      provider_id: selectedProvider.id,
+      provider_name: `${selectedProvider.title ?? ""} ${selectedProvider.display_name}`.trim(),
+      service_name: consultation?.name ?? "ייעוץ",
+      date,
+      time,
+      duration_minutes: consultation?.duration_minutes ?? 30,
+      status: "ממתין לתשלום מקדמה",
+      kupah: insurance.kupah,
+      notes: "",
+    });
+    setPendingAppointmentId(appointment.id);
     setSelectedSlot({ date, time, label });
     // eslint-disable-next-line react-hooks/purity -- event handler, not render logic
     setHoldExpiresAt(Date.now() + HOLD_SECONDS * 1000);
     setStep(5);
   }
 
+  // Leaving the payment step without paying — whether the hold timer ran out
+  // or the patient backed out manually — cancels that pending attempt instead
+  // of leaving it stuck "ממתין לתשלום מקדמה" forever.
+  function abandonHold() {
+    if (pendingAppointmentId) updateAppointment(pendingAppointmentId, { status: "בוטל" });
+    setPendingAppointmentId(null);
+    setSelectedSlot(null);
+    setHoldExpiresAt(null);
+  }
+
   const handleHoldExpire = useCallback(() => {
     showToast("ה-Hold פג", { description: "התור שוחרר. רוצה לנסות שוב?", variant: "destructive" });
+    if (pendingAppointmentId) updateAppointment(pendingAppointmentId, { status: "בוטל" });
+    setPendingAppointmentId(null);
     setSelectedSlot(null);
     setHoldExpiresAt(null);
     setStep(4);
-  }, [showToast]);
+  }, [pendingAppointmentId, showToast, updateAppointment]);
 
   function handleLeadSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -127,24 +159,14 @@ export default function BookPage() {
   }
 
   function handlePay() {
-    if (!selectedProvider || !selectedSlot) return;
+    if (!selectedProvider || !selectedSlot || !pendingAppointmentId) return;
     setPaying(true);
     setTimeout(() => {
       const commissionRate = selectedProvider.commission_rate ?? 15;
       const commissionAmount = Math.round((price * commissionRate) / 100);
-      addAppointment({
-        client_name: leadForm.full_name,
-        client_phone: leadForm.phone,
-        provider_id: selectedProvider.id,
-        provider_name: `${selectedProvider.title ?? ""} ${selectedProvider.display_name}`.trim(),
-        service_name: consultation?.name ?? "ייעוץ",
-        date: selectedSlot.date,
-        time: selectedSlot.time,
-        duration_minutes: consultation?.duration_minutes ?? 30,
-        status: "מאושר",
-        kupah: insurance.kupah,
-        notes: "",
-      });
+      // Payment success is the moment the pending hold becomes a confirmed
+      // appointment — and the moment this lead becomes a client in practice.
+      updateAppointment(pendingAppointmentId, { status: "מאושר" });
       addOrder({
         item_name: consultation?.name ?? "ייעוץ",
         provider_id: selectedProvider.id,
@@ -319,7 +341,13 @@ export default function BookPage() {
 
         {step === 5 && selectedProvider && selectedSlot && holdExpiresAt && (
           <motion.div key="step5" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition} className="max-w-md mx-auto">
-            <button onClick={() => setStep(4)} className="text-sm text-primary mb-4 flex items-center gap-1">
+            <button
+              onClick={() => {
+                abandonHold();
+                setStep(4);
+              }}
+              className="text-sm text-primary mb-4 flex items-center gap-1"
+            >
               <ArrowRight className="h-3.5 w-3.5" /> שינוי תור
             </button>
             <PaymentPanel

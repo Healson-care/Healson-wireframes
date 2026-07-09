@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Mail, Lock, User as UserIcon, Phone, IdCard, Calendar } from "lucide-react";
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { useStore } from "@/lib/store";
 import { isValidIsraeliId } from "@/lib/utils";
+import { POST_REGISTER_REDIRECT_KEY } from "@/lib/constants";
 import {
   ConsentCheckboxes,
   ConsentValues,
@@ -29,6 +30,7 @@ export default function RegisterPage() {
   const verifyOtp = useStore((s) => s.verifyOtp);
   const resendOtp = useStore((s) => s.resendOtp);
   const currentUser = useStore((s) => s.currentUser);
+  const hasHydrated = useStore((s) => s.hasHydrated);
   const completePatientRegistration = useStore((s) => s.completePatientRegistration);
   const patients = useStore((s) => s.patients);
   const showToast = useStore((s) => s.showToast);
@@ -47,6 +49,34 @@ export default function RegisterPage() {
   const [dateOfBirth, setDateOfBirth] = useState("");
   const [insurance, setInsurance] = useState<InsuranceProfileValue>(EMPTY_INSURANCE_PROFILE);
   const [consents, setConsents] = useState<ConsentValues>({});
+
+  // A demo/lead user can already be authenticated (via loginAsDemo) without
+  // ever having created credentials here — e.g. "מטופל חדש" in the internal
+  // demo, or anyone gated from booking in /client/search. Redirect away if
+  // they already have a patient profile; otherwise `effectivePhase` below
+  // skips straight to profile completion instead of asking for email/
+  // password again.
+  const isUnregisteredLead =
+    hasHydrated &&
+    !!currentUser &&
+    currentUser.role === "patient" &&
+    !patients.some((p) => p.user_id === currentUser.id || p.email === currentUser.email);
+
+  // completePatientRegistration (below) adds the patient record this effect
+  // watches for — without this guard, finishing registration would flip
+  // isUnregisteredLead to false and this effect would race handleFinish's
+  // own navigation, always winning and stranding the user on /client
+  // instead of wherever they were trying to book.
+  const finishingRef = useRef(false);
+
+  useEffect(() => {
+    if (!hasHydrated || !currentUser || finishingRef.current) return;
+    if (currentUser.role === "patient" && !isUnregisteredLead) {
+      router.replace("/client");
+    }
+  }, [hasHydrated, currentUser, isUnregisteredLead, router]);
+
+  const effectivePhase: Phase = phase === "credentials" && isUnregisteredLead ? "profile" : phase;
 
   function handleRegister(e: React.FormEvent) {
     e.preventDefault();
@@ -102,6 +132,7 @@ export default function RegisterPage() {
 
   function handleFinish() {
     if (!currentUser) return;
+    finishingRef.current = true;
     completePatientRegistration(
       currentUser.id,
       {
@@ -118,10 +149,13 @@ export default function RegisterPage() {
       },
       consents
     );
-    router.push("/client");
+    const redirectTo = sessionStorage.getItem(POST_REGISTER_REDIRECT_KEY);
+    sessionStorage.removeItem(POST_REGISTER_REDIRECT_KEY);
+    showToast("ההרשמה הושלמה", { description: "ברוכים הבאים ל-HEALSON", variant: "success" });
+    router.push(redirectTo || "/client");
   }
 
-  if (phase === "otp") {
+  if (effectivePhase === "otp") {
     return (
       <AuthLayout>
         <h1 className="text-lg font-semibold text-slate-900 mb-1">אימות קוד</h1>
@@ -153,7 +187,7 @@ export default function RegisterPage() {
     );
   }
 
-  if (phase === "profile") {
+  if (effectivePhase === "profile") {
     return (
       <AuthLayout>
         <h1 className="text-lg font-semibold text-slate-900 mb-1">פרטים ופרופיל ביטוחי</h1>
@@ -193,7 +227,7 @@ export default function RegisterPage() {
     );
   }
 
-  if (phase === "consent") {
+  if (effectivePhase === "consent") {
     const canFinish = areRequiredConsentsChecked(consents);
     return (
       <AuthLayout>

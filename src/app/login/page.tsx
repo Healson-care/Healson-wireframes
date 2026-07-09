@@ -44,8 +44,8 @@ export default function LoginPage() {
     }, 350);
   }
 
-  function handleDemo(role: "admin" | "provider" | "patient") {
-    loginAsDemo(role);
+  function handleDemo(role: "admin" | "provider" | "patient", patientVariant?: "new" | "existing") {
+    loginAsDemo(role, patientVariant);
     setTimeout(goHome, 50);
   }
 
@@ -108,9 +108,12 @@ export default function LoginPage() {
               transition={{ duration: 0.2, ease: "easeOut" }}
               className="overflow-hidden"
             >
-              <div className="grid grid-cols-3 gap-2 pt-3">
-                <Button variant="outline" size="sm" onClick={() => handleDemo("patient")}>
-                  מטופל
+              <div className="grid grid-cols-2 gap-2 pt-3">
+                <Button variant="outline" size="sm" onClick={() => handleDemo("patient", "new")}>
+                  מטופל חדש
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => handleDemo("patient", "existing")}>
+                  מטופל קיים
                 </Button>
                 <Button variant="outline" size="sm" onClick={() => handleDemo("provider")}>
                   ספק

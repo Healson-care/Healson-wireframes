@@ -15,9 +15,11 @@ import {
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/shared/Logo";
+import { Badge } from "@/components/ui/Badge";
 import { ClientLayoutSkeleton } from "@/components/ui/Skeleton";
 import { CommandPalette } from "@/components/ui/CommandPalette";
 import { useRequireRole } from "@/lib/useRequireRole";
+import { useCurrentPatient } from "@/lib/useCurrentPatient";
 
 const NAV_ITEMS = [
   { href: "/client", label: "בית", icon: Home },
@@ -35,6 +37,7 @@ export function ClientLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
   const logout = useStore((s) => s.logout);
   const { ready, user } = useRequireRole("patient");
+  const patient = useCurrentPatient();
 
   if (!ready || !user) {
     return <ClientLayoutSkeleton />;
@@ -63,6 +66,9 @@ export function ClientLayout({ children }: { children: ReactNode }) {
             ))}
           </nav>
           <div className="flex items-center gap-2">
+            <Badge tone={patient ? "success" : "warning"} title={patient ? "יש רשומת מטופל מלאה" : "מחובר/ת בלי רשומת מטופל — טרם הושלמה הרשמה"}>
+              {patient ? "מטופל רשום" : "ליד"}
+            </Badge>
             <CommandPalette items={COMMAND_ITEMS} />
             <button
               onClick={() => {

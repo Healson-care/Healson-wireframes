@@ -21,7 +21,7 @@ export default function AdminDashboardHome() {
   const leads = useStore((s) => s.leads);
 
   const activePatients = patients.filter((p) => p.status === "פעיל").length;
-  const pendingAppts = appointments.filter((a) => a.status === "ממתין לאישור").length;
+  const pendingAppts = appointments.filter((a) => a.status === "ממתין לתשלום מקדמה").length;
   const completedOrders = orders.filter((o) => o.status === "הושלם");
   const totalRevenue = completedOrders.reduce((sum, o) => sum + (o.final_price || 0), 0);
   const pendingReferrals = labReferrals.filter((r) => r.status === "ממתין לעיבוד").length;
