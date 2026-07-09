@@ -24,6 +24,7 @@ import {
   ToastItem,
   UploadedFile,
   User,
+  WaitlistEntry,
 } from "@/types";
 import {
   SEED_APPOINTMENTS,
@@ -84,6 +85,7 @@ export interface InsuranceProfileInput {
   has_b_insurance?: boolean;
   b_insurance_company?: string;
   b_policy_number?: string;
+  address?: string;
 }
 
 export type RegistrationConsents = Partial<Record<ConsentType, boolean>>;
@@ -108,7 +110,7 @@ interface AuthState {
   loginAsDemo: (role: Role) => void;
   completePatientRegistration: (
     userId: string,
-    data: { full_name: string; phone?: string } & InsuranceProfileInput,
+    data: { full_name: string; phone?: string; id_number: string; date_of_birth: string } & InsuranceProfileInput,
     consents: RegistrationConsents
   ) => Patient;
   quickRegisterPatient: (
@@ -140,6 +142,7 @@ interface EntitiesState {
   appointments: Appointment[];
   orders: Order[];
   labReferrals: LabReferral[];
+  waitlist: WaitlistEntry[];
   branches: typeof SEED_BRANCHES;
   consentRecords: ConsentRecord[];
   dsrRequests: DsrRequest[];
@@ -179,10 +182,14 @@ interface EntitiesState {
   addLabReferral: (r: Omit<LabReferral, "id" | "created_date">) => LabReferral;
   updateLabReferral: (id: string, data: Partial<LabReferral>) => void;
 
+  addWaitlistEntry: (w: Omit<WaitlistEntry, "id" | "created_date" | "status">) => WaitlistEntry;
+
   addCatalogItem: (c: Omit<CatalogItem, "id">) => CatalogItem;
   updateCatalogItem: (id: string, data: Partial<CatalogItem>) => void;
   deleteCatalogItem: (id: string) => void;
   bulkAddCatalogItems: (items: Omit<CatalogItem, "id">[]) => number;
+  bulkDeleteCatalogItems: (ids: string[]) => void;
+  bulkSetCatalogItemsActive: (ids: string[], is_active: boolean) => void;
   bulkAddProviders: (items: Omit<ProviderProfile, "id" | "created_date">[]) => number;
 
   addSkillDomain: (d: Omit<SkillDomain, "id">) => SkillDomain;
@@ -388,6 +395,9 @@ export const useStore = create<Store>()(
           full_name: data.full_name,
           email: user?.email,
           phone: data.phone,
+          id_number: data.id_number,
+          date_of_birth: data.date_of_birth,
+          address: data.address,
           kupah: data.kupah,
           k_level: data.k_level,
           has_b_insurance: data.has_b_insurance,
@@ -416,6 +426,7 @@ export const useStore = create<Store>()(
               has_b_insurance: data.has_b_insurance,
               b_insurance_company: data.b_insurance_company,
               b_policy_number: data.b_policy_number,
+              address: data.address,
             });
           }
           if (consents) {
@@ -443,6 +454,7 @@ export const useStore = create<Store>()(
           has_b_insurance: data.has_b_insurance,
           b_insurance_company: data.b_insurance_company,
           b_policy_number: data.b_policy_number,
+          address: data.address,
           status: "פעיל",
           user_id: newUser.id,
         });
@@ -478,6 +490,7 @@ export const useStore = create<Store>()(
       appointments: SEED_APPOINTMENTS,
       orders: SEED_ORDERS,
       labReferrals: SEED_LAB_REFERRALS,
+      waitlist: [],
       branches: SEED_BRANCHES,
       consentRecords: SEED_CONSENT_RECORDS,
       dsrRequests: SEED_DSR_REQUESTS,
@@ -614,6 +627,12 @@ export const useStore = create<Store>()(
           labReferrals: s.labReferrals.map((r) => (r.id === id ? { ...r, ...data } : r)),
         })),
 
+      addWaitlistEntry: (w) => {
+        const record: WaitlistEntry = { ...w, id: generateId("wait"), status: "ממתין", created_date: new Date().toISOString() };
+        set((s) => ({ waitlist: [record, ...s.waitlist] }));
+        return record;
+      },
+
       addCatalogItem: (c) => {
         const record: CatalogItem = { ...c, id: generateId("cat") };
         set((s) => ({ catalog: [record, ...s.catalog] }));
@@ -626,6 +645,14 @@ export const useStore = create<Store>()(
         const records = items.map((c) => ({ ...c, id: generateId("cat") }));
         set((s) => ({ catalog: [...records, ...s.catalog] }));
         return records.length;
+      },
+      bulkDeleteCatalogItems: (ids) => {
+        const idSet = new Set(ids);
+        set((s) => ({ catalog: s.catalog.filter((c) => !idSet.has(c.id)) }));
+      },
+      bulkSetCatalogItemsActive: (ids, is_active) => {
+        const idSet = new Set(ids);
+        set((s) => ({ catalog: s.catalog.map((c) => (idSet.has(c.id) ? { ...c, is_active } : c)) }));
       },
       bulkAddProviders: (items) => {
         const records = items.map((p) => ({
@@ -648,6 +675,7 @@ export const useStore = create<Store>()(
         set((s) => ({
           skillDomains: s.skillDomains.filter((d) => d.id !== id),
           skillSubdomains: s.skillSubdomains.filter((sd) => sd.domain_id !== id),
+          catalog: s.catalog.filter((c) => c.skill_domain_id !== id),
         })),
       addSkillSubdomain: (sd) => {
         const record: SkillSubdomain = { ...sd, id: generateId("sub") };
@@ -657,7 +685,10 @@ export const useStore = create<Store>()(
       updateSkillSubdomain: (id, data) =>
         set((s) => ({ skillSubdomains: s.skillSubdomains.map((sd) => (sd.id === id ? { ...sd, ...data } : sd)) })),
       deleteSkillSubdomain: (id) =>
-        set((s) => ({ skillSubdomains: s.skillSubdomains.filter((sd) => sd.id !== id) })),
+        set((s) => ({
+          skillSubdomains: s.skillSubdomains.filter((sd) => sd.id !== id),
+          catalog: s.catalog.filter((c) => c.skill_subdomain_id !== id),
+        })),
 
       grantConsent: (patientId, type, version = CONSENT_DOCUMENT_VERSION) => {
         const record: ConsentRecord = {

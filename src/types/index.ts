@@ -23,24 +23,8 @@ export const LAYER_LABELS: Record<InsuranceLayer, string> = {
   H: "פרטי מלא",
 };
 
-// Each Kupah names its own supplemental (שב"ן) plan tiers — they are not a
-// shared/global scale (e.g. Maccabi's "בסיס שלי" has no equivalent tier name
-// in Meuhedet), so the available levels must always be looked up per-Kupah.
-export const KUPAH_LEVELS: Record<Kupah, readonly string[]> = {
-  "כללית": ["בסיס", "פלטינום", "מושלם"],
-  "מכבי": ["בסיס", "שלי", "זהב"],
-  "מאוחדת": ["בסיס", "עדיף", "שיא"],
-  "לאומית": ["בסיס", "זהב"],
-};
-export type KLevel = string;
-
-// A provider's declared K-layer arrangement with a specific Kupah, at a
-// given supplemental-plan level (e.g. מכבי + זהב) — collected at application
-// time (§apply flow) and refined into full ProviderAgreement records later.
-export interface KupahArrangement {
-  kupah: Kupah;
-  level: KLevel;
-}
+export const K_LEVELS = ["בסיס", "זהב", "פלטינום", "מושלם"] as const;
+export type KLevel = (typeof K_LEVELS)[number];
 
 export interface PriceByLayer {
   layer: InsuranceLayer;
@@ -231,6 +215,8 @@ export interface Patient {
   email?: string;
   phone?: string;
   id_number?: string;
+  date_of_birth?: string;
+  address?: string;
   parent_name?: string;
   kupah: Kupah;
   k_level?: KLevel;
@@ -463,6 +449,25 @@ export interface Appointment {
   notes?: string;
   created_by_id?: string; // patient id
   referral_document?: UploadedFile;
+}
+
+export type WaitlistStatus = "ממתין" | "נוצר קשר" | "בוטל";
+export const WAITLIST_STATUSES: WaitlistStatus[] = ["ממתין", "נוצר קשר", "בוטל"];
+
+// A patient's request to be notified if a specific (currently taken) slot
+// opens up — offered inline when they click an unavailable slot in the
+// booking flow (both /book and the client personal-area search share this).
+export interface WaitlistEntry {
+  id: string;
+  provider_id: string;
+  provider_name: string;
+  client_name: string;
+  client_phone?: string;
+  date: string; // yyyy-MM-dd
+  time: string; // HH:mm
+  status: WaitlistStatus;
+  created_by_id?: string; // patient id
+  created_date: string;
 }
 
 export interface Order {

@@ -5,6 +5,8 @@ import {
   ConsentRecord,
   CONSENT_DOCUMENT_VERSION,
   DsrRequest,
+  Kupah,
+  K_LEVELS_BY_KUPAH,
   Lead,
   LabReferral,
   Order,
@@ -350,17 +352,21 @@ const PATIENT_NAMES = [
 
 const B_INSURANCE_COMPANIES = ["כלל", "הראל", "מגדל"];
 
+const KUPAH_CYCLE = ["כללית", "מכבי", "מאוחדת", "לאומית"] as const satisfies readonly Kupah[];
+
 export const SEED_PATIENTS: Patient[] = PATIENT_NAMES.map((name, i) => {
   const hasK = i % 3 === 0;
   const hasB = i % 4 === 1;
+  const kupah = KUPAH_CYCLE[i % 4];
+  const kLevels = K_LEVELS_BY_KUPAH[kupah];
   return {
     id: generateId("pat"),
     full_name: name,
     email: `${name.split(" ")[0]}${i}@example.co.il`,
     phone: `05${i % 2 === 0 ? "2" : "4"}-${1000000 + i * 1234}`,
     id_number: `${200000000 + i * 37}`,
-    kupah: (["כללית", "מכבי", "מאוחדת", "לאומית"] as const)[i % 4],
-    k_level: hasK ? (["בסיס", "זהב", "פלטינום", "מושלם"] as const)[i % 4] : undefined,
+    kupah,
+    k_level: hasK ? kLevels[i % kLevels.length] : undefined,
     has_b_insurance: hasB,
     b_insurance_company: hasB ? B_INSURANCE_COMPANIES[i % B_INSURANCE_COMPANIES.length] : undefined,
     b_policy_number: hasB ? `POL-${100000 + i * 91}` : undefined,
@@ -376,7 +382,7 @@ export const SEED_PATIENTS: Patient[] = PATIENT_NAMES.map((name, i) => {
 SEED_PATIENTS[0].full_name = DEMO_PATIENT_USER.full_name;
 SEED_PATIENTS[0].email = DEMO_PATIENT_USER.email;
 SEED_PATIENTS[0].status = "פעיל";
-SEED_PATIENTS[0].k_level = "זהב";
+SEED_PATIENTS[0].k_level = "כללית זהב";
 SEED_PATIENTS[0].has_b_insurance = true;
 SEED_PATIENTS[0].b_insurance_company = "כלל";
 SEED_PATIENTS[0].b_policy_number = "POL-100000";

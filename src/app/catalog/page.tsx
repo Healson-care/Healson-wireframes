@@ -229,6 +229,8 @@ function CatalogManager() {
 
 function DomainsManager() {
   const skillDomains = useStore((s) => s.skillDomains);
+  const skillSubdomains = useStore((s) => s.skillSubdomains);
+  const catalog = useStore((s) => s.catalog);
   const addSkillDomain = useStore((s) => s.addSkillDomain);
   const updateSkillDomain = useStore((s) => s.updateSkillDomain);
   const deleteSkillDomain = useStore((s) => s.deleteSkillDomain);
@@ -238,6 +240,13 @@ function DomainsManager() {
   const [editing, setEditing] = useState<SkillDomain | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [form, setForm] = useState({ name_he: "", emoji: "", slug: "" });
+
+  const deleteImpact = deleteId
+    ? {
+        subdomains: skillSubdomains.filter((sd) => sd.domain_id === deleteId).length,
+        items: catalog.filter((c) => c.skill_domain_id === deleteId).length,
+      }
+    : null;
 
   function openCreate() {
     setEditing(null);
@@ -306,7 +315,11 @@ function DomainsManager() {
         open={!!deleteId}
         onClose={() => setDeleteId(null)}
         title="מחיקת תחום"
-        description="כל תתי-התחומים המשויכים יימחקו גם הם."
+        description={
+          deleteImpact && (deleteImpact.subdomains > 0 || deleteImpact.items > 0)
+            ? `יימחקו גם ${deleteImpact.subdomains} תתי-תחומים ו-${deleteImpact.items} פריטי קטלוג המשויכים לתחום זה.`
+            : "אין תתי-תחומים או פריטי קטלוג המשויכים לתחום זה."
+        }
         destructive
         confirmLabel="מחק"
         onConfirm={() => {
@@ -323,6 +336,7 @@ function DomainsManager() {
 function SubdomainsManager() {
   const skillDomains = useStore((s) => s.skillDomains);
   const skillSubdomains = useStore((s) => s.skillSubdomains);
+  const catalog = useStore((s) => s.catalog);
   const addSkillSubdomain = useStore((s) => s.addSkillSubdomain);
   const updateSkillSubdomain = useStore((s) => s.updateSkillSubdomain);
   const deleteSkillSubdomain = useStore((s) => s.deleteSkillSubdomain);
@@ -332,6 +346,8 @@ function SubdomainsManager() {
   const [editing, setEditing] = useState<SkillSubdomain | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [form, setForm] = useState({ name_he: "", slug: "", domain_id: skillDomains[0]?.id ?? "" });
+
+  const deleteItemCount = deleteId ? catalog.filter((c) => c.skill_subdomain_id === deleteId).length : 0;
 
   function openCreate() {
     setEditing(null);
@@ -412,6 +428,11 @@ function SubdomainsManager() {
         open={!!deleteId}
         onClose={() => setDeleteId(null)}
         title="מחיקת תת-תחום"
+        description={
+          deleteItemCount > 0
+            ? `יימחקו גם ${deleteItemCount} פריטי קטלוג המשויכים לתת-תחום זה.`
+            : "אין פריטי קטלוג המשויכים לתת-תחום זה."
+        }
         destructive
         confirmLabel="מחק"
         onConfirm={() => {
@@ -446,12 +467,20 @@ function ItemsManager() {
   const addCatalogItem = useStore((s) => s.addCatalogItem);
   const updateCatalogItem = useStore((s) => s.updateCatalogItem);
   const deleteCatalogItem = useStore((s) => s.deleteCatalogItem);
+  const bulkDeleteCatalogItems = useStore((s) => s.bulkDeleteCatalogItems);
+  const bulkSetCatalogItemsActive = useStore((s) => s.bulkSetCatalogItemsActive);
   const showToast = useStore((s) => s.showToast);
 
   const [query, setQuery] = useState("");
+  const [domainFilter, setDomainFilter] = useState("");
+  const [subdomainFilter, setSubdomainFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState<ServiceType | "">("");
+  const [statusFilter, setStatusFilter] = useState<"" | "active" | "inactive">("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<CatalogItem | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const emptyForm = (): ItemFormValues => ({
     name_he: "",
@@ -467,9 +496,20 @@ function ItemsManager() {
   });
   const [form, setForm] = useState<ItemFormValues>(emptyForm());
 
+  const subdomainOptionsForFilter = skillSubdomains.filter((sd) => sd.domain_id === domainFilter);
+
   const filtered = useMemo(
-    () => (query ? catalog.filter((c) => c.name_he.includes(query) || (c.tavar_code ?? "").includes(query)) : catalog),
-    [catalog, query]
+    () =>
+      catalog.filter((c) => {
+        if (query && !c.name_he.includes(query) && !(c.tavar_code ?? "").includes(query)) return false;
+        if (domainFilter && c.skill_domain_id !== domainFilter) return false;
+        if (subdomainFilter && c.skill_subdomain_id !== subdomainFilter) return false;
+        if (typeFilter && c.service_type !== typeFilter) return false;
+        if (statusFilter === "active" && !c.is_active) return false;
+        if (statusFilter === "inactive" && c.is_active) return false;
+        return true;
+      }),
+    [catalog, query, domainFilter, subdomainFilter, typeFilter, statusFilter]
   );
 
   function openCreate() {
@@ -537,11 +577,108 @@ function ItemsManager() {
         </div>
       </CardHeader>
       <CardContent>
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <Select
+            value={domainFilter}
+            onChange={(e) => {
+              setDomainFilter(e.target.value);
+              setSubdomainFilter("");
+            }}
+            className="max-w-[180px]"
+          >
+            <option value="">כל התחומים</option>
+            {skillDomains.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name_he}
+              </option>
+            ))}
+          </Select>
+          <Select
+            value={subdomainFilter}
+            onChange={(e) => setSubdomainFilter(e.target.value)}
+            disabled={!domainFilter}
+            className="max-w-[180px]"
+          >
+            <option value="">כל תתי-התחומים</option>
+            {subdomainOptionsForFilter.map((sd) => (
+              <option key={sd.id} value={sd.id}>
+                {sd.name_he}
+              </option>
+            ))}
+          </Select>
+          <Select
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value as ServiceType | "")}
+            className="max-w-[160px]"
+          >
+            <option value="">כל סוגי השירות</option>
+            {SERVICE_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {SERVICE_TYPE_LABELS[t]}
+              </option>
+            ))}
+          </Select>
+          <Select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as "" | "active" | "inactive")}
+            className="max-w-[140px]"
+          >
+            <option value="">כל הסטטוסים</option>
+            <option value="active">פעיל</option>
+            <option value="inactive">מושבת</option>
+          </Select>
+          {(domainFilter || subdomainFilter || typeFilter || statusFilter) && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setDomainFilter("");
+                setSubdomainFilter("");
+                setTypeFilter("");
+                setStatusFilter("");
+              }}
+            >
+              נקה סינון
+            </Button>
+          )}
+        </div>
         <DataTable<CatalogItem>
           rows={filtered}
           rowKey={(c) => c.id}
           emptyIcon={<LayoutGrid className="h-10 w-10" />}
           emptyTitle="אין פריטי קטלוג"
+          selectable
+          selectedIds={selectedIds}
+          onSelectedIdsChange={setSelectedIds}
+          bulkActions={(ids, clearSelection) => (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  bulkSetCatalogItemsActive(ids, true);
+                  showToast(`${ids.length} פריטים הופעלו`, { variant: "success" });
+                  clearSelection();
+                }}
+              >
+                הפעל
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  bulkSetCatalogItemsActive(ids, false);
+                  showToast(`${ids.length} פריטים הושבתו`, { variant: "success" });
+                  clearSelection();
+                }}
+              >
+                השבת
+              </Button>
+              <Button size="sm" variant="destructive" onClick={() => setBulkDeleteOpen(true)}>
+                <Trash2 className="h-3.5 w-3.5" /> מחק
+              </Button>
+            </>
+          )}
           columns={
             [
               {
@@ -703,6 +840,21 @@ function ItemsManager() {
             deleteCatalogItem(deleteId);
             showToast("פריט הקטלוג נמחק", { variant: "success" });
           }
+        }}
+      />
+
+      <ConfirmDialog
+        open={bulkDeleteOpen}
+        onClose={() => setBulkDeleteOpen(false)}
+        title="מחיקת פריטים נבחרים"
+        description={`${selectedIds.size} פריטי קטלוג יימחקו לצמיתות.`}
+        destructive
+        confirmLabel="מחק"
+        onConfirm={() => {
+          bulkDeleteCatalogItems([...selectedIds]);
+          showToast(`${selectedIds.size} פריטים נמחקו`, { variant: "success" });
+          setSelectedIds(new Set());
+          setBulkDeleteOpen(false);
         }}
       />
     </Card>
