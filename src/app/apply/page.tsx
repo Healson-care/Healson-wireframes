@@ -27,7 +27,8 @@ import {
   DOCTOR_SUBTYPES,
   DOCTOR_SUBTYPE_LABELS,
   DoctorSubtype,
-  KUPAH_LEVELS,
+  KLevel,
+  K_LEVELS_BY_KUPAH,
   Kupah,
   KupahArrangement,
   KUPOT,
@@ -329,9 +330,9 @@ function KupahArrangementPicker({
 }) {
   function toggle(kupah: Kupah) {
     const exists = value.some((a) => a.kupah === kupah);
-    onChange(exists ? value.filter((a) => a.kupah !== kupah) : [...value, { kupah, level: KUPAH_LEVELS[kupah][0] }]);
+    onChange(exists ? value.filter((a) => a.kupah !== kupah) : [...value, { kupah, level: K_LEVELS_BY_KUPAH[kupah][0] }]);
   }
-  function setLevel(kupah: Kupah, level: string) {
+  function setLevel(kupah: Kupah, level: KLevel) {
     onChange(value.map((a) => (a.kupah === kupah ? { ...a, level } : a)));
   }
   return (
@@ -354,10 +355,10 @@ function KupahArrangementPicker({
               {entry && (
                 <Select
                   value={entry.level}
-                  onChange={(e) => setLevel(kupah, e.target.value)}
+                  onChange={(e) => setLevel(kupah, e.target.value as KLevel)}
                   className="max-w-[140px] h-8 text-xs"
                 >
-                  {KUPAH_LEVELS[kupah].map((l) => (
+                  {K_LEVELS_BY_KUPAH[kupah].map((l) => (
                     <option key={l} value={l}>
                       {l}
                     </option>

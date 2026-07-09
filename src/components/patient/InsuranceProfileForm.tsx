@@ -1,7 +1,7 @@
 "use client";
 
 import { Input, Select } from "@/components/ui/Input";
-import { KUPOT, K_LEVELS, Kupah, KLevel } from "@/types";
+import { KUPOT, K_LEVELS_BY_KUPAH, Kupah, KLevel } from "@/types";
 
 export interface InsuranceProfileValue {
   kupah: Kupah;
@@ -35,7 +35,9 @@ export function InsuranceProfileForm({
       <Select
         label="קופת חולים"
         value={value.kupah}
-        onChange={(e) => onChange({ ...value, kupah: e.target.value as Kupah })}
+        onChange={(e) =>
+          onChange({ ...value, kupah: e.target.value as Kupah, k_level: "" })
+        }
         required
       >
         {KUPOT.map((k) => (
@@ -51,7 +53,7 @@ export function InsuranceProfileForm({
         onChange={(e) => onChange({ ...value, k_level: e.target.value as KLevel | "" })}
       >
         <option value="">אין ביטוח קופה נוסף</option>
-        {K_LEVELS.map((level) => (
+        {K_LEVELS_BY_KUPAH[value.kupah].map((level) => (
           <option key={level} value={level}>
             {level}
           </option>
