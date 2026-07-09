@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { DAY_LABELS } from "@/lib/medical-tree";
+import { PROVIDER_STATUS_LABELS } from "@/types";
 
 const LANGUAGE_OPTIONS = ["עברית", "ערבית", "רוסית", "אנגלית"];
 
@@ -91,7 +92,7 @@ export default function ProviderDashboardPage() {
     );
   }
 
-  const isVerified = provider.verification_status === "מאושר";
+  const isVerified = provider.status === "approved";
   const myPatients = patients.filter((p) => p.assigned_provider === provider.id);
   const myOrders = orders.filter((o) => o.provider_id === provider.id);
   const completedOrders = myOrders.filter((o) => o.status === "הושלם");
@@ -137,14 +138,16 @@ export default function ProviderDashboardPage() {
               <h2 className="font-semibold text-slate-900">
                 {provider.title} {provider.display_name}
               </h2>
-              {provider.verification_status === "מאושר" ? (
+              {provider.status === "approved" ? (
                 <Badge tone="green">
                   <BadgeCheck className="h-3 w-3" /> מאושר
                 </Badge>
-              ) : provider.verification_status === "נדחה" ? (
+              ) : provider.status === "rejected" ? (
                 <Badge tone="red">נדחה{provider.rejection_reason ? `: ${provider.rejection_reason}` : ""}</Badge>
+              ) : provider.status === "suspended" ? (
+                <Badge tone="slate">מושהה</Badge>
               ) : (
-                <Badge tone="amber">ממתין לאישור Healson</Badge>
+                <Badge tone="amber">{PROVIDER_STATUS_LABELS[provider.status]}</Badge>
               )}
               {provider.is_published && <Badge tone="blue">פעיל</Badge>}
             </div>
@@ -189,9 +192,9 @@ export default function ProviderDashboardPage() {
             <StatCard label="מטופלים" value={myPatients.length} icon={<Users className="h-4 w-4" />} tone="blue" />
             <StatCard
               label="סטטוס אישור Healson"
-              value={provider.verification_status}
+              value={PROVIDER_STATUS_LABELS[provider.status]}
               icon={<CheckCircle2 className="h-4 w-4" />}
-              tone={isVerified ? "green" : provider.verification_status === "נדחה" ? "rose" : "amber"}
+              tone={isVerified ? "green" : provider.status === "rejected" ? "rose" : "amber"}
             />
             <StatCard
               label="הכנסות (הושלם)"

@@ -6,19 +6,23 @@ import {
   ConsentRecord,
   ConsentType,
   CONSENT_DOCUMENT_VERSION,
+  DoctorSubtype,
   DsrRequest,
   DsrRequestStatus,
   Kupah,
   KLevel,
+  KupahArrangement,
   Lead,
   LabReferral,
   Order,
   Patient,
   ProviderProfile,
+  ProviderType,
   Role,
   SkillDomain,
   SkillSubdomain,
   ToastItem,
+  UploadedFile,
   User,
 } from "@/types";
 import {
@@ -46,6 +50,34 @@ interface PendingRegistration {
   otp: string;
 }
 
+interface PendingProviderApplication {
+  provider_type: ProviderType;
+  full_name: string;
+  contact_name?: string;
+  contact_phone?: string;
+  contact_email?: string;
+  title?: string;
+  specialty: string;
+  license_number?: string;
+  business_reg_number?: string;
+  phone: string;
+  email: string;
+  license_file?: UploadedFile;
+  doctor_subtype?: DoctorSubtype;
+  surgical_board_certificate?: UploadedFile;
+  malpractice_insurance_file?: UploadedFile;
+  surgical_privileges_hospital?: string;
+  description?: string;
+  medical_resume_file?: UploadedFile;
+  kupah_arrangements?: KupahArrangement[];
+  private_insurance_companies?: string[];
+  service_areas?: string[];
+  sub_specialties?: string[];
+  location_count?: number;
+  member_provider_types?: ProviderType[];
+  otp: string;
+}
+
 export interface InsuranceProfileInput {
   kupah: Kupah;
   k_level?: KLevel;
@@ -59,11 +91,17 @@ export type RegistrationConsents = Partial<Record<ConsentType, boolean>>;
 interface AuthState {
   currentUser: User | null;
   pendingRegistration: PendingRegistration | null;
+  pendingProviderApplication: PendingProviderApplication | null;
   login: (email: string, password: string) => { ok: boolean; error?: string };
   loginWithGoogle: () => void;
   register: (email: string, password: string) => { ok: boolean; otpHint: string };
   verifyOtp: (email: string, code: string) => { ok: boolean; error?: string };
   resendOtp: () => string | null;
+  applyAsProvider: (
+    data: Omit<PendingProviderApplication, "otp">
+  ) => { ok: boolean; error?: string; otpHint?: string };
+  verifyProviderApplicationOtp: (code: string) => { ok: boolean; error?: string; providerId?: string };
+  resendProviderApplicationOtp: () => string | null;
   forgotPassword: (email: string) => { ok: boolean };
   resetPassword: (newPassword: string) => { ok: boolean };
   logout: () => void;
@@ -121,8 +159,13 @@ interface EntitiesState {
     data: Partial<ProviderProfile>
   ) => ProviderProfile;
   updateProviderById: (id: string, data: Partial<ProviderProfile>) => void;
-  approveProvider: (id: string) => void;
+  verifyProviderLicense: (id: string) => string;
   rejectProvider: (id: string, reason: string) => void;
+  requestProviderChanges: (id: string, reason: string) => void;
+  approveProviderGoLive: (id: string) => void;
+  suspendProvider: (id: string) => void;
+  reinstateProvider: (id: string) => void;
+  signProviderAgreement: (id: string) => void;
   setProviderCommission: (id: string, rate: number) => void;
   setDefaultCommissionRate: (rate: number) => void;
 
@@ -175,6 +218,7 @@ export const useStore = create<Store>()(
       // ---------------- Auth ----------------
       currentUser: null,
       pendingRegistration: null,
+      pendingProviderApplication: null,
 
       login: (email, password) => {
         if (!email || !password) return { ok: false, error: "נא להזין אימייל וסיסמה" };
@@ -182,6 +226,23 @@ export const useStore = create<Store>()(
           (u) => u.email.toLowerCase() === email.toLowerCase()
         );
         if (existing) {
+          if (existing.role === "provider") {
+            const provider = get().providers.find((p) => p.user_id === existing.id);
+            if (provider?.status === "pending_review") {
+              return { ok: false, error: "בקשת ההצטרפות שלך עדיין ממתינה לבדיקת רישיון. נעדכן אותך במייל בסיום הבדיקה." };
+            }
+            if (provider?.status === "rejected") {
+              return {
+                ok: false,
+                error: provider.rejection_reason
+                  ? `בקשתך נדחתה: ${provider.rejection_reason}`
+                  : "בקשתך להצטרפות נדחתה.",
+              };
+            }
+            if (provider?.status === "suspended") {
+              return { ok: false, error: "חשבון הספק מושהה זמנית. אנא פנה לתמיכה." };
+            }
+          }
           set({ currentUser: existing });
           return { ok: true };
         }
@@ -247,6 +308,67 @@ export const useStore = create<Store>()(
 
       resendOtp: () => {
         const pending = get().pendingRegistration;
+        return pending ? pending.otp : null;
+      },
+
+      applyAsProvider: (data) => {
+        const emailTaken = get().users.some((u) => u.email.toLowerCase() === data.email.toLowerCase());
+        if (emailTaken) return { ok: false, error: "כתובת האימייל כבר רשומה במערכת" };
+        const licenseTaken =
+          !!data.license_number &&
+          get().providers.some((p) => p.status !== "rejected" && p.license_number === data.license_number);
+        if (licenseTaken) return { ok: false, error: "מספר הרישיון כבר רשום במערכת" };
+        const otp = "123456";
+        set({ pendingProviderApplication: { ...data, otp } });
+        return { ok: true, otpHint: otp };
+      },
+
+      verifyProviderApplicationOtp: (code) => {
+        const pending = get().pendingProviderApplication;
+        if (!pending) return { ok: false, error: "לא נמצאה בקשת הצטרפות פעילה" };
+        if (code !== pending.otp) return { ok: false, error: "קוד שגוי, נסה שנית" };
+        const newUser: User = {
+          id: generateId("user"),
+          email: pending.email,
+          full_name: pending.full_name,
+          role: "provider",
+          phone: pending.phone,
+          created_date: new Date().toISOString(),
+        };
+        set((s) => ({ users: [...s.users, newUser], pendingProviderApplication: null }));
+        const provider = get().upsertProviderProfile(newUser.id, {
+          provider_type: pending.provider_type,
+          display_name: pending.full_name,
+          contact_name: pending.contact_name,
+          contact_phone: pending.contact_phone,
+          contact_email: pending.contact_email,
+          title: pending.title,
+          specialty: pending.specialty,
+          license_number: pending.license_number,
+          business_reg_number: pending.business_reg_number,
+          license_file: pending.license_file,
+          doctor_subtype: pending.doctor_subtype,
+          surgical_board_certificate: pending.surgical_board_certificate,
+          malpractice_insurance_file: pending.malpractice_insurance_file,
+          surgical_privileges_hospital: pending.surgical_privileges_hospital,
+          bio: pending.description,
+          medical_resume_file: pending.medical_resume_file,
+          kupah_arrangements: pending.kupah_arrangements,
+          private_insurance_companies: pending.private_insurance_companies,
+          service_areas: pending.service_areas,
+          sub_specialties: pending.sub_specialties,
+          location_count: pending.location_count,
+          member_provider_types: pending.member_provider_types,
+          phone_verified_at: new Date().toISOString(),
+          status: "pending_review",
+        });
+        // No token/session is issued at this stage (PROV-APPLICATION) — the
+        // applicant only gets full login access once Ops verifies the license.
+        return { ok: true, providerId: provider.id };
+      },
+
+      resendProviderApplicationOtp: () => {
+        const pending = get().pendingProviderApplication;
         return pending ? pending.otp : null;
       },
 
@@ -392,23 +514,56 @@ export const useStore = create<Store>()(
       },
 
       updateProviderById: (id, data) =>
-        set((s) => ({ providers: s.providers.map((p) => (p.id === id ? { ...p, ...data } : p)) })),
+        set((s) => ({
+          providers: s.providers.map((p) => {
+            if (p.id !== id) return p;
+            const updated = { ...p, ...data };
+            // Onboarding readiness (FEAT-06) is derived, not set by any single
+            // screen — recompute it here so every write path (agreements,
+            // catalog, sign) stays in sync automatically.
+            if (
+              updated.status === "onboarding" &&
+              !updated.onboarding_ready_at &&
+              updated.agreements.length > 0 &&
+              (updated.consultation_types.length > 0 || updated.exam_types.length > 0) &&
+              updated.agreement_signed_at
+            ) {
+              updated.onboarding_ready_at = new Date().toISOString();
+            }
+            return updated;
+          }),
+        })),
 
-      approveProvider: (id) => {
-        get().updateProviderById(id, { verification_status: "מאושר", rejection_reason: undefined });
+      verifyProviderLicense: (id) => {
+        // Mock credential issuance: the applicant never set a password at
+        // application time (PROV-APPLICATION §out-of-scope) — a temporary
+        // one is "sent" to them once Ops verifies the license and opens
+        // onboarding access. Login itself never actually checks the
+        // password (see login(), matching the rest of this mock app).
+        const tempPassword = Math.random().toString(36).slice(-8);
+        get().updateProviderById(id, { status: "onboarding", license_verified_at: new Date().toISOString() });
+        return tempPassword;
       },
       rejectProvider: (id, reason) => {
-        get().updateProviderById(id, { verification_status: "נדחה", rejection_reason: reason, is_published: false });
+        get().updateProviderById(id, { status: "rejected", rejection_reason: reason, is_published: false });
       },
+      requestProviderChanges: (id, reason) => {
+        get().updateProviderById(id, { status: "onboarding", rejection_reason: reason, onboarding_ready_at: undefined });
+      },
+      approveProviderGoLive: (id) => {
+        get().updateProviderById(id, { status: "approved", is_published: true, rejection_reason: undefined });
+      },
+      suspendProvider: (id) => get().updateProviderById(id, { status: "suspended" }),
+      reinstateProvider: (id) => get().updateProviderById(id, { status: "approved" }),
+      signProviderAgreement: (id) => get().updateProviderById(id, { agreement_signed_at: new Date().toISOString() }),
       setProviderCommission: (id, rate) => get().updateProviderById(id, { commission_rate: rate }),
       setDefaultCommissionRate: (rate) => set({ defaultCommissionRate: rate }),
 
       upsertProviderProfile: (userId, data) => {
         const existing = userId ? get().providers.find((p) => p.user_id === userId) : undefined;
         if (existing) {
-          const updated = { ...existing, ...data };
-          set((s) => ({ providers: s.providers.map((p) => (p.id === existing.id ? updated : p)) }));
-          return updated;
+          get().updateProviderById(existing.id, data);
+          return get().providers.find((p) => p.id === existing.id)!;
         }
         const record: ProviderProfile = {
           id: generateId("prov"),
@@ -416,8 +571,7 @@ export const useStore = create<Store>()(
           display_name: data.display_name ?? "",
           specialty: data.specialty ?? "",
           is_published: false,
-          is_active: true,
-          verification_status: "ממתין",
+          status: "pending_review",
           agreements: [],
           consultation_types: [],
           exam_types: [],

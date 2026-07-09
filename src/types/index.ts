@@ -23,8 +23,24 @@ export const LAYER_LABELS: Record<InsuranceLayer, string> = {
   H: "פרטי מלא",
 };
 
-export const K_LEVELS = ["בסיס", "זהב", "פלטינום", "מושלם"] as const;
-export type KLevel = (typeof K_LEVELS)[number];
+// Each Kupah names its own supplemental (שב"ן) plan tiers — they are not a
+// shared/global scale (e.g. Maccabi's "בסיס שלי" has no equivalent tier name
+// in Meuhedet), so the available levels must always be looked up per-Kupah.
+export const KUPAH_LEVELS: Record<Kupah, readonly string[]> = {
+  "כללית": ["בסיס", "פלטינום", "מושלם"],
+  "מכבי": ["בסיס", "שלי", "זהב"],
+  "מאוחדת": ["בסיס", "עדיף", "שיא"],
+  "לאומית": ["בסיס", "זהב"],
+};
+export type KLevel = string;
+
+// A provider's declared K-layer arrangement with a specific Kupah, at a
+// given supplemental-plan level (e.g. מכבי + זהב) — collected at application
+// time (§apply flow) and refined into full ProviderAgreement records later.
+export interface KupahArrangement {
+  kupah: Kupah;
+  level: KLevel;
+}
 
 export interface PriceByLayer {
   layer: InsuranceLayer;
@@ -84,12 +100,23 @@ export const REFERRAL_STATUSES: ReferralStatus[] = [
   "שגיאה",
 ];
 
-export type ProviderVerificationStatus = "ממתין" | "מאושר" | "נדחה";
-export const PROVIDER_VERIFICATION_STATUSES: ProviderVerificationStatus[] = [
-  "ממתין",
-  "מאושר",
-  "נדחה",
+// Provider onboarding state machine (PROV-APPLICATION / PROV-ONBOARDING):
+// pending_review -> onboarding -> approved, with rejected/suspended off-ramps.
+export type ProviderStatus = "pending_review" | "onboarding" | "approved" | "rejected" | "suspended";
+export const PROVIDER_STATUSES: ProviderStatus[] = [
+  "pending_review",
+  "onboarding",
+  "approved",
+  "rejected",
+  "suspended",
 ];
+export const PROVIDER_STATUS_LABELS: Record<ProviderStatus, string> = {
+  pending_review: "ממתין לבדיקת רישיון",
+  onboarding: "באונבורדינג",
+  approved: "מאושר",
+  rejected: "נדחה",
+  suspended: "מושהה",
+};
 
 export interface User {
   id: string;
@@ -289,10 +316,75 @@ export interface ProviderAgreement {
   notes?: string;
 }
 
+// Provider type (§apply flow) — chosen as the first step of provider
+// registration; drives which fields are mandatory before an admin can
+// review the application.
+export type ProviderType =
+  | "doctor"
+  | "complementary"
+  | "store"
+  | "pharmacy"
+  | "surgery_center"
+  | "medical_institute"
+  | "organization";
+
+export const PROVIDER_TYPES: ProviderType[] = [
+  "doctor",
+  "complementary",
+  "store",
+  "pharmacy",
+  "surgery_center",
+  "medical_institute",
+  "organization",
+];
+
+export const PROVIDER_TYPE_LABELS: Record<ProviderType, string> = {
+  doctor: "רופא/ה",
+  complementary: "נותן שירות משלים",
+  store: "חנות",
+  pharmacy: "בית מרקחת",
+  surgery_center: "חדרי ניתוח",
+  medical_institute: "מכון רפואי",
+  organization: "ארגון / רשת",
+};
+
+export const PROVIDER_TYPE_DESCRIPTIONS: Record<ProviderType, string> = {
+  doctor: "רופא/ה עצמאי/ת עם רישיון עיסוק ממשרד הבריאות",
+  complementary: "רפואה משלימה, טיפולים ופרא-רפואה",
+  store: "חנות מוצרי בריאות, ציוד רפואי או אופטיקה",
+  pharmacy: "בית מרקחת עם רוקח אחראי",
+  surgery_center: "מתקן חדרי ניתוח / מרכז כירורגי",
+  medical_institute: "מכון רפואי / מכון אבחוני",
+  organization: "ארגון המפעיל כמה סוגי ספקים תחת קורת גג אחת",
+};
+
+// Provider types a member (child) provider belongs to — excludes
+// "organization" itself, since an organization is made up of the other
+// provider types, not of other organizations.
+export const ORGANIZATION_MEMBER_TYPES: ProviderType[] = PROVIDER_TYPES.filter(
+  (t) => t !== "organization"
+);
+
+// Doctor sub-type (§apply flow, doctor only) — a surgeon needs credentialing
+// documents a regular physician doesn't: board certification in a surgical
+// specialty, valid malpractice insurance, and the hospital/facility they
+// hold surgical privileges at.
+export type DoctorSubtype = "physician" | "surgeon";
+export const DOCTOR_SUBTYPES: DoctorSubtype[] = ["physician", "surgeon"];
+export const DOCTOR_SUBTYPE_LABELS: Record<DoctorSubtype, string> = {
+  physician: "רופא/ה (לא מנתח/ת)",
+  surgeon: "רופא/ה מנתח/ת",
+};
+
 export interface ProviderProfile {
   id: string;
+  provider_type?: ProviderType;
   user_id?: string;
   display_name: string;
+  contact_name?: string;
+  contact_phone?: string;
+  contact_email?: string;
+  business_reg_number?: string;
   title?: string;
   specialty: string;
   bio?: string;
@@ -305,8 +397,23 @@ export interface ProviderProfile {
   license_expiry_date?: string;
   image_url?: string;
   is_published: boolean;
-  is_active: boolean;
-  verification_status: ProviderVerificationStatus;
+  status: ProviderStatus;
+  phone_verified_at?: string;
+  license_file?: UploadedFile;
+  doctor_subtype?: DoctorSubtype;
+  surgical_board_certificate?: UploadedFile;
+  malpractice_insurance_file?: UploadedFile;
+  surgical_privileges_hospital?: string;
+  medical_resume_file?: UploadedFile;
+  kupah_arrangements?: KupahArrangement[];
+  private_insurance_companies?: string[];
+  service_areas?: string[];
+  sub_specialties?: string[];
+  location_count?: number;
+  member_provider_types?: ProviderType[]; // organization only — which provider types operate under it
+  license_verified_at?: string;
+  agreement_signed_at?: string;
+  onboarding_ready_at?: string;
   rejection_reason?: string;
   commission_rate?: number; // percent Healson takes on this provider's orders
   agreements: ProviderAgreement[];

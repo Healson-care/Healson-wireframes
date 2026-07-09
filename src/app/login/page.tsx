@@ -128,6 +128,12 @@ export default function LoginPage() {
           צור חשבון
         </Link>
       </p>
+      <p className="mt-1.5 text-center text-sm text-slate-500">
+       נותן שירות?{" "}
+        <Link href="/apply" className="text-primary font-medium hover:underline">
+          הגישו בקשת הצטרפות כספק
+        </Link>
+      </p>
       {currentUser && (
         <p className="mt-2 text-center text-xs text-slate-400">מחובר כ-{currentUser.full_name}</p>
       )}

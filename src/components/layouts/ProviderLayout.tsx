@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -19,6 +19,7 @@ import { Logo } from "@/components/shared/Logo";
 import { DashboardSkeleton } from "@/components/ui/Skeleton";
 import { CommandPalette } from "@/components/ui/CommandPalette";
 import { useRequireRole } from "@/lib/useRequireRole";
+import { useCurrentProvider } from "@/lib/useCurrentPatient";
 
 const NAV_ITEMS = [
   { href: "/provider/dashboard", label: "ראשי", icon: LayoutDashboard },
@@ -36,8 +37,17 @@ export function ProviderLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
   const logout = useStore((s) => s.logout);
   const { ready, user } = useRequireRole("provider");
+  const provider = useCurrentProvider();
 
-  if (!ready || !user) {
+  // Providers mid-onboarding get a limited-scope wizard only (INV-SCOPE-GATE-01)
+  // — no calendar, patients, referrals, or lab access until Go-Live.
+  const isOnboarding = ready && provider?.status === "onboarding";
+
+  useEffect(() => {
+    if (isOnboarding) router.replace("/provider/onboarding");
+  }, [isOnboarding, router]);
+
+  if (!ready || !user || isOnboarding) {
     return <DashboardSkeleton />;
   }
 

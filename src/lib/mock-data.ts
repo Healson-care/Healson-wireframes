@@ -68,8 +68,7 @@ const provider2: ProviderProfile = {
   license_issue_date: isoDateDaysFromNow(-1500),
   license_expiry_date: isoDateDaysFromNow(900),
   is_published: true,
-  is_active: true,
-  verification_status: "מאושר",
+  status: "approved",
   commission_rate: 12,
   created_date: isoDateDaysFromNow(-400),
   agreements: [
@@ -157,8 +156,7 @@ const provider1: ProviderProfile = {
   license_issue_date: isoDateDaysFromNow(-2000),
   license_expiry_date: isoDateDaysFromNow(700),
   is_published: true,
-  is_active: true,
-  verification_status: "מאושר",
+  status: "approved",
   commission_rate: 15,
   created_date: isoDateDaysFromNow(-600),
   agreements: [
@@ -236,9 +234,13 @@ const provider3: ProviderProfile = {
   title: "ד\"ר",
   specialty: "נוירולוגיה",
   license_number: "MD-93221",
+  license_file: {
+    file_name: "license-ronit-shani.pdf",
+    uploaded_at: isoDateDaysFromNow(-40),
+    data_url: "data:application/pdf;base64,",
+  },
   is_published: false,
-  is_active: true,
-  verification_status: "ממתין",
+  status: "pending_review",
   created_date: isoDateDaysFromNow(-40),
   agreements: [],
   consultation_types: [],
@@ -247,7 +249,40 @@ const provider3: ProviderProfile = {
   referral_forms: [],
 };
 
-export const SEED_PROVIDERS: ProviderProfile[] = [provider1, provider2, provider3];
+// Mid-onboarding demo record (§PROV-ONBOARDING) — license already verified,
+// all 3 steps complete, waiting on Admin's Go-Live decision.
+const provider4: ProviderProfile = {
+  id: "prov_4",
+  display_name: "ד\"ר יעל אשכנזי",
+  title: "ד\"ר",
+  specialty: "רפואת עור",
+  license_number: "MD-77410",
+  license_file: {
+    file_name: "license-yael-eshkenazi.pdf",
+    uploaded_at: isoDateDaysFromNow(-10),
+    data_url: "data:application/pdf;base64,",
+  },
+  is_published: false,
+  status: "onboarding",
+  license_verified_at: isoDateDaysFromNow(-9),
+  agreement_signed_at: isoDateDaysFromNow(-1),
+  onboarding_ready_at: isoDateDaysFromNow(-1),
+  created_date: isoDateDaysFromNow(-10),
+  agreements: [{ id: generateId("agr"), provider_id: "prov_4", layer: "H" }],
+  consultation_types: [
+    {
+      id: generateId("ct"),
+      name: "ייעוץ עור כללי",
+      duration_minutes: 20,
+      prices: [{ layer: "H", price: 350 }],
+    },
+  ],
+  exam_types: [],
+  clinic_locations: [],
+  referral_forms: [],
+};
+
+export const SEED_PROVIDERS: ProviderProfile[] = [provider1, provider2, provider3, provider4];
 
 // ---------------------------------------------------------------------------
 // Catalog items — derived from the skill taxonomy, 2 items per sub-domain.
