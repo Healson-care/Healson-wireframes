@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   Mail,
   User as UserIcon,
@@ -16,13 +17,19 @@ import {
   Network,
   FlaskConical,
   Shield,
+  ShieldCheck,
   BadgeCheck,
   Upload,
   CheckCircle2,
   ChevronRight,
   MapPin,
+  Layers,
+  PartyPopper,
+  FileText,
+  Sparkles,
+  Rocket,
 } from "lucide-react";
-import { AuthLayout } from "@/components/layouts/AuthLayout";
+import { Logo } from "@/components/shared/Logo";
 import { Input, Select, Textarea } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { useStore } from "@/lib/store";
@@ -548,7 +555,7 @@ function KupahArrangementPicker({
   }
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-sm font-medium text-slate-700">עם אילו קופות חולים יש הסדר (K)</span>
+      <span className="text-sm font-medium text-slate-700">עם אילו קופות חולים יש הסכם (K)</span>
       <div className="flex flex-col gap-2">
         {KUPOT.map((kupah) => {
           const entry = value.find((a) => a.kupah === kupah);
@@ -580,6 +587,171 @@ function KupahArrangementPicker({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+const APPLY_STEPS: { key: string; label: string; icon: ReactNode }[] = [
+  { key: "type", label: "סוג ספק", icon: <Layers className="h-4 w-4" /> },
+  { key: "form", label: "פרטי הבקשה", icon: <ClipboardPlus className="h-4 w-4" /> },
+  { key: "otp", label: "אימות טלפון", icon: <ShieldCheck className="h-4 w-4" /> },
+  { key: "success", label: "סיום", icon: <PartyPopper className="h-4 w-4" /> },
+];
+
+function phaseToStepIndex(phase: Phase): number {
+  if (phase === "category" || phase === "type") return 0;
+  if (phase === "form") return 1;
+  if (phase === "otp") return 2;
+  return 3;
+}
+
+function ApplyStepper({ phase }: { phase: Phase }) {
+  const activeIndex = phaseToStepIndex(phase);
+  return (
+    <div className="mb-6 flex items-start">
+      {APPLY_STEPS.map((step, i) => {
+        const isDone = i < activeIndex;
+        const isActive = i === activeIndex;
+        return (
+          <div key={step.key} className={`flex items-center ${i < APPLY_STEPS.length - 1 ? "flex-1" : ""}`}>
+            <div className="flex flex-col items-center gap-1.5">
+              <motion.div
+                animate={{
+                  backgroundColor: isDone || isActive ? "var(--color-primary)" : "#f1f5f9",
+                  color: isDone || isActive ? "#ffffff" : "#94a3b8",
+                  scale: isActive ? 1.12 : 1,
+                }}
+                transition={{ duration: 0.25 }}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-sm"
+              >
+                {isDone ? <CheckCircle2 className="h-4 w-4" /> : step.icon}
+              </motion.div>
+              <span className={`text-[10px] font-medium whitespace-nowrap ${isDone || isActive ? "text-slate-700" : "text-slate-400"}`}>
+                {step.label}
+              </span>
+            </div>
+            {i < APPLY_STEPS.length - 1 && (
+              <div className="relative mx-1 -mt-5 h-0.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                <motion.div
+                  className="absolute inset-y-0 right-0 bg-primary"
+                  initial={false}
+                  animate={{ width: i < activeIndex ? "100%" : "0%" }}
+                  transition={{ duration: 0.35 }}
+                />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ApplyShell({ phase, wide, children }: { phase: Phase; wide?: boolean; children: ReactNode }) {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-primary/5 via-slate-50 to-amber-50 p-4">
+      <div className="mb-6">
+        <Logo size={40} className="text-xl" />
+      </div>
+      <div
+        className={`w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-lg transition-[max-width] duration-300 sm:p-8 ${
+          wide ? "max-w-2xl" : "max-w-sm"
+        }`}
+      >
+        <ApplyStepper phase={phase} />
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={phase}
+            initial={{ opacity: 0, x: 14 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -14 }}
+            transition={{ duration: 0.25, ease: "easeOut" }}
+          >
+            {children}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+      <p className="mt-6 text-xs text-slate-400">פלטפורמת ניהול שירותי בריאות בישראל © 2026</p>
+    </div>
+  );
+}
+
+function OtpInput({
+  value,
+  onChange,
+  length = 6,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  length?: number;
+}) {
+  const refs = useRef<(HTMLInputElement | null)[]>([]);
+  const digits = Array.from({ length }, (_, i) => value[i] ?? "");
+
+  function setDigit(i: number, raw: string) {
+    const clean = raw.replace(/\D/g, "").slice(-1);
+    const next = digits.slice();
+    next[i] = clean;
+    onChange(next.join("").replace(/\s+$/, ""));
+    if (clean && i < length - 1) refs.current[i + 1]?.focus();
+  }
+
+  function handleKeyDown(i: number, e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Backspace" && !digits[i] && i > 0) refs.current[i - 1]?.focus();
+  }
+
+  function handlePaste(e: React.ClipboardEvent<HTMLInputElement>) {
+    const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, length);
+    if (!pasted) return;
+    e.preventDefault();
+    onChange(pasted);
+    refs.current[Math.min(pasted.length, length - 1)]?.focus();
+  }
+
+  return (
+    <div dir="ltr" className="flex justify-center gap-2">
+      {digits.map((d, i) => (
+        <input
+          key={i}
+          ref={(el) => {
+            refs.current[i] = el;
+          }}
+          inputMode="numeric"
+          maxLength={1}
+          value={d}
+          onChange={(e) => setDigit(i, e.target.value)}
+          onKeyDown={(e) => handleKeyDown(i, e)}
+          onPaste={handlePaste}
+          className="h-12 w-10 rounded-lg border border-slate-300 bg-white text-center text-lg font-semibold outline-none transition-shadow focus:border-primary focus:ring-2 focus:ring-primary/20"
+        />
+      ))}
+    </div>
+  );
+}
+
+function FormSection({
+  icon,
+  title,
+  description,
+  children,
+}: {
+  icon: ReactNode;
+  title: string;
+  description?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+          {icon}
+        </div>
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
+          {description && <p className="text-xs text-slate-500">{description}</p>}
+        </div>
+      </div>
+      <div className="flex flex-col gap-3">{children}</div>
     </div>
   );
 }
@@ -749,29 +921,34 @@ export default function ProviderApplyPage() {
 
   if (phase === "category") {
     return (
-      <AuthLayout>
+      <ApplyShell phase={phase}>
         <div className="mb-4">
           <h1 className="text-lg font-semibold text-slate-900">הצטרף כנותן שירות ל-Healson</h1>
           <p className="text-xs text-slate-500 mt-1">בחר/י את סוג הספק כדי להמשיך — לכל סוג יש פרטים שונים שנדרשים לאישור ראשוני</p>
         </div>
         <div className="flex flex-col gap-2">
           {(Object.entries(CATEGORY_CONFIG) as [ProviderCategory, (typeof CATEGORY_CONFIG)[ProviderCategory]][]).map(
-            ([value, cfg]) => (
-              <button
+            ([value, cfg], i) => (
+              <motion.button
                 key={value}
                 type="button"
                 onClick={() => selectCategory(value)}
-                className="flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-3 text-right hover:border-primary hover:bg-primary/5 transition-colors"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.05, duration: 0.25 }}
+                whileHover={{ scale: 1.015 }}
+                whileTap={{ scale: 0.985 }}
+                className="group flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-3 text-right hover:border-primary hover:bg-primary/5 hover:shadow-sm transition-colors"
               >
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-amber-100 to-amber-200 text-amber-700">
                   {cfg.icon}
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-slate-900">{cfg.label}</p>
                   <p className="text-xs text-slate-500 truncate">{cfg.description}</p>
                 </div>
-                <ChevronRight className="h-4 w-4 shrink-0 text-slate-400 rtl:rotate-180" />
-              </button>
+                <ChevronRight className="h-4 w-4 shrink-0 text-slate-400 rtl:rotate-180 transition-transform group-hover:-translate-x-0.5" />
+              </motion.button>
             )
           )}
         </div>
@@ -781,13 +958,13 @@ export default function ProviderApplyPage() {
             התחבר
           </Link>
         </p>
-      </AuthLayout>
+      </ApplyShell>
     );
   }
 
   if (phase === "type" && category) {
     return (
-      <AuthLayout>
+      <ApplyShell phase={phase}>
         <div className="mb-4 flex items-center gap-2">
           <button
             type="button"
@@ -816,24 +993,29 @@ export default function ProviderApplyPage() {
           </button>
         </div>
         <div className="flex flex-col gap-2">
-          {CATEGORY_TYPES[category].map((value) => {
+          {CATEGORY_TYPES[category].map((value, i) => {
             const cfg = TYPE_CONFIG[value]!;
             return (
-              <button
+              <motion.button
                 key={value}
                 type="button"
                 onClick={() => selectType(value)}
-                className="flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-3 text-right hover:border-primary hover:bg-primary/5 transition-colors"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.05, duration: 0.25 }}
+                whileHover={{ scale: 1.015 }}
+                whileTap={{ scale: 0.985 }}
+                className="group flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-3 text-right hover:border-primary hover:bg-primary/5 hover:shadow-sm transition-colors"
               >
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-amber-100 to-amber-200 text-amber-700">
                   {cfg.icon}
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-slate-900">{cfg.label}</p>
                   <p className="text-xs text-slate-500 truncate">{cfg.description}</p>
                 </div>
-                <ChevronRight className="h-4 w-4 shrink-0 text-slate-400 rtl:rotate-180" />
-              </button>
+                <ChevronRight className="h-4 w-4 shrink-0 text-slate-400 rtl:rotate-180 transition-transform group-hover:-translate-x-0.5" />
+              </motion.button>
             );
           })}
         </div>
@@ -843,66 +1025,104 @@ export default function ProviderApplyPage() {
             התחבר
           </Link>
         </p>
-      </AuthLayout>
+      </ApplyShell>
     );
   }
 
   if (phase === "otp") {
     return (
-      <AuthLayout>
-        <h1 className="text-lg font-semibold text-slate-900 mb-1">אימות מספר טלפון</h1>
-        <p className="text-sm text-slate-500 mb-5">שלחנו קוד אימות בן 6 ספרות למספר {phone}</p>
+      <ApplyShell phase={phase}>
+        <div className="flex flex-col items-center text-center mb-5">
+          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <ShieldCheck className="h-6 w-6" />
+          </div>
+          <h1 className="text-lg font-semibold text-slate-900">אימות מספר טלפון</h1>
+          <p className="text-sm text-slate-500 mt-1">
+            שלחנו קוד אימות בן 6 ספרות למספר <bdi className="font-medium text-slate-700">{phone}</bdi>
+          </p>
+        </div>
         {error && (
           <div className="mb-4 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
             {error}
           </div>
         )}
-        <form onSubmit={handleVerify} className="flex flex-col gap-3">
-          <Input
-            inputMode="numeric"
-            maxLength={6}
-            placeholder="123456"
-            label="קוד אימות"
-            value={otpCode}
-            onChange={(e) => setOtpCode(e.target.value)}
-            className="text-center tracking-[0.4em] text-lg"
-            required
-          />
+        <form onSubmit={handleVerify} className="flex flex-col gap-4">
+          <OtpInput value={otpCode} onChange={setOtpCode} />
           <Button type="submit" loading={loading} className="w-full">
             אמת קוד
           </Button>
-          <button type="button" onClick={handleResend} className="text-sm text-primary hover:underline">
+          <button type="button" onClick={handleResend} className="text-sm text-primary hover:underline text-center">
             שלח קוד מחדש
           </button>
         </form>
-      </AuthLayout>
+      </ApplyShell>
     );
   }
 
   if (phase === "success") {
+    const roadmap = [
+      { icon: <FileText className="h-4 w-4" />, label: "הבקשה נשלחה", done: true },
+      { icon: <ShieldCheck className="h-4 w-4" />, label: "בדיקת רישיון ואישור ע\"י צוות Healson", done: false },
+      { icon: <Sparkles className="h-4 w-4" />, label: "השלמת קטלוג שירותים והסכם התקשרות", done: false },
+      { icon: <Rocket className="h-4 w-4" />, label: "עלייה לאוויר בפלטפורמה", done: false },
+    ];
     return (
-      <AuthLayout>
+      <ApplyShell phase={phase}>
         <div className="flex flex-col items-center text-center gap-3 py-2">
-          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-success-bg text-success-text">
+          <motion.div
+            initial={{ scale: 0.5, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ type: "spring", stiffness: 260, damping: 18 }}
+            className="flex h-14 w-14 items-center justify-center rounded-full bg-success-bg text-success-text"
+          >
             <CheckCircle2 className="h-7 w-7" />
-          </div>
+          </motion.div>
           <h1 className="text-lg font-semibold text-slate-900">בקשתך נשלחה בהצלחה</h1>
           <p className="text-sm text-slate-500 leading-relaxed">
             צוות Healson יבדוק את הפרטים והרישיון שצירפת. נעדכן אותך במייל ובהודעת טקסט כשהבדיקה תושלם ותוכל/י להמשיך
             להשלמת פרטי ההצטרפות + קישור, שם משתמש וסיסמא למערכת (הסדרי ביטוח, קטלוג שירותים, מיקומים והסכם).
           </p>
+
+          <div className="mt-2 w-full rounded-xl border border-slate-100 bg-slate-50/60 p-4 text-right">
+            <p className="mb-3 text-xs font-semibold text-slate-500">מה קורה עכשיו</p>
+            <div className="flex flex-col gap-3">
+              {roadmap.map((step, i) => (
+                <motion.div
+                  key={step.label}
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.15 + i * 0.1, duration: 0.25 }}
+                  className="flex items-center gap-3"
+                >
+                  <div
+                    className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
+                      step.done ? "bg-success text-white" : "bg-white border border-slate-200 text-slate-400"
+                    }`}
+                  >
+                    {step.done ? <CheckCircle2 className="h-4 w-4" /> : step.icon}
+                  </div>
+                  <span className={`text-sm ${step.done ? "text-slate-900 font-medium" : "text-slate-500"}`}>
+                    {step.label}
+                  </span>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+
           <Link href="/login" className="mt-2 text-sm font-medium text-primary hover:underline">
             חזרה למסך הכניסה
           </Link>
         </div>
-      </AuthLayout>
+      </ApplyShell>
     );
   }
 
   if (!config || !providerType) return null;
 
+  const showInsuranceSection = (config.showKupot || config.showPrivateInsurance) && extraFieldsGate;
+
   return (
-    <AuthLayout>
+    <ApplyShell phase={phase} wide>
       <div className="mb-4 flex items-center gap-2">
         <button
           type="button"
@@ -931,293 +1151,330 @@ export default function ProviderApplyPage() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-        {config.showTitle ? (
-          <div className="grid grid-cols-3 gap-2">
-            <Select
-              label="תואר"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="col-span-1"
-              required
-            >
-              {TITLES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </Select>
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <FormSection icon={<UserIcon className="h-4 w-4" />} title="פרטים אישיים ויצירת קשר">
+          {config.showTitle ? (
+            <div className="grid grid-cols-3 gap-2">
+              <Select
+                label="תואר"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="col-span-1"
+                required
+              >
+                {TITLES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </Select>
+              <Input
+                label={config.nameLabel}
+                icon={<UserIcon className="h-4 w-4" />}
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                className="col-span-2"
+                required
+              />
+            </div>
+          ) : (
             <Input
               label={config.nameLabel}
               icon={<UserIcon className="h-4 w-4" />}
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
-              className="col-span-2"
+              required
+            />
+          )}
+
+          {isDoctor && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium text-slate-700">סוג רופא/ה</span>
+              <div className="flex gap-2">
+                {DOCTOR_SUBTYPES.map((st) => (
+                  <button
+                    key={st}
+                    type="button"
+                    onClick={() => setDoctorSubtype(st)}
+                    className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                      doctorSubtype === st
+                        ? "border-primary bg-primary/5 text-primary"
+                        : "border-slate-200 text-slate-600 hover:border-slate-300"
+                    }`}
+                  >
+                    {DOCTOR_SUBTYPE_LABELS[st]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {config.showContactName && config.contactNameFirst && extraFieldsGate && (
+            <Input
+              label={config.contactNameLabel}
+              icon={<UserIcon className="h-4 w-4" />}
+              value={contactName}
+              onChange={(e) => setContactName(e.target.value)}
+              required={config.contactNameRequired !== false}
+            />
+          )}
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Input
+              type="tel"
+              label="מספר טלפון"
+              icon={<Phone className="h-4 w-4" />}
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              required
+            />
+            <Input
+              type="email"
+              placeholder="you@example.com"
+              label="אימייל"
+              icon={<Mail className="h-4 w-4" />}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               required
             />
           </div>
-        ) : (
-          <Input
-            label={config.nameLabel}
-            icon={<UserIcon className="h-4 w-4" />}
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            required
-          />
-        )}
 
-        {isDoctor && (
-          <div className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-slate-700">סוג רופא/ה</span>
-            <div className="flex gap-2">
-              {DOCTOR_SUBTYPES.map((st) => (
-                <button
-                  key={st}
-                  type="button"
-                  onClick={() => setDoctorSubtype(st)}
-                  className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-                    doctorSubtype === st
-                      ? "border-primary bg-primary/5 text-primary"
-                      : "border-slate-200 text-slate-600 hover:border-slate-300"
-                  }`}
-                >
-                  {DOCTOR_SUBTYPE_LABELS[st]}
-                </button>
-              ))}
+          {config.showContactName && !config.contactNameFirst && extraFieldsGate && (
+            <Input
+              label={config.contactNameLabel}
+              icon={<UserIcon className="h-4 w-4" />}
+              value={contactName}
+              onChange={(e) => setContactName(e.target.value)}
+              required={config.contactNameRequired !== false}
+            />
+          )}
+
+          {(config.showContactPhone || config.showContactEmail) && extraFieldsGate && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {config.showContactPhone && (
+                <Input
+                  type="tel"
+                  label="טלפון איש קשר (לא חובה)"
+                  icon={<Phone className="h-4 w-4" />}
+                  value={contactPhone}
+                  onChange={(e) => setContactPhone(e.target.value)}
+                />
+              )}
+
+              {config.showContactEmail && (
+                <Input
+                  type="email"
+                  placeholder="you@example.com"
+                  label="אימייל איש קשר (לא חובה)"
+                  icon={<Mail className="h-4 w-4" />}
+                  value={contactEmail}
+                  onChange={(e) => setContactEmail(e.target.value)}
+                />
+              )}
             </div>
-          </div>
-        )}
+          )}
+        </FormSection>
 
-        {config.showContactName && config.contactNameFirst && extraFieldsGate && (
-          <Input
-            label={config.contactNameLabel}
-            icon={<UserIcon className="h-4 w-4" />}
-            value={contactName}
-            onChange={(e) => setContactName(e.target.value)}
-            required={config.contactNameRequired !== false}
-          />
-        )}
-
-<Input
-          type="tel"
-          label="מספר טלפון"
-          icon={<Phone className="h-4 w-4" />}
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          required
-        />
-        <Input
-          type="email"
-          placeholder="you@example.com"
-          label="אימייל"
-          icon={<Mail className="h-4 w-4" />}
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
-
-{config.showContactName && !config.contactNameFirst && extraFieldsGate && (
-          <Input
-            label={config.contactNameLabel}
-            icon={<UserIcon className="h-4 w-4" />}
-            value={contactName}
-            onChange={(e) => setContactName(e.target.value)}
-            required={config.contactNameRequired !== false}
-          />
-        )}
-
-        {config.showContactPhone && extraFieldsGate && (
-          <Input
-            type="tel"
-            label="טלפון איש קשר (לא חובה)"
-            icon={<Phone className="h-4 w-4" />}
-            value={contactPhone}
-            onChange={(e) => setContactPhone(e.target.value)}
-          />
-        )}
-
-        {config.showContactEmail && extraFieldsGate && (
-          <Input
-            type="email"
-            placeholder="you@example.com"
-            label="אימייל איש קשר (לא חובה)"
-            icon={<Mail className="h-4 w-4" />}
-            value={contactEmail}
-            onChange={(e) => setContactEmail(e.target.value)}
-          />
-        )}
-
-
-        {config.freeTextSpecialty ? (
-          <Input
-            label={config.specialtyLabel}
-            value={specialty}
-            onChange={(e) => setSpecialty(e.target.value)}
-            required
-          />
-        ) : config.multiSpecialty ? (
-          <MultiSelectPills
-            label={config.specialtyLabel}
-            options={config.specialtyOptions}
-            value={specialtyMulti}
-            onChange={setSpecialtyMulti}
-          />
-        ) : (
-          <Select
-            label={config.specialtyLabel}
-            value={specialty}
-            onChange={(e) => {
-              setSpecialty(e.target.value);
-              setSubSpecialties([]);
-            }}
-            required
-          >
-            <option value="">בחר/י {config.specialtyLabel}</option>
-            {config.specialtyOptions.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </Select>
-        )}
-
-        {config.showSubSpecialties && specialty && (
-          <>
+        <FormSection icon={<Stethoscope className="h-4 w-4" />} title="פרטי המקצוע והרישוי">
+          {config.freeTextSpecialty ? (
+            <Input
+              label={config.specialtyLabel}
+              value={specialty}
+              onChange={(e) => setSpecialty(e.target.value)}
+              required
+            />
+          ) : config.multiSpecialty ? (
             <MultiSelectPills
-              label={isDoctor ? "תתי התמחות (ניתן לבחור יותר מאחת)" : "תתי קטגוריה (ניתן לבחור יותר מאחת)"}
-              options={[
-                ...(SUBSPECIALTIES_BY_SPECIALTY[specialty] ?? STORE_SUBTYPES_BY_CATEGORY[specialty] ?? []),
-                "אחר",
-              ]}
-              value={subSpecialties}
-              onChange={setSubSpecialties}
+              label={config.specialtyLabel}
+              options={config.specialtyOptions}
+              value={specialtyMulti}
+              onChange={setSpecialtyMulti}
             />
-            {subSpecialties.includes("אחר") && (
-              <Input
-                label={isDoctor ? 'פירוט תת התמחות "אחר"' : 'פירוט קטגוריה "אחר"'}
-                value={otherSubSpecialty}
-                onChange={(e) => setOtherSubSpecialty(e.target.value)}
-              />
+          ) : (
+            <Select
+              label={config.specialtyLabel}
+              value={specialty}
+              onChange={(e) => {
+                setSpecialty(e.target.value);
+                setSubSpecialties([]);
+              }}
+              required
+            >
+              <option value="">בחר/י {config.specialtyLabel}</option>
+              {config.specialtyOptions.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </Select>
+          )}
+
+          <AnimatePresence initial={false}>
+            {config.showSubSpecialties && specialty && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.2 }}
+                className="flex flex-col gap-3 overflow-hidden"
+              >
+                <MultiSelectPills
+                  label={isDoctor ? "תתי התמחות (ניתן לבחור יותר מאחת)" : "תתי קטגוריה (ניתן לבחור יותר מאחת)"}
+                  options={[
+                    ...(SUBSPECIALTIES_BY_SPECIALTY[specialty] ?? STORE_SUBTYPES_BY_CATEGORY[specialty] ?? []),
+                    "אחר",
+                  ]}
+                  value={subSpecialties}
+                  onChange={setSubSpecialties}
+                />
+                {subSpecialties.includes("אחר") && (
+                  <Input
+                    label={isDoctor ? 'פירוט תת התמחות "אחר"' : 'פירוט קטגוריה "אחר"'}
+                    value={otherSubSpecialty}
+                    onChange={(e) => setOtherSubSpecialty(e.target.value)}
+                  />
+                )}
+              </motion.div>
             )}
-          </>
-        )}
+          </AnimatePresence>
 
-        {config.showMemberProviderTypes && (
-          <MultiSelectPills
-            label="אילו סוגי ספקים פועלים בארגון (ניתן לבחור יותר מאחד)"
-            options={ORGANIZATION_MEMBER_TYPES}
-            value={memberProviderTypes}
-            onChange={(v) => setMemberProviderTypes(v as ProviderType[])}
-            getLabel={(t) => PROVIDER_TYPE_LABELS[t as ProviderType]}
-          />
-        )}
-
-        {config.showBusinessRegNumber && extraFieldsGate && (
-          <Input
-            label={`מספר עוסק מורשה / ח"פ${config.businessRegRequired === false ? " (לא חובה)" : ""}`}
-            icon={<BadgeCheck className="h-4 w-4" />}
-            value={businessRegNumber}
-            onChange={(e) => setBusinessRegNumber(e.target.value)}
-            required={config.businessRegRequired !== false}
-          />
-        )}
-
-        {config.showLicenseNumber !== false && extraFieldsGate && (
-          <Input
-            label={config.licenseNumberLabel}
-            icon={<BadgeCheck className="h-4 w-4" />}
-            value={licenseNumber}
-            onChange={(e) => setLicenseNumber(e.target.value)}
-            required
-          />
-        )}
-
-        <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
-          {config.licenseFileLabel}
-          <span className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-2.5 text-sm text-slate-600 cursor-pointer hover:border-primary">
-            <Upload className="h-4 w-4 shrink-0" />
-            <span className="truncate">{licenseFile ? licenseFile.name : "בחר קובץ"}</span>
-            <input
-              type="file"
-              accept=".pdf,.jpg,.jpeg,.png"
-              className="hidden"
-              onChange={(e) => setLicenseFile(e.target.files?.[0] ?? null)}
+          {config.showMemberProviderTypes && (
+            <MultiSelectPills
+              label="אילו סוגי ספקים פועלים בארגון (ניתן לבחור יותר מאחד)"
+              options={ORGANIZATION_MEMBER_TYPES}
+              value={memberProviderTypes}
+              onChange={(v) => setMemberProviderTypes(v as ProviderType[])}
+              getLabel={(t) => PROVIDER_TYPE_LABELS[t as ProviderType]}
             />
-          </span>
-        </label>
+          )}
 
-        {isSurgeon && (
-          <Input
-            label="בית חולים / מוסד בו קיימת הרשאת ניתוח"
-            icon={<Building2 className="h-4 w-4" />}
-            value={surgicalPrivilegesHospital}
-            onChange={(e) => setSurgicalPrivilegesHospital(e.target.value)}
-            required
-          />
-        )}
+          {config.showBusinessRegNumber && extraFieldsGate && (
+            <Input
+              label={`מספר עוסק מורשה / ח"פ${config.businessRegRequired === false ? " (לא חובה)" : ""}`}
+              icon={<BadgeCheck className="h-4 w-4" />}
+              value={businessRegNumber}
+              onChange={(e) => setBusinessRegNumber(e.target.value)}
+              required={config.businessRegRequired !== false}
+            />
+          )}
+
+          {config.showLicenseNumber !== false && extraFieldsGate && (
+            <Input
+              label={config.licenseNumberLabel}
+              icon={<BadgeCheck className="h-4 w-4" />}
+              value={licenseNumber}
+              onChange={(e) => setLicenseNumber(e.target.value)}
+              required
+            />
+          )}
+
+          <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+            {config.licenseFileLabel}
+            <span className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-2.5 text-sm text-slate-600 cursor-pointer hover:border-primary hover:bg-primary/5 transition-colors">
+              <Upload className="h-4 w-4 shrink-0" />
+              <span className="truncate">{licenseFile ? licenseFile.name : "בחר קובץ"}</span>
+              <input
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png"
+                className="hidden"
+                onChange={(e) => setLicenseFile(e.target.files?.[0] ?? null)}
+              />
+            </span>
+          </label>
+
+          <AnimatePresence initial={false}>
+            {isSurgeon && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.2 }}
+                className="overflow-hidden"
+              >
+                <Input
+                  label="בית חולים / מוסד בו קיימת הרשאת ניתוח"
+                  icon={<Building2 className="h-4 w-4" />}
+                  value={surgicalPrivilegesHospital}
+                  onChange={(e) => setSurgicalPrivilegesHospital(e.target.value)}
+                  required
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </FormSection>
 
         <div className="rounded-lg bg-info-bg border border-info-border px-3 py-2 text-xs text-info-text">
           את הפרטים הבאים ניתן להשלים ולערוך גם מאוחר יותר, דרך הפורטל האישי, לאחר אישור הבקשה
         </div>
 
-        {config.showDescription && (
-          <Textarea
-            label={isDoctor ? "תיאור / אודות הרופא/ה" : "תיאור"}
-            placeholder={isDoctor ? "ספר/י בקצרה על עצמך כרופא/ה — ניסיון, גישה טיפולית וכו׳" : undefined}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        )}
-
-        {config.showMedicalResume && extraFieldsGate && (
-          <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
-            רזומה רפואי (לא חובה)
-            <span className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-2.5 text-sm text-slate-600 cursor-pointer hover:border-primary">
-              <Upload className="h-4 w-4 shrink-0" />
-              <span className="truncate">{medicalResumeFile ? medicalResumeFile.name : "בחר קובץ"}</span>
-              <input
-                type="file"
-                accept=".pdf,.jpg,.jpeg,.png"
-                className="hidden"
-                onChange={(e) => setMedicalResumeFile(e.target.files?.[0] ?? null)}
+        {(config.showDescription || (config.showMedicalResume && extraFieldsGate)) && (
+          <FormSection icon={<FileText className="h-4 w-4" />} title="תיאור ומסמכים נוספים">
+            {config.showDescription && (
+              <Textarea
+                label={isDoctor ? "תיאור / אודות הרופא/ה" : "תיאור"}
+                placeholder={isDoctor ? "ספר/י בקצרה על עצמך כרופא/ה — ניסיון, גישה טיפולית וכו׳" : undefined}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
               />
-            </span>
-          </label>
+            )}
+
+            {config.showMedicalResume && extraFieldsGate && (
+              <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+                רזומה רפואי (לא חובה)
+                <span className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-2.5 text-sm text-slate-600 cursor-pointer hover:border-primary hover:bg-primary/5 transition-colors">
+                  <Upload className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{medicalResumeFile ? medicalResumeFile.name : "בחר קובץ"}</span>
+                  <input
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png"
+                    className="hidden"
+                    onChange={(e) => setMedicalResumeFile(e.target.files?.[0] ?? null)}
+                  />
+                </span>
+              </label>
+            )}
+          </FormSection>
         )}
 
-        {config.showKupot && extraFieldsGate && (
-          <KupahArrangementPicker value={kupahArrangements} onChange={setKupahArrangements} />
+        {showInsuranceSection && (
+          <FormSection icon={<Shield className="h-4 w-4" />} title="כיסוי ביטוחי">
+            {config.showKupot && (
+              <KupahArrangementPicker value={kupahArrangements} onChange={setKupahArrangements} />
+            )}
+
+            {config.showPrivateInsurance && (
+              <MultiSelectPills
+                label="עם אילו חברות ביטוח פרטיות יש הסדר (B)"
+                options={PRIVATE_INSURERS}
+                value={privateInsurers}
+                onChange={setPrivateInsurers}
+              />
+            )}
+          </FormSection>
         )}
 
-        {config.showPrivateInsurance && extraFieldsGate && (
+        <FormSection icon={<MapPin className="h-4 w-4" />} title="אזור שירות ופריסה">
           <MultiSelectPills
-            label="עם אילו חברות ביטוח פרטיות יש הסדר (B)"
-            options={PRIVATE_INSURERS}
-            value={privateInsurers}
-            onChange={setPrivateInsurers}
+            label="אזורי שירות (ניתן לבחור יותר מאחד)"
+            options={[
+              ...(config.excludeOnlineServiceArea ? SERVICE_AREAS.filter((a) => a.trim() !== "אונליין") : SERVICE_AREAS),
+              ...(config.extraServiceAreas ?? []),
+            ]}
+            value={serviceAreas}
+            onChange={setServiceAreas}
           />
-        )}
 
-        <MultiSelectPills
-          label="אזורי שירות (ניתן לבחור יותר מאחד)"
-          options={[
-            ...(config.excludeOnlineServiceArea ? SERVICE_AREAS.filter((a) => a.trim() !== "אונליין") : SERVICE_AREAS),
-            ...(config.extraServiceAreas ?? []),
-          ]}
-          value={serviceAreas}
-          onChange={setServiceAreas}
-        />
-
-        {config.showLocationCount && (
-          <Input
-            type="number"
-            min={1}
-            label="כמה מוקדי קבלה / מרפאות יש לך?"
-            icon={<MapPin className="h-4 w-4" />}
-            value={locationCount}
-            onChange={(e) => setLocationCount(e.target.value)}
-          />
-        )}
+          {config.showLocationCount && (
+            <Input
+              type="number"
+              min={1}
+              label="כמה מוקדי קבלה / מרפאות יש לך?"
+              icon={<MapPin className="h-4 w-4" />}
+              value={locationCount}
+              onChange={(e) => setLocationCount(e.target.value)}
+            />
+          )}
+        </FormSection>
 
         <Button type="submit" loading={loading} className="w-full mt-1">
           שליחת בקשה
@@ -1230,6 +1487,6 @@ export default function ProviderApplyPage() {
           התחבר
         </Link>
       </p>
-    </AuthLayout>
+    </ApplyShell>
   );
 }
