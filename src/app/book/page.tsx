@@ -48,6 +48,7 @@ export default function BookPage() {
   const updateAppointment = useStore((s) => s.updateAppointment);
   const addOrder = useStore((s) => s.addOrder);
   const showToast = useStore((s) => s.showToast);
+  const currentUser = useStore((s) => s.currentUser);
   const patient = useCurrentPatient();
 
   const [step, setStep] = useState(0);
@@ -106,6 +107,7 @@ export default function BookPage() {
       status: "ממתין לתשלום מקדמה",
       kupah: insurance.kupah,
       notes: "",
+      created_by_id: patient?.id ?? currentUser?.id,
     });
     setPendingAppointmentId(appointment.id);
     setSelectedSlot({ date, time, label });
@@ -181,6 +183,7 @@ export default function BookPage() {
         item_name: consultation?.name ?? "ייעוץ",
         provider_id: selectedProvider.id,
         provider_name: selectedProvider.display_name,
+        created_by_id: patient?.id ?? currentUser?.id,
         patient_name: leadForm.full_name,
         final_price: price,
         status: "מאושר",
@@ -442,6 +445,7 @@ export default function BookPage() {
         onClose={() => setWaitlistSlot(null)}
         clientName={leadForm.full_name || "מטופל"}
         clientPhone={leadForm.phone}
+        createdById={patient?.id ?? currentUser?.id}
       />
     </div>
   );
