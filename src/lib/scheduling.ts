@@ -20,3 +20,16 @@ export function buildDays(): DaySlots[] {
     return { date, label, slots };
   });
 }
+
+// Deterministic (not random) "days until this provider's next opening" used
+// only to power the availability filter in ProviderDiscovery — there's no
+// real per-provider slot data at the search stage (slots are only generated
+// once a provider is picked, via buildDays above), so this simulates a
+// stable per-provider offset instead of wiring up a full mock calendar.
+export function nextAvailableInDays(providerId: string): number {
+  let hash = 0;
+  for (let i = 0; i < providerId.length; i++) {
+    hash = (hash * 31 + providerId.charCodeAt(i)) >>> 0;
+  }
+  return 1 + (hash % 28);
+}

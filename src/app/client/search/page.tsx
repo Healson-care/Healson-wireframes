@@ -180,10 +180,8 @@ export default function ClientSearchPage() {
               <ProviderDiscovery
                 providers={providers}
                 patient={patient}
-                title="חיפוש שירות בריאות"
-                description="סננו לפי אזור ותחום — המחיר יוצג לפי הביטוח שלכם"
-                showLanguageFilter={false}
-                showKupahFilter={false}
+                title="קבע תור חדש"
+                description="חיפוש חופשי, או לפי סוג השירות — המחיר יוצג לפי הביטוח שלכם"
                 onSelect={(p) => {
                   if (!patient) {
                     showToast("השלימו הרשמה כדי לקבוע תור", {

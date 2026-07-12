@@ -56,14 +56,22 @@ export interface PriceByKupah {
 }
 
 // Booking-lifecycle status from the patient's point of view (§waitlist/booking):
-// slot picked -> ממתין לתשלום מקדמה -> (payment succeeds) -> מאושר -> (service
+// slot picked -> ממתין לתשלום מקדמה -> (deposit payment succeeds) -> מאושר ->
+// (balance paid, via the "שלם יתרה" action) -> שולם במלואו -> (service
 // rendered) -> בוצע. בוטל is reachable from any pre-בוצע state (patient/admin/
 // provider cancel, or a payment hold expiring unpaid).
-export type AppointmentStatus = "ממתין לתשלום מקדמה" | "מאושר" | "בוצע" | "בוטל";
+//
+// TODO(product, unresolved as of 2026-07-12): what should happen if the
+// appointment date arrives while status is still "מאושר" (deposit paid,
+// balance never collected)? No automatic enforcement exists yet — this is a
+// fully local mock app with no background jobs, so nothing currently flags
+// or blocks an appointment whose balance is overdue. See README.md.
+export type AppointmentStatus = "ממתין לתשלום מקדמה" | "מאושר" | "שולם במלואו" | "בוצע" | "בוטל";
 
 export const APPOINTMENT_STATUSES: AppointmentStatus[] = [
   "ממתין לתשלום מקדמה",
   "מאושר",
+  "שולם במלואו",
   "בוצע",
   "בוטל",
 ];
