@@ -46,6 +46,13 @@ export default function LoginPage() {
 
   function handleDemo(role: "admin" | "provider" | "patient", patientVariant?: "new" | "existing") {
     loginAsDemo(role, patientVariant);
+    if (role === "patient" && patientVariant === "new") {
+      // A lead (no Patient record yet) doesn't enter the personal area
+      // (/client/*) — they only see the public search/booking flow, same
+      // as any anonymous visitor, until they register.
+      router.push("/book");
+      return;
+    }
     setTimeout(goHome, 50);
   }
 

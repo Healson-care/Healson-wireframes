@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -39,7 +39,16 @@ export function ClientLayout({ children }: { children: ReactNode }) {
   const { ready, user } = useRequireRole("patient");
   const patient = useCurrentPatient();
 
-  if (!ready || !user) {
+  // Role alone isn't enough — a lead (patient-role user with no Patient
+  // record, e.g. the demo "מטופל חדש") must never see the personal area,
+  // even via a direct URL. Send them to the public search instead.
+  useEffect(() => {
+    if (ready && user && !patient) {
+      router.replace("/book");
+    }
+  }, [ready, user, patient, router]);
+
+  if (!ready || !user || !patient) {
     return <ClientLayoutSkeleton />;
   }
 

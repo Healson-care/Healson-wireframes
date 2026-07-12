@@ -363,6 +363,20 @@ function buildCatalog(): CatalogItem[] {
         provider_id: providerId,
         is_active: true,
       });
+
+      items.push({
+        id: generateId("cat"),
+        tavar_code: String(tavarCode++),
+        name_he: `שירות נלווה - ${sub.name_he}`,
+        skill_domain_id: domain.id,
+        skill_subdomain_id: sub.id,
+        service_type: "extra",
+        base_price: 100 + Math.round(Math.random() * 150),
+        typical_duration_min: 20,
+        requires_referral: false,
+        provider_id: providerId,
+        is_active: true,
+      });
     }
   }
   return items;
@@ -528,7 +542,7 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
     const statusPool: Appointment["status"][] = [
       "ממתין לתשלום מקדמה",
       "מאושר",
-      "מאושר",
+      "שולם במלואו",
       "בוצע",
       "בוטל",
     ];

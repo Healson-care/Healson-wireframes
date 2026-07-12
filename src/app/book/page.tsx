@@ -3,10 +3,11 @@
 import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
-import { Mail, Phone, User as UserIcon, ArrowRight, ArrowLeft } from "lucide-react";
+import { Calendar, IdCard, Mail, Phone, User as UserIcon, ArrowRight, ArrowLeft } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useCurrentPatient } from "@/lib/useCurrentPatient";
 import { resolveProviderPrice } from "@/lib/pricing";
+import { isValidIsraeliId } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Logo } from "@/components/shared/Logo";
@@ -28,7 +29,7 @@ import {
   InsuranceProfileForm,
   InsuranceProfileValue,
 } from "@/components/patient/InsuranceProfileForm";
-import { Kupah, ProviderProfile } from "@/types";
+import { ProviderProfile } from "@/types";
 
 const HOLD_SECONDS = 180;
 
@@ -42,6 +43,7 @@ const stepTransition = { duration: 0.25, ease: "easeOut" as const };
 export default function BookPage() {
   const providers = useStore((s) => s.providers);
   const appointments = useStore((s) => s.appointments);
+  const patients = useStore((s) => s.patients);
   const quickRegisterPatient = useStore((s) => s.quickRegisterPatient);
   const addAppointment = useStore((s) => s.addAppointment);
   const updateAppointment = useStore((s) => s.updateAppointment);
@@ -54,14 +56,14 @@ export default function BookPage() {
   const [selectedProvider, setSelectedProvider] = useState<ProviderProfile | null>(null);
 
   // Step 1: lead capture
-  const [leadForm, setLeadForm] = useState({ full_name: "", phone: "", email: "" });
+  const [leadForm, setLeadForm] = useState({ full_name: "", phone: "", email: "", id_number: "", date_of_birth: "" });
+  const [leadError, setLeadError] = useState("");
 
   // Step 2: consent (§4.2, §11.1)
   const [consents, setConsents] = useState<ConsentValues>({});
 
   // Step 3: insurance profile (§4.3, §7.1)
   const [insurance, setInsurance] = useState<InsuranceProfileValue>(EMPTY_INSURANCE_PROFILE);
-  const [kupah, setKupah] = useState<Kupah | "">("");
 
   // Step 4: slot selection + hold
   const days: DaySlots[] = useMemo(
@@ -141,11 +143,19 @@ export default function BookPage() {
 
   function handleLeadSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setLeadError("");
+    if (!isValidIsraeliId(leadForm.id_number)) {
+      setLeadError("מספר תעודת זהות לא תקין");
+      return;
+    }
+    if (patients.some((p) => p.id_number === leadForm.id_number.trim())) {
+      setLeadError("תעודת זהות זו כבר רשומה במערכת");
+      return;
+    }
     setStep(2);
   }
 
   function handleConsentContinue() {
-    setInsurance((i) => ({ ...i, kupah: (kupah || i.kupah) as Kupah }));
     setStep(3);
   }
 
@@ -230,8 +240,6 @@ export default function BookPage() {
             <ProviderDiscovery
               providers={providers}
               patient={patient}
-              defaultKupah={kupah}
-              onKupahChange={setKupah}
               onSelect={(p) => {
                 setSelectedProvider(p);
                 setStep(1);
@@ -251,10 +259,36 @@ export default function BookPage() {
             </div>
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex gap-2 mb-5">
-                <Button variant="outline" size="sm" className="flex-1" onClick={() => setLeadForm({ full_name: "נועה כהן", phone: "050-1234567", email: "noa@example.co.il" })}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1"
+                  onClick={() =>
+                    setLeadForm({
+                      full_name: "נועה כהן",
+                      phone: "050-1234567",
+                      email: "noa@example.co.il",
+                      id_number: "123456782",
+                      date_of_birth: "1990-01-01",
+                    })
+                  }
+                >
                   המשך עם Google
                 </Button>
-                <Button variant="outline" size="sm" className="flex-1" onClick={() => setLeadForm({ full_name: "נועה כהן", phone: "050-1234567", email: "noa@example.co.il" })}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1"
+                  onClick={() =>
+                    setLeadForm({
+                      full_name: "נועה כהן",
+                      phone: "050-1234567",
+                      email: "noa@example.co.il",
+                      id_number: "123456782",
+                      date_of_birth: "1990-01-01",
+                    })
+                  }
+                >
                   המשך עם Apple
                 </Button>
               </div>
@@ -263,12 +297,34 @@ export default function BookPage() {
                 <span className="text-xs text-slate-400">או הזינו פרטים</span>
                 <div className="h-px flex-1 bg-slate-100" />
               </div>
+              {leadError && (
+                <div className="mb-3 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
+                  {leadError}
+                </div>
+              )}
               <form onSubmit={handleLeadSubmit} className="flex flex-col gap-3">
                 <Input
                   placeholder="שם מלא"
                   icon={<UserIcon className="h-4 w-4" />}
                   value={leadForm.full_name}
                   onChange={(e) => setLeadForm({ ...leadForm, full_name: e.target.value })}
+                  required
+                />
+                <Input
+                  placeholder="תעודת זהות"
+                  icon={<IdCard className="h-4 w-4" />}
+                  value={leadForm.id_number}
+                  onChange={(e) => setLeadForm({ ...leadForm, id_number: e.target.value })}
+                  inputMode="numeric"
+                  maxLength={9}
+                  required
+                />
+                <Input
+                  type="date"
+                  placeholder="תאריך לידה"
+                  icon={<Calendar className="h-4 w-4" />}
+                  value={leadForm.date_of_birth}
+                  onChange={(e) => setLeadForm({ ...leadForm, date_of_birth: e.target.value })}
                   required
                 />
                 <Input

@@ -45,6 +45,7 @@ export function Badge({ className, tone = "neutral", ...props }: BadgeProps) {
 const APPOINTMENT_TONE: Record<string, Tone> = {
   "ממתין לתשלום מקדמה": "warning",
   "מאושר": "info",
+  "שולם במלואו": "purple",
   "בוצע": "success",
   "בוטל": "danger",
 };
@@ -82,7 +83,15 @@ function toneFor(map: Record<string, Tone>, status: string): Tone {
   return map[status] ?? "neutral";
 }
 
-export function StatusBadge({ status, kind }: { status: string; kind: "appointment" | "order" | "patient" | "lead" | "referral" }) {
+export function StatusBadge({
+  status,
+  kind,
+  title,
+}: {
+  status: string;
+  kind: "appointment" | "order" | "patient" | "lead" | "referral";
+  title?: string;
+}) {
   const map =
     kind === "appointment"
       ? APPOINTMENT_TONE
@@ -93,5 +102,9 @@ export function StatusBadge({ status, kind }: { status: string; kind: "appointme
       : kind === "lead"
       ? LEAD_TONE
       : REFERRAL_TONE;
-  return <Badge tone={toneFor(map, status)}>{status}</Badge>;
+  return (
+    <Badge tone={toneFor(map, status)} title={title}>
+      {status}
+    </Badge>
+  );
 }

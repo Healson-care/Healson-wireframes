@@ -105,7 +105,7 @@ export default function ProviderAppointmentsPage() {
                           <Check className="h-3.5 w-3.5" /> אשר
                         </Button>
                       )}
-                      {a.status === "מאושר" && (
+                      {(a.status === "מאושר" || a.status === "שולם במלואו") && (
                         <Button
                           size="sm"
                           variant="secondary"
