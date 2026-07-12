@@ -211,47 +211,54 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section id="entry" className="mx-auto max-w-6xl px-4 py-14">
-        <div className="text-center mb-8">
-          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900">כבר יש לכם תיק ב-HEALSON?</h2>
-          <p className="text-slate-500 mt-2">בחרו את סוג החשבון שלכם לכניסה לאזור האישי — מצב הדגמה, כניסה מיידית</p>
-        </div>
-        <motion.div
-          className="grid sm:grid-cols-3 gap-5"
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, margin: "-60px" }}
-          variants={{
-            hidden: {},
-            visible: { transition: { staggerChildren: 0.1 } },
-          }}
-        >
-          {ROLE_CARDS.map((card) => (
-            <motion.button
-              key={card.role}
-              onClick={() => enterAs(card.role)}
-              variants={{
-                hidden: { opacity: 0, y: 24 },
-                visible: { opacity: 1, y: 0 },
-              }}
-              whileHover={{ y: -6 }}
-              whileTap={{ scale: 0.97 }}
-              className={`group flex flex-col items-start gap-3 rounded-2xl border border-slate-200 bg-white p-6 text-right shadow-sm ring-1 ring-transparent transition-shadow hover:shadow-lg ${card.ring}`}
-            >
-              <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${card.iconBg} ${card.iconColor}`}>
-                <card.icon className="h-6 w-6" />
-              </div>
-              <div>
-                <p className="font-semibold text-slate-900">{card.label}</p>
-                <p className="text-sm text-slate-500 mt-1 leading-relaxed">{card.desc}</p>
-              </div>
-              <span className="flex items-center gap-1 text-sm font-medium text-primary mt-1 group-hover:gap-2 transition-all">
-                כניסה כ{card.label} <ArrowLeft className="h-3.5 w-3.5" />
-              </span>
-            </motion.button>
-          ))}
-        </motion.div>
-      </section>
+      {/* Only offered to anonymous visitors — once someone is already logged
+          in (e.g. a lead mid-registration), this generic role-switch would
+          silently swap them to a different demo account and let them skip
+          straight into the personal area. The header's own "לאזור האישי"
+          button already covers "already logged in" navigation correctly. */}
+      {!currentUser && (
+        <section id="entry" className="mx-auto max-w-6xl px-4 py-14">
+          <div className="text-center mb-8">
+            <h2 className="text-2xl sm:text-3xl font-bold text-slate-900">כבר יש לכם תיק ב-HEALSON?</h2>
+            <p className="text-slate-500 mt-2">בחרו את סוג החשבון שלכם לכניסה לאזור האישי — מצב הדגמה, כניסה מיידית</p>
+          </div>
+          <motion.div
+            className="grid sm:grid-cols-3 gap-5"
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, margin: "-60px" }}
+            variants={{
+              hidden: {},
+              visible: { transition: { staggerChildren: 0.1 } },
+            }}
+          >
+            {ROLE_CARDS.map((card) => (
+              <motion.button
+                key={card.role}
+                onClick={() => enterAs(card.role)}
+                variants={{
+                  hidden: { opacity: 0, y: 24 },
+                  visible: { opacity: 1, y: 0 },
+                }}
+                whileHover={{ y: -6 }}
+                whileTap={{ scale: 0.97 }}
+                className={`group flex flex-col items-start gap-3 rounded-2xl border border-slate-200 bg-white p-6 text-right shadow-sm ring-1 ring-transparent transition-shadow hover:shadow-lg ${card.ring}`}
+              >
+                <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${card.iconBg} ${card.iconColor}`}>
+                  <card.icon className="h-6 w-6" />
+                </div>
+                <div>
+                  <p className="font-semibold text-slate-900">{card.label}</p>
+                  <p className="text-sm text-slate-500 mt-1 leading-relaxed">{card.desc}</p>
+                </div>
+                <span className="flex items-center gap-1 text-sm font-medium text-primary mt-1 group-hover:gap-2 transition-all">
+                  כניסה כ{card.label} <ArrowLeft className="h-3.5 w-3.5" />
+                </span>
+              </motion.button>
+            ))}
+          </motion.div>
+        </section>
+      )}
 
       <section id="hospitals" className="mx-auto max-w-6xl px-4 pb-16">
         <div className="border-t border-slate-100 pt-10">
