@@ -28,9 +28,9 @@ export const LAYER_LABELS: Record<InsuranceLayer, string> = {
 // כללית sells "כללית זהב"/"כללית מושלם"/"כללית פלטינום".
 export const K_LEVELS_BY_KUPAH = {
   "כללית": ["כללית זהב", "כללית מושלם", "כללית פלטינום"],
-  "מכבי": ["מכבי כסף", "מכבי זהב"],
-  "מאוחדת": ["מאוחדת עדיף", "מאוחדת שיא"],
-  "לאומית": ["לאומית כסף", "לאומית זהב"],
+  "מכבי": ["מכבי כסף", "מכבי שלי","מכבי בסיס"],
+  "מאוחדת": ["מאוחדת עדיף", "מאוחדת שיא","מאוחדת בסיס "],
+  "לאומית": ["לאומית כסף", "לאומית זהב"," לאומית בסיס"],
 } as const satisfies Record<Kupah, readonly string[]>;
 
 export type KLevel = (typeof K_LEVELS_BY_KUPAH)[Kupah][number];
@@ -323,53 +323,72 @@ export interface ProviderAgreement {
   notes?: string;
 }
 
-// Provider type (§apply flow) — chosen as the first step of provider
-// registration; drives which fields are mandatory before an admin can
-// review the application.
+// Provider type (§apply flow) — chosen as the second step of provider
+// registration (after picking "individual" vs "organization"); drives which
+// fields are mandatory before an admin can review the application.
+// "caregiver" covers both nurses and complementary/alternative-medicine
+// therapists (the applicant picks a sub-type within the form); "hospital"
+// covers both general hospitals and standalone surgical facilities.
 export type ProviderType =
   | "doctor"
-  | "complementary"
+  | "caregiver"
+  | "other_medical"
   | "store"
   | "pharmacy"
-  | "surgery_center"
+  | "hospital"
+  | "outpatient_clinic"
   | "medical_institute"
-  | "organization";
+  | "lab"
+  | "medical_call_center"
+  | "insurance_agency";
 
 export const PROVIDER_TYPES: ProviderType[] = [
   "doctor",
-  "complementary",
+  "caregiver",
+  "other_medical",
   "store",
   "pharmacy",
-  "surgery_center",
+  "hospital",
+  "outpatient_clinic",
   "medical_institute",
-  "organization",
+  "lab",
+  "medical_call_center",
+  "insurance_agency",
 ];
 
 export const PROVIDER_TYPE_LABELS: Record<ProviderType, string> = {
   doctor: "רופא/ה",
-  complementary: "נותן שירות משלים",
+  caregiver: "מטפל/ת",
+  other_medical: "נותן שירות רפואי אחר",
   store: "חנות",
   pharmacy: "בית מרקחת",
-  surgery_center: "חדרי ניתוח",
+  hospital: "בית חולים",
+  outpatient_clinic: "מרפאות חוץ",
   medical_institute: "מכון רפואי",
-  organization: "ארגון / רשת",
+  lab: "מעבדה",
+  medical_call_center: "מוקד רפואי",
+  insurance_agency: "סוכנות ביטוח",
 };
 
 export const PROVIDER_TYPE_DESCRIPTIONS: Record<ProviderType, string> = {
   doctor: "רופא/ה עצמאי/ת עם רישיון עיסוק ממשרד הבריאות",
-  complementary: "רפואה משלימה, טיפולים ופרא-רפואה",
+  caregiver: "אח/ות או נותן/ת טיפול משלים ופרא-רפואי",
+  other_medical: "נותן שירות רפואי שאינו נכלל בקטגוריות הקיימות",
   store: "חנות מוצרי בריאות, ציוד רפואי או אופטיקה",
   pharmacy: "בית מרקחת עם רוקח אחראי",
-  surgery_center: "מתקן חדרי ניתוח / מרכז כירורגי",
+  hospital: "בית חולים / מרכז רפואי המפעיל מחלקות אשפוז וחדרי ניתוח",
+  outpatient_clinic: "רשת מרפאות חוץ / מרפאות קהילתיות",
   medical_institute: "מכון רפואי / מכון אבחוני",
-  organization: "ארגון המפעיל כמה סוגי ספקים תחת קורת גג אחת",
+  lab: "מעבדה רפואית לבדיקות דם, גנטיקה ואבחון",
+  medical_call_center: "מוקד טלפוני לייעוץ, טריאז' ותמיכה רפואית מרחוק",
+  insurance_agency: "סוכנות המתווכת פוליסות ביטוח בריאות ושירותים משלימים",
 };
 
 // Provider types a member (child) provider belongs to — excludes
-// "organization" itself, since an organization is made up of the other
-// provider types, not of other organizations.
+// "hospital", since a hospital is made up of the other provider types
+// (departments/practitioners), not of other organizations.
 export const ORGANIZATION_MEMBER_TYPES: ProviderType[] = PROVIDER_TYPES.filter(
-  (t) => t !== "organization"
+  (t) => t !== "hospital"
 );
 
 // Doctor sub-type (§apply flow, doctor only) — a surgeon needs credentialing

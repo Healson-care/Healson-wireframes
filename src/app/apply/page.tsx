@@ -6,12 +6,16 @@ import {
   Mail,
   User as UserIcon,
   Phone,
+  PhoneCall,
   Stethoscope,
   HeartPulse,
+  ClipboardPlus,
   Store,
-  Scissors,
+  Hospital,
   Building2,
   Network,
+  FlaskConical,
+  Shield,
   BadgeCheck,
   Upload,
   CheckCircle2,
@@ -38,7 +42,7 @@ import {
   UploadedFile,
 } from "@/types";
 
-type Phase = "type" | "form" | "otp" | "success";
+type Phase = "category" | "type" | "form" | "otp" | "success";
 
 const TITLES = ['ד"ר', "פרופ'"];
 
@@ -108,7 +112,20 @@ const SUBSPECIALTIES_BY_SPECIALTY: Record<string, string[]> = {
   "שיקום": ["שיקום אורתופדי", "שיקום נוירולוגי", "שיקום לב", "שיקום ילדים"],
 };
 
-const PRIVATE_INSURERS = ["הראל", "כלל", "מגדל", "הפניקס", "מנורה מבטחים", "איילון", "AIG", "שירביט"];
+const NURSE_SPECIALTIES = [
+  "סיעוד כללי",
+  "סיעוד פרטי / טיפול בית",
+  "סיעוד גריאטרי",
+  "סיעוד ילדים",
+  "סיעוד אונקולוגי",
+  "סיעוד פצע וסטומה",
+  "סיעוד טיפול נמרץ",
+  "סיעוד בריאות הנפש",
+  "סיעוד קהילתי",
+  "סיעוד תעסוקתי",
+  "סיעוד מחלקתי / בית חולים",
+  "אחר",
+];
 
 const COMPLEMENTARY_TYPES = [
   "פיזיותרפיה",
@@ -124,6 +141,33 @@ const COMPLEMENTARY_TYPES = [
   "אחר",
 ];
 
+// "מטפל/ת" covers both nurses and complementary/alternative-medicine
+// therapists — "סיעוד" is the umbrella option that reveals NURSE_SPECIALTIES
+// as a second-level pick (see SUBSPECIALTIES_BY_SPECIALTY below).
+const CAREGIVER_TYPES = ["סיעוד", ...COMPLEMENTARY_TYPES];
+
+const LAB_TEST_TYPES = ["בדיקות דם", "בדיקות שתן", "בדיקות גנטיות", "בדיקות פתולוגיה", "בדיקות מיקרוביולוגיה", "אחר"];
+
+const CALL_CENTER_SERVICES = [
+  "טריאז' טלפוני",
+  "ייעוץ רפואי מרחוק",
+  "מוקד חירום",
+  "תמיכה בניהול מחלות כרוניות",
+  "אחר",
+];
+
+const INSURANCE_AGENCY_SERVICES = [
+  "ביטוחי בריאות פרטיים",
+  "ביטוחי שיניים",
+  "ביטוחי סיעוד",
+  "ביטוחי נסיעות ומחלות קשות",
+  "אחר",
+];
+
+SUBSPECIALTIES_BY_SPECIALTY["סיעוד"] = NURSE_SPECIALTIES;
+
+const PRIVATE_INSURERS = ["הראל", "כלל", "מגדל", "הפניקס", "מנורה מבטחים", "איילון", "AIG", "שירביט"];
+
 const SERVICE_AREAS = [
   "תל אביב והמרכז",
   "ירושלים והסביבה",
@@ -135,17 +179,58 @@ const SERVICE_AREAS = [
   "אונליין ",
 ];
 
-const STORE_TYPES = ["ציוד רפואי", "אופטיקה", "מוצרי טיפוח ובריאות", "תזונה ותוספים", "אחר"];
-const SURGERY_TYPES = ["כירורגיה קטנה", "כירורגיה בינונית", "כירורגיה גדולה/מורכבת — רק בבית חולים"];
-const INSTITUTE_TYPES = ["טיפולים", "אבחונים", "בדיקות הדמיות", "מרפאות"];
-const ORG_TYPES = [
-  "רשת מרפאות",
-  "קבוצת רפואה פרטית",
-  "רשת בתי מרקחת",
-  "בית חולים / מרכז רפואי",
-  "ארגון רב-תחומי",
+const STORE_CATEGORIES = [
+  "ציוד רפואי ביתי ושיקומי",
+  "ניידות ונגישות",
+  "אורתופדיה",
+  "אופטיקה",
+  "שמיעה",
+  "דחיסה רפואית",
+  "סטומה, אורולוגיה ומוצרי ספיגה",
+  "בריאות האישה",
+  "בריאות הפה ודנטל",
+  "רפואת שינה",
+  "סוכרת",
+  "נשימה וחמצן",
+  "פצעים וחבישות",
+  "ציוד לתינוק ולאם",
+  "טלרפואה וניטור מרחוק",
+  "רפואת עור ומוצרי טיפוח רפואי",
+  "תזונה, ויטמינים ותוספים",
+  "עזרה ראשונה והיגיינה רפואית",
   "אחר",
 ];
+
+const STORE_SUBTYPES_BY_CATEGORY: Record<string, string[]> = {
+  "ציוד רפואי ביתי ושיקומי": [
+    "ציוד לטיפול ביתי (מיטות חשמליות, מזרנים למניעת פצעי לחץ, עגלות טיפול)",
+    "ציוד שיקום נוירולוגי (שיווי משקל, גירוי מוטורי, עזרי תפקוד)",
+    "ציוד פיזיותרפיה (גומיות, כדורים, מכשירי אימון, שולחנות טיפול)",
+    "ציוד ספורט רפואי (קינזיו טייפ, סדים, מגנים, ציוד התאוששות)",
+  ],
+  "ניידות ונגישות": ["הליכונים וכיסאות גלגלים", "קביים ומקלות הליכה", "מאחזים ומעקות", "רמפות", "כיסאות רחצה ומעלונים"],
+  "אורתופדיה": ["מדרסים ונעליים רפואיות", "סדים ותומכים אורתופדיים", "מגנים ואביזרי הגנה"],
+  "דחיסה רפואית": ["גרבי לחץ", "שרוולי לחץ", "מחוכים רפואיים"],
+  "סטומה, אורולוגיה ומוצרי ספיגה": ["שקיות סטומה ואביזרי הדבקה", "קטטרים ושקיות שתן", "חיתולים למבוגרים ומשטחי ספיגה"],
+  "בריאות האישה": ["פסריים", "משאבות חלב", "אביזרי שיקום רצפת האגן"],
+  "בריאות הפה ודנטל": ["מברשות שיניים חשמליות", "סילוניות", "מגני לילה"],
+  "רפואת שינה": ["מכשירי CPAP ומסכות", "כריות ומזרנים ארגונומיים"],
+  "סוכרת": ["מדי סוכר ומקלוני בדיקה", "משאבות אינסולין וחיישני סוכר"],
+  "נשימה וחמצן": ["מרכזי חמצן ניידים", "משאפים ומכשירי אינהלציה"],
+  "פצעים וחבישות": ["פלסטרים וחומרי חיטוי", "תחבושות וג'לים לכוויות", "מוצרים לצלקות"],
+  "ציוד לתינוק ולאם": ["ציוד הנקה", "מוניטורים לתינוק", "ציוד בטיחות לתינוק"],
+  "טלרפואה וניטור מרחוק": ['אק"ג ביתי', "מאזניים חכמים", "מדי לחץ דם ומדי חמצן מחוברי אפליקציה"],
+  "רפואת עור ומוצרי טיפוח רפואי": [
+    "קרמים רפואיים ומוצרים לעור רגיש",
+    "מוצרים לאחר טיפולי לייזר / כוויות",
+    "הגנה מהשמש (קרמים, ספריי, שפתוני SPF)",
+  ],
+  "תזונה, ויטמינים ותוספים": ["ויטמינים ומינרלים", "פרוביוטיקה ואומגה 3", "תוספי תזונה נוספים"],
+  "עזרה ראשונה והיגיינה רפואית": ["ערכות עזרה ראשונה", "תכשירי חיטוי ושטיפות רפואיות"],
+};
+
+const SURGERY_TYPES = ["כירורגיה קטנה", "כירורגיה בינונית", "כירורגיה גדולה/מורכבת — רק בבית חולים"];
+const INSTITUTE_TYPES = ["טיפולים", "אבחונים", "בדיקות הדמיות", "מרפאות"];
 
 interface TypeFieldConfig {
   icon: React.ReactNode;
@@ -156,16 +241,26 @@ interface TypeFieldConfig {
   showContactName?: boolean;
   contactNameLabel?: string;
   contactNameRequired?: boolean;
+  contactNameFirst?: boolean;
   showContactPhone?: boolean;
   showContactEmail?: boolean;
   specialtyLabel: string;
   specialtyOptions: string[];
   multiSpecialty?: boolean;
+  freeTextSpecialty?: boolean;
   showBusinessRegNumber?: boolean;
   businessRegRequired?: boolean;
   showLicenseNumber?: boolean;
   licenseNumberLabel: string;
   licenseFileLabel: string;
+  licenseFileRequired?: boolean;
+  // When set, showLicenseNumber / showKupot / showPrivateInsurance /
+  // showMedicalResume / showContactName / showContactPhone /
+  // showContactEmail / showBusinessRegNumber only apply once the applicant
+  // has picked this specific value as their `specialty` — used by
+  // "caregiver" so the richer (ex-nurse) form only appears once "סיעוד" is
+  // selected, while other care types keep the leaner (ex-complementary) form.
+  licenseOnlyForSpecialty?: string;
   showDescription?: boolean;
   showMedicalResume?: boolean;
   showKupot?: boolean;
@@ -174,11 +269,12 @@ interface TypeFieldConfig {
   showLocationCount?: boolean;
   showMemberProviderTypes?: boolean;
   excludeOnlineServiceArea?: boolean;
+  extraServiceAreas?: string[];
 }
 
 // "pharmacy" stays in the ProviderType union/model for backward compatibility
-// (seed data, organization member lists) but is intentionally omitted here —
-// it will resurface later as a sub-category under "store".
+// but is intentionally omitted here — it will resurface later as a
+// sub-category under "store".
 const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
   doctor: {
     icon: <Stethoscope className="h-5 w-5" />,
@@ -204,47 +300,108 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
     showSubSpecialties: true,
     showLocationCount: true,
   },
-  complementary: {
+  caregiver: {
     icon: <HeartPulse className="h-5 w-5" />,
-    label: "נותן שירות משלים",
-    description: "רפואה משלימה, טיפולים ופרא-רפואה",
+    label: "מטפל/ת",
+    description: "אח/ות, מטפל/ת משלים/ה או נותן/ת טיפול תומך אחר",
     nameLabel: "שם מלא",
-    specialtyLabel: "סוג שירות",
-    specialtyOptions: COMPLEMENTARY_TYPES,
-    showLicenseNumber: false,
-    licenseNumberLabel: "מספר תעודת הסמכה",
-    licenseFileLabel: "תעודת הסמכה (PDF / JPG / PNG)",
+    showContactName: true,
+    contactNameLabel: "שם איש קשר (לא חובה)",
+    contactNameRequired: false,
+    showContactPhone: true,
+    showContactEmail: true,
+    specialtyLabel: "סוג טיפול",
+    specialtyOptions: CAREGIVER_TYPES,
+    showSubSpecialties: true,
+    licenseOnlyForSpecialty: "סיעוד",
+    licenseNumberLabel: "מספר רישיון סיעוד (משרד הבריאות)",
+    licenseFileLabel: "רישיון סיעוד / תעודת הסמכה (PDF / JPG / PNG)",
     showDescription: true,
+    showMedicalResume: true,
+    showBusinessRegNumber: true,
+    businessRegRequired: false,
+    showKupot: true,
+    showPrivateInsurance: true,
+    showLocationCount: true,
+    extraServiceAreas: ["עד הבית"],
+  },
+  other_medical: {
+    icon: <ClipboardPlus className="h-5 w-5" />,
+    label: "נותן שירות רפואי אחר",
+    description: "נותן שירות רפואי שאינו נכלל בקטגוריות הקיימות",
+    nameLabel: "שם מלא",
+    showContactName: true,
+    contactNameLabel: "שם איש קשר (לא חובה)",
+    contactNameRequired: false,
+    showContactPhone: true,
+    showContactEmail: true,
+    specialtyLabel: "תיאור סוג השירות",
+    specialtyOptions: [],
+    freeTextSpecialty: true,
+    showLicenseNumber: false,
+    licenseNumberLabel: "מספר רישיון / תעודת הסמכה",
+    licenseFileLabel: "רישיון / תעודת הסמכה מקצועית, אם קיימת (לא חובה, PDF / JPG / PNG)",
+    licenseFileRequired: false,
+    showDescription: true,
+    showLocationCount: true,
+    extraServiceAreas: ["עד הבית"],
   },
   store: {
     icon: <Store className="h-5 w-5" />,
     label: "חנות לממכר מוצרי בריאות",
-    description: "חנות מוצרי בריאות, ציוד רפואי או אופטיקה",
+    description: "חנות מוצרי בריאות, ציוד רפואי, אופטיקה ומוצרי טיפוח רפואי",
     nameLabel: "שם העסק",
     showContactName: true,
     contactNameLabel: "שם איש קשר",
-    specialtyLabel: "סוג החנות",
-    specialtyOptions: STORE_TYPES,
+    showContactPhone: true,
+    showContactEmail: true,
+    specialtyLabel: "קטגוריית החנות",
+    specialtyOptions: STORE_CATEGORIES,
+    showSubSpecialties: true,
     showBusinessRegNumber: true,
     licenseNumberLabel: "מספר רישיון עסק",
     licenseFileLabel: "רישיון עסק (PDF / JPG / PNG)",
+    showLocationCount: true,
   },
-  surgery_center: {
-    icon: <Scissors className="h-5 w-5" />,
-    label: " מרכז רפואי המפעיל חדרי ניתוח",
-    description: "מתקן חדרי ניתוח / מרכז כירורגי",
-    nameLabel: "שם המרכז",
+  hospital: {
+    icon: <Hospital className="h-5 w-5" />,
+    label: "בית חולים",
+    description: "בית חולים / מרכז רפואי המפעיל מחלקות אשפוז, מרפאות חוץ וחדרי ניתוח",
+    nameLabel: "שם בית החולים",
     showContactName: true,
     contactNameLabel: "שם איש קשר",
+    contactNameFirst: true,
     specialtyLabel: "סוג רישיון ניתוחי",
     specialtyOptions: SURGERY_TYPES,
     multiSpecialty: true,
     showBusinessRegNumber: true,
     licenseNumberLabel: "מספר רישיון עסק (משרד הבריאות)",
     licenseFileLabel: "רישיון משרד הבריאות (PDF / JPG / PNG)",
+    showDescription: true,
     showKupot: true,
     showPrivateInsurance: true,
     showLocationCount: true,
+    showMemberProviderTypes: true,
+    excludeOnlineServiceArea: true,
+  },
+  outpatient_clinic: {
+    icon: <Network className="h-5 w-5" />,
+    label: "מרפאות חוץ",
+    description: "רשת מרפאות חוץ / מרפאות קהילתיות המפעילה מספר סניפים ושירותים",
+    nameLabel: "שם הרשת / המרפאה",
+    showContactName: true,
+    contactNameLabel: "שם איש קשר",
+    specialtyLabel: "סוג השירותים במרפאה",
+    specialtyOptions: INSTITUTE_TYPES,
+    multiSpecialty: true,
+    showBusinessRegNumber: true,
+    licenseNumberLabel: "מספר רישיון מרפאה (משרד הבריאות)",
+    licenseFileLabel: "רישיון משרד הבריאות (PDF / JPG / PNG)",
+    showDescription: true,
+    showKupot: true,
+    showPrivateInsurance: true,
+    showLocationCount: true,
+    showMemberProviderTypes: true,
     excludeOnlineServiceArea: true,
   },
   medical_institute: {
@@ -265,23 +422,77 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
     showLocationCount: true,
     excludeOnlineServiceArea: true,
   },
-  organization: {
-    icon: <Network className="h-5 w-5" />,
-    label: "ארגון / רשת",
-    description: "ארגון המפעיל כמה סוגי ספקים תחת קורת גג אחת",
-    nameLabel: "שם הארגון",
+  lab: {
+    icon: <FlaskConical className="h-5 w-5" />,
+    label: "מעבדה",
+    description: "מעבדה רפואית לבדיקות דם, גנטיקה ואבחון",
+    nameLabel: "שם המעבדה",
     showContactName: true,
-    contactNameLabel: "שם איש קשר בארגון",
-    specialtyLabel: "סוג הארגון",
-    specialtyOptions: ORG_TYPES,
+    contactNameLabel: "שם איש קשר",
+    specialtyLabel: "סוג הבדיקות",
+    specialtyOptions: LAB_TEST_TYPES,
+    multiSpecialty: true,
     showBusinessRegNumber: true,
-    showLicenseNumber: false,
-    licenseNumberLabel: "",
-    licenseFileLabel: "תעודת התאגדות / רישיון ארגון (PDF / JPG / PNG)",
-    showDescription: true,
+    licenseNumberLabel: "מספר רישיון מעבדה (משרד הבריאות)",
+    licenseFileLabel: "רישיון מעבדה ממשרד הבריאות (PDF / JPG / PNG)",
+    showKupot: true,
+    showPrivateInsurance: true,
     showLocationCount: true,
-    showMemberProviderTypes: true,
+    excludeOnlineServiceArea: true,
   },
+  medical_call_center: {
+    icon: <PhoneCall className="h-5 w-5" />,
+    label: "מוקד רפואי",
+    description: "מוקד טלפוני למתן ייעוץ, טריאז' ותמיכה רפואית מרחוק",
+    nameLabel: "שם המוקד",
+    showContactName: true,
+    contactNameLabel: "שם איש קשר",
+    specialtyLabel: "סוג השירותים במוקד",
+    specialtyOptions: CALL_CENTER_SERVICES,
+    multiSpecialty: true,
+    showBusinessRegNumber: true,
+    licenseNumberLabel: "מספר רישיון עסק / אישור הפעלה",
+    licenseFileLabel: "רישיון עסק / אישור הפעלה (PDF / JPG / PNG)",
+    showKupot: true,
+    showPrivateInsurance: true,
+    showLocationCount: true,
+  },
+  insurance_agency: {
+    icon: <Shield className="h-5 w-5" />,
+    label: "סוכנות ביטוח",
+    description: "סוכנות המתווכת פוליסות ביטוח בריאות ושירותים משלימים",
+    nameLabel: "שם הסוכנות",
+    showContactName: true,
+    contactNameLabel: "שם איש קשר",
+    specialtyLabel: "סוג הפוליסות המתווכות",
+    specialtyOptions: INSURANCE_AGENCY_SERVICES,
+    multiSpecialty: true,
+    showBusinessRegNumber: true,
+    licenseNumberLabel: "מספר רישיון סוכן ביטוח (רשות שוק ההון)",
+    licenseFileLabel: "רישיון סוכן ביטוח (PDF / JPG / PNG)",
+    showPrivateInsurance: true,
+    showLocationCount: true,
+  },
+};
+
+type ProviderCategory = "individual" | "organization";
+
+const CATEGORY_CONFIG: Record<ProviderCategory, { label: string; description: string; icon: React.ReactNode }> = {
+  individual: {
+    label: "ספק יחיד",
+    description: "איש/אשת מקצוע עצמאי/ת או עסק בודד",
+    icon: <UserIcon className="h-5 w-5" />,
+  },
+  organization: {
+    label: "ארגון בריאות",
+    description: "גוף המפעיל מספר מחלקות, סניפים או שירותים",
+    icon: <Network className="h-5 w-5" />,
+  },
+};
+
+const CATEGORY_TYPES: Record<ProviderCategory, ProviderType[]> = {
+  individual: ["doctor", "caregiver", "other_medical", "store"],
+  organization: ["hospital", "outpatient_clinic", "medical_institute", "lab", "medical_call_center", "insurance_agency"],
 };
 
 function MultiSelectPills({
@@ -379,7 +590,8 @@ export default function ProviderApplyPage() {
   const resendProviderApplicationOtp = useStore((s) => s.resendProviderApplicationOtp);
   const showToast = useStore((s) => s.showToast);
 
-  const [phase, setPhase] = useState<Phase>("type");
+  const [phase, setPhase] = useState<Phase>("category");
+  const [category, setCategory] = useState<ProviderCategory | null>(null);
   const [providerType, setProviderType] = useState<ProviderType | null>(null);
   const [fullName, setFullName] = useState("");
   const [contactName, setContactName] = useState("");
@@ -411,12 +623,16 @@ export default function ProviderApplyPage() {
   const config = providerType ? TYPE_CONFIG[providerType] : null;
   const isDoctor = providerType === "doctor";
   const isSurgeon = isDoctor && doctorSubtype === "surgeon";
+  // See TypeFieldConfig.licenseOnlyForSpecialty — for "caregiver", the
+  // richer (ex-nurse) fields only apply once "סיעוד" is picked as the
+  // specialty; every other type has no gate and is always true.
+  const extraFieldsGate = config?.licenseOnlyForSpecialty ? specialty === config.licenseOnlyForSpecialty : true;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!providerType || !config) return;
     setError("");
-    if (!licenseFile) {
+    if (config.licenseFileRequired !== false && !licenseFile) {
       setError(`נא לצרף ${config.licenseFileLabel.replace(/\s*\(.*\)$/, "")}`);
       return;
     }
@@ -433,11 +649,13 @@ export default function ProviderApplyPage() {
       return;
     }
     setLoading(true);
-    const licenseFileRecord: UploadedFile = {
-      file_name: licenseFile.name,
-      uploaded_at: new Date().toISOString(),
-      data_url: await fileToDataUrl(licenseFile),
-    };
+    const licenseFileRecord: UploadedFile | undefined = licenseFile
+      ? {
+          file_name: licenseFile.name,
+          uploaded_at: new Date().toISOString(),
+          data_url: await fileToDataUrl(licenseFile),
+        }
+      : undefined;
     const medicalResumeFileRecord: UploadedFile | undefined = medicalResumeFile
       ? {
           file_name: medicalResumeFile.name,
@@ -448,22 +666,23 @@ export default function ProviderApplyPage() {
     const result = applyAsProvider({
       provider_type: providerType,
       full_name: fullName,
-      contact_name: config.showContactName ? contactName : undefined,
-      contact_phone: config.showContactPhone && contactPhone ? contactPhone : undefined,
-      contact_email: config.showContactEmail && contactEmail ? contactEmail : undefined,
+      contact_name: config.showContactName && extraFieldsGate ? contactName : undefined,
+      contact_phone: config.showContactPhone && extraFieldsGate && contactPhone ? contactPhone : undefined,
+      contact_email: config.showContactEmail && extraFieldsGate && contactEmail ? contactEmail : undefined,
       title: config.showTitle ? title : undefined,
       specialty: config.multiSpecialty ? specialtyMulti.join(", ") : specialty,
-      license_number: config.showLicenseNumber === false ? undefined : licenseNumber,
-      business_reg_number: config.showBusinessRegNumber && businessRegNumber ? businessRegNumber : undefined,
+      license_number: config.showLicenseNumber === false || !extraFieldsGate ? undefined : licenseNumber,
+      business_reg_number:
+        config.showBusinessRegNumber && extraFieldsGate && businessRegNumber ? businessRegNumber : undefined,
       phone,
       email,
       license_file: licenseFileRecord,
       doctor_subtype: isDoctor ? doctorSubtype : undefined,
       surgical_privileges_hospital: isSurgeon ? surgicalPrivilegesHospital : undefined,
       description: config.showDescription ? description : undefined,
-      medical_resume_file: config.showMedicalResume ? medicalResumeFileRecord : undefined,
-      kupah_arrangements: config.showKupot ? kupahArrangements : undefined,
-      private_insurance_companies: config.showPrivateInsurance ? privateInsurers : undefined,
+      medical_resume_file: config.showMedicalResume && extraFieldsGate ? medicalResumeFileRecord : undefined,
+      kupah_arrangements: config.showKupot && extraFieldsGate ? kupahArrangements : undefined,
+      private_insurance_companies: config.showPrivateInsurance && extraFieldsGate ? privateInsurers : undefined,
       service_areas: serviceAreas,
       sub_specialties: config.showSubSpecialties
         ? subSpecialties.map((s) => (s === "אחר" && otherSubSpecialty.trim() ? otherSubSpecialty.trim() : s))
@@ -500,6 +719,12 @@ export default function ProviderApplyPage() {
     if (otp) showToast("קוד חדש נשלח לטלפון", { description: `קוד הדגמה: ${otp}` });
   }
 
+  function selectCategory(c: ProviderCategory) {
+    setCategory(c);
+    setProviderType(null);
+    setPhase("type");
+  }
+
   function selectType(t: ProviderType) {
     setProviderType(t);
     setContactName("");
@@ -522,7 +747,7 @@ export default function ProviderApplyPage() {
     setPhase("form");
   }
 
-  if (phase === "type") {
+  if (phase === "category") {
     return (
       <AuthLayout>
         <div className="mb-4">
@@ -530,23 +755,87 @@ export default function ProviderApplyPage() {
           <p className="text-xs text-slate-500 mt-1">בחר/י את סוג הספק כדי להמשיך — לכל סוג יש פרטים שונים שנדרשים לאישור ראשוני</p>
         </div>
         <div className="flex flex-col gap-2">
-          {(Object.entries(TYPE_CONFIG) as [ProviderType, TypeFieldConfig][]).map(([value, cfg]) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => selectType(value)}
-              className="flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-3 text-right hover:border-primary hover:bg-primary/5 transition-colors"
-            >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700">
-                {cfg.icon}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-slate-900">{cfg.label}</p>
-                <p className="text-xs text-slate-500 truncate">{cfg.description}</p>
-              </div>
-              <ChevronRight className="h-4 w-4 shrink-0 text-slate-400 rtl:rotate-180" />
-            </button>
-          ))}
+          {(Object.entries(CATEGORY_CONFIG) as [ProviderCategory, (typeof CATEGORY_CONFIG)[ProviderCategory]][]).map(
+            ([value, cfg]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => selectCategory(value)}
+                className="flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-3 text-right hover:border-primary hover:bg-primary/5 transition-colors"
+              >
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700">
+                  {cfg.icon}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-slate-900">{cfg.label}</p>
+                  <p className="text-xs text-slate-500 truncate">{cfg.description}</p>
+                </div>
+                <ChevronRight className="h-4 w-4 shrink-0 text-slate-400 rtl:rotate-180" />
+              </button>
+            )
+          )}
+        </div>
+        <p className="mt-5 text-center text-sm text-slate-500">
+          כבר יש לך חשבון?{" "}
+          <Link href="/login" className="text-primary font-medium hover:underline">
+            התחבר
+          </Link>
+        </p>
+      </AuthLayout>
+    );
+  }
+
+  if (phase === "type" && category) {
+    return (
+      <AuthLayout>
+        <div className="mb-4 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setCategory(null);
+              setPhase("category");
+            }}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700"
+            aria-label="חזרה לבחירת קטגוריה"
+          >
+            {CATEGORY_CONFIG[category].icon}
+          </button>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-lg font-semibold text-slate-900">{CATEGORY_CONFIG[category].label}</h1>
+            <p className="text-xs text-slate-500">בחר/י את סוג הספק המדויק כדי להמשיך</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setCategory(null);
+              setPhase("category");
+            }}
+            className="shrink-0 text-xs font-medium text-primary hover:underline"
+          >
+            שינוי קטגוריה
+          </button>
+        </div>
+        <div className="flex flex-col gap-2">
+          {CATEGORY_TYPES[category].map((value) => {
+            const cfg = TYPE_CONFIG[value]!;
+            return (
+              <button
+                key={value}
+                type="button"
+                onClick={() => selectType(value)}
+                className="flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-3 text-right hover:border-primary hover:bg-primary/5 transition-colors"
+              >
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700">
+                  {cfg.icon}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-slate-900">{cfg.label}</p>
+                  <p className="text-xs text-slate-500 truncate">{cfg.description}</p>
+                </div>
+                <ChevronRight className="h-4 w-4 shrink-0 text-slate-400 rtl:rotate-180" />
+              </button>
+            );
+          })}
         </div>
         <p className="mt-5 text-center text-sm text-slate-500">
           כבר יש לך חשבון?{" "}
@@ -699,8 +988,15 @@ export default function ProviderApplyPage() {
           </div>
         )}
 
-        
-
+        {config.showContactName && config.contactNameFirst && extraFieldsGate && (
+          <Input
+            label={config.contactNameLabel}
+            icon={<UserIcon className="h-4 w-4" />}
+            value={contactName}
+            onChange={(e) => setContactName(e.target.value)}
+            required={config.contactNameRequired !== false}
+          />
+        )}
 
 <Input
           type="tel"
@@ -720,7 +1016,7 @@ export default function ProviderApplyPage() {
           required
         />
 
-{config.showContactName && (
+{config.showContactName && !config.contactNameFirst && extraFieldsGate && (
           <Input
             label={config.contactNameLabel}
             icon={<UserIcon className="h-4 w-4" />}
@@ -729,8 +1025,8 @@ export default function ProviderApplyPage() {
             required={config.contactNameRequired !== false}
           />
         )}
-        
-        {config.showContactPhone && (
+
+        {config.showContactPhone && extraFieldsGate && (
           <Input
             type="tel"
             label="טלפון איש קשר (לא חובה)"
@@ -740,7 +1036,7 @@ export default function ProviderApplyPage() {
           />
         )}
 
-        {config.showContactEmail && (
+        {config.showContactEmail && extraFieldsGate && (
           <Input
             type="email"
             placeholder="you@example.com"
@@ -751,8 +1047,15 @@ export default function ProviderApplyPage() {
           />
         )}
 
-        
-        {config.multiSpecialty ? (
+
+        {config.freeTextSpecialty ? (
+          <Input
+            label={config.specialtyLabel}
+            value={specialty}
+            onChange={(e) => setSpecialty(e.target.value)}
+            required
+          />
+        ) : config.multiSpecialty ? (
           <MultiSelectPills
             label={config.specialtyLabel}
             options={config.specialtyOptions}
@@ -781,14 +1084,17 @@ export default function ProviderApplyPage() {
         {config.showSubSpecialties && specialty && (
           <>
             <MultiSelectPills
-              label="תתי התמחות (ניתן לבחור יותר מאחת)"
-              options={[...(SUBSPECIALTIES_BY_SPECIALTY[specialty] ?? []), "אחר"]}
+              label={isDoctor ? "תתי התמחות (ניתן לבחור יותר מאחת)" : "תתי קטגוריה (ניתן לבחור יותר מאחת)"}
+              options={[
+                ...(SUBSPECIALTIES_BY_SPECIALTY[specialty] ?? STORE_SUBTYPES_BY_CATEGORY[specialty] ?? []),
+                "אחר",
+              ]}
               value={subSpecialties}
               onChange={setSubSpecialties}
             />
             {subSpecialties.includes("אחר") && (
               <Input
-                label='פירוט תת התמחות "אחר"'
+                label={isDoctor ? 'פירוט תת התמחות "אחר"' : 'פירוט קטגוריה "אחר"'}
                 value={otherSubSpecialty}
                 onChange={(e) => setOtherSubSpecialty(e.target.value)}
               />
@@ -806,7 +1112,7 @@ export default function ProviderApplyPage() {
           />
         )}
 
-        {config.showBusinessRegNumber && (
+        {config.showBusinessRegNumber && extraFieldsGate && (
           <Input
             label={`מספר עוסק מורשה / ח"פ${config.businessRegRequired === false ? " (לא חובה)" : ""}`}
             icon={<BadgeCheck className="h-4 w-4" />}
@@ -816,7 +1122,7 @@ export default function ProviderApplyPage() {
           />
         )}
 
-        {config.showLicenseNumber !== false && (
+        {config.showLicenseNumber !== false && extraFieldsGate && (
           <Input
             label={config.licenseNumberLabel}
             icon={<BadgeCheck className="h-4 w-4" />}
@@ -863,7 +1169,7 @@ export default function ProviderApplyPage() {
           />
         )}
 
-        {config.showMedicalResume && (
+        {config.showMedicalResume && extraFieldsGate && (
           <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
             רזומה רפואי (לא חובה)
             <span className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-2.5 text-sm text-slate-600 cursor-pointer hover:border-primary">
@@ -879,9 +1185,11 @@ export default function ProviderApplyPage() {
           </label>
         )}
 
-        {config.showKupot && <KupahArrangementPicker value={kupahArrangements} onChange={setKupahArrangements} />}
+        {config.showKupot && extraFieldsGate && (
+          <KupahArrangementPicker value={kupahArrangements} onChange={setKupahArrangements} />
+        )}
 
-        {config.showPrivateInsurance && (
+        {config.showPrivateInsurance && extraFieldsGate && (
           <MultiSelectPills
             label="עם אילו חברות ביטוח פרטיות יש הסדר (B)"
             options={PRIVATE_INSURERS}
@@ -892,9 +1200,10 @@ export default function ProviderApplyPage() {
 
         <MultiSelectPills
           label="אזורי שירות (ניתן לבחור יותר מאחד)"
-          options={
-            config.excludeOnlineServiceArea ? SERVICE_AREAS.filter((a) => a.trim() !== "אונליין") : SERVICE_AREAS
-          }
+          options={[
+            ...(config.excludeOnlineServiceArea ? SERVICE_AREAS.filter((a) => a.trim() !== "אונליין") : SERVICE_AREAS),
+            ...(config.extraServiceAreas ?? []),
+          ]}
           value={serviceAreas}
           onChange={setServiceAreas}
         />
