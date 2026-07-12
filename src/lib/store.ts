@@ -19,6 +19,7 @@ import {
   ProviderProfile,
   ProviderType,
   Role,
+  ServiceType,
   SkillDomain,
   SkillSubdomain,
   ToastItem,
@@ -148,6 +149,7 @@ interface EntitiesState {
   consentRecords: ConsentRecord[];
   dsrRequests: DsrRequest[];
   defaultCommissionRate: number;
+  commissionRateByServiceType: Partial<Record<ServiceType, number>>;
 
   addPatient: (p: Omit<Patient, "id" | "created_date">) => Patient;
   updatePatient: (id: string, data: Partial<Patient>) => void;
@@ -156,7 +158,9 @@ interface EntitiesState {
   addLead: (l: Omit<Lead, "id" | "created_date">) => Lead;
   updateLead: (id: string, data: Partial<Lead>) => void;
   deleteLead: (id: string) => void;
-  convertLead: (id: string) => void;
+  convertLead: (id: string) => Patient | undefined;
+
+  addAdminUser: (data: { full_name: string; email: string; phone?: string }) => User;
 
   upsertProviderProfile: (
     userId: string | undefined,
@@ -164,14 +168,18 @@ interface EntitiesState {
   ) => ProviderProfile;
   updateProviderById: (id: string, data: Partial<ProviderProfile>) => void;
   verifyProviderLicense: (id: string) => string;
+  demoApproveProvider: (id: string) => void;
+  demoRejectProvider: (id: string, reason?: string) => void;
   rejectProvider: (id: string, reason: string) => void;
   requestProviderChanges: (id: string, reason: string) => void;
+  requestProviderGoLive: (id: string) => void;
   approveProviderGoLive: (id: string) => void;
   suspendProvider: (id: string) => void;
   reinstateProvider: (id: string) => void;
   signProviderAgreement: (id: string) => void;
   setProviderCommission: (id: string, rate: number) => void;
   setDefaultCommissionRate: (rate: number) => void;
+  setServiceTypeCommissionRate: (type: ServiceType, rate: number | undefined) => void;
 
   addAppointment: (a: Omit<Appointment, "id">) => Appointment;
   updateAppointment: (id: string, data: Partial<Appointment>) => void;
@@ -509,6 +517,7 @@ export const useStore = create<Store>()(
       consentRecords: SEED_CONSENT_RECORDS,
       dsrRequests: SEED_DSR_REQUESTS,
       defaultCommissionRate: 15,
+      commissionRateByServiceType: {},
 
       addPatient: (p) => {
         const record: Patient = { ...p, id: generateId("pat"), created_date: new Date().toISOString() };
@@ -529,8 +538,8 @@ export const useStore = create<Store>()(
       deleteLead: (id) => set((s) => ({ leads: s.leads.filter((l) => l.id !== id) })),
       convertLead: (id) => {
         const lead = get().leads.find((l) => l.id === id);
-        if (!lead) return;
-        get().addPatient({
+        if (!lead) return undefined;
+        const patient = get().addPatient({
           full_name: lead.full_name,
           email: lead.email,
           phone: lead.phone,
@@ -538,6 +547,21 @@ export const useStore = create<Store>()(
           status: "פעיל",
         });
         get().updateLead(id, { status: "הומר", conversion_date: new Date().toISOString() });
+        return patient;
+      },
+
+      addAdminUser: (data) => {
+        const record: User = {
+          id: generateId("user"),
+          email: data.email,
+          full_name: data.full_name,
+          phone: data.phone,
+          role: "admin",
+          admin_title: "support_rep",
+          created_date: new Date().toISOString(),
+        };
+        set((s) => ({ users: [...s.users, record] }));
+        return record;
       },
 
       updateProviderById: (id, data) =>
@@ -571,11 +595,44 @@ export const useStore = create<Store>()(
         get().updateProviderById(id, { status: "onboarding", license_verified_at: new Date().toISOString() });
         return tempPassword;
       },
+      // Demo shortcut (product-demo flow) — skips the real Ops license-review
+      // + Go-Live pipeline entirely: the applicant is dropped straight into
+      // their own /provider/dashboard to self-serve the rest of the setup
+      // (catalog/locations/availability) and gets logged in immediately,
+      // since normally no session is issued until Ops verifies the license.
+      demoApproveProvider: (id) => {
+        const provider = get().providers.find((p) => p.id === id);
+        get().updateProviderById(id, {
+          status: "approved",
+          license_verified_at: new Date().toISOString(),
+          rejection_reason: undefined,
+        });
+        const user = provider?.user_id ? get().users.find((u) => u.id === provider.user_id) : undefined;
+        if (user) set({ currentUser: user });
+      },
+      demoRejectProvider: (id, reason) => {
+        get().updateProviderById(id, {
+          status: "rejected",
+          rejection_reason: reason ?? "לצורך ההדגמה, צוות Healson דחה את הבקשה — נמצאו פערים במסמכים שצורפו.",
+          is_published: false,
+        });
+      },
       rejectProvider: (id, reason) => {
         get().updateProviderById(id, { status: "rejected", rejection_reason: reason, is_published: false });
       },
       requestProviderChanges: (id, reason) => {
-        get().updateProviderById(id, { status: "onboarding", rejection_reason: reason, onboarding_ready_at: undefined });
+        get().updateProviderById(id, {
+          status: "onboarding",
+          rejection_reason: reason,
+          onboarding_ready_at: undefined,
+          go_live_requested_at: undefined,
+        });
+      },
+      // Provider clicks "פרסם" once onboarding is complete — this only
+      // queues the request; Healson still has to manually approve Go-Live
+      // (approveProviderGoLive) before status/is_published actually change.
+      requestProviderGoLive: (id) => {
+        get().updateProviderById(id, { go_live_requested_at: new Date().toISOString() });
       },
       approveProviderGoLive: (id) => {
         get().updateProviderById(id, { status: "approved", is_published: true, rejection_reason: undefined });
@@ -585,6 +642,13 @@ export const useStore = create<Store>()(
       signProviderAgreement: (id) => get().updateProviderById(id, { agreement_signed_at: new Date().toISOString() }),
       setProviderCommission: (id, rate) => get().updateProviderById(id, { commission_rate: rate }),
       setDefaultCommissionRate: (rate) => set({ defaultCommissionRate: rate }),
+      setServiceTypeCommissionRate: (type, rate) =>
+        set((s) => {
+          const next = { ...s.commissionRateByServiceType };
+          if (rate === undefined) delete next[type];
+          else next[type] = rate;
+          return { commissionRateByServiceType: next };
+        }),
 
       upsertProviderProfile: (userId, data) => {
         const existing = userId ? get().providers.find((p) => p.user_id === userId) : undefined;
@@ -751,15 +815,17 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 4,
+      version: 5,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
       // records), the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER seed
-      // account, and the v3 -> v4 AppointmentStatus rename ("ממתין לאישור"
-      // -> "ממתין לתשלום מקדמה", "הושלם" -> "בוצע") are not backwards
-      // compatible with anything persisted under an earlier version —
-      // discard old state on a version bump so the app reseeds clean
-      // instead of silently keeping stale seed/demo/status data.
-      migrate: (persistedState, version) => (version < 4 ? ({} as Store) : (persistedState as Store)),
+      // account, the v3 -> v4 AppointmentStatus rename ("ממתין לאישור"
+      // -> "ממתין לתשלום מקדמה", "הושלם" -> "בוצע"), and the v4 -> v5
+      // admin-dashboard additions (User.admin_title, Patient.processing_restricted,
+      // commissionRateByServiceType, second seeded superadmin) are not
+      // backwards compatible with anything persisted under an earlier
+      // version — discard old state on a version bump so the app reseeds
+      // clean instead of silently keeping stale seed/demo/status data.
+      migrate: (persistedState, version) => (version < 5 ? ({} as Store) : (persistedState as Store)),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);
       },

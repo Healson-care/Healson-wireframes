@@ -2,6 +2,7 @@
 
 import { useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Mail,
@@ -28,6 +29,7 @@ import {
   FileText,
   Sparkles,
   Rocket,
+  XCircle,
 } from "lucide-react";
 import { Logo } from "@/components/shared/Logo";
 import { Input, Select, Textarea } from "@/components/ui/Input";
@@ -38,16 +40,14 @@ import {
   DOCTOR_SUBTYPES,
   DOCTOR_SUBTYPE_LABELS,
   DoctorSubtype,
-  KLevel,
-  K_LEVELS_BY_KUPAH,
-  Kupah,
   KupahArrangement,
-  KUPOT,
   ORGANIZATION_MEMBER_TYPES,
+  PRIVATE_INSURANCE_COMPANIES,
   ProviderType,
   PROVIDER_TYPE_LABELS,
   UploadedFile,
 } from "@/types";
+import { KupahArrangementPicker, MultiSelectPills } from "@/components/provider/KupahArrangementPicker";
 
 type Phase = "category" | "type" | "form" | "otp" | "success";
 
@@ -172,8 +172,6 @@ const INSURANCE_AGENCY_SERVICES = [
 ];
 
 SUBSPECIALTIES_BY_SPECIALTY["סיעוד"] = NURSE_SPECIALTIES;
-
-const PRIVATE_INSURERS = ["הראל", "כלל", "מגדל", "הפניקס", "מנורה מבטחים", "איילון", "AIG", "שירביט"];
 
 const SERVICE_AREAS = [
   "תל אביב והמרכז",
@@ -502,95 +500,6 @@ const CATEGORY_TYPES: Record<ProviderCategory, ProviderType[]> = {
   organization: ["hospital", "outpatient_clinic", "medical_institute", "lab", "medical_call_center", "insurance_agency"],
 };
 
-function MultiSelectPills({
-  label,
-  options,
-  value,
-  onChange,
-  getLabel = (option: string) => option,
-}: {
-  label: string;
-  options: string[];
-  value: string[];
-  onChange: (value: string[]) => void;
-  getLabel?: (option: string) => string;
-}) {
-  function toggle(option: string) {
-    onChange(value.includes(option) ? value.filter((v) => v !== option) : [...value, option]);
-  }
-  return (
-    <div className="flex flex-col gap-1.5">
-      <span className="text-sm font-medium text-slate-700">{label}</span>
-      <div className="flex flex-wrap gap-2">
-        {options.map((option) => (
-          <button
-            key={option}
-            type="button"
-            onClick={() => toggle(option)}
-            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-              value.includes(option) ? "bg-primary text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-            }`}
-          >
-            {getLabel(option)}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function KupahArrangementPicker({
-  value,
-  onChange,
-}: {
-  value: KupahArrangement[];
-  onChange: (value: KupahArrangement[]) => void;
-}) {
-  function toggle(kupah: Kupah) {
-    const exists = value.some((a) => a.kupah === kupah);
-    onChange(exists ? value.filter((a) => a.kupah !== kupah) : [...value, { kupah, level: K_LEVELS_BY_KUPAH[kupah][0] }]);
-  }
-  function setLevel(kupah: Kupah, level: KLevel) {
-    onChange(value.map((a) => (a.kupah === kupah ? { ...a, level } : a)));
-  }
-  return (
-    <div className="flex flex-col gap-1.5">
-      <span className="text-sm font-medium text-slate-700">עם אילו קופות חולים יש הסכם (K)</span>
-      <div className="flex flex-col gap-2">
-        {KUPOT.map((kupah) => {
-          const entry = value.find((a) => a.kupah === kupah);
-          return (
-            <div key={kupah} className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => toggle(kupah)}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                  entry ? "bg-primary text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                }`}
-              >
-                {kupah}
-              </button>
-              {entry && (
-                <Select
-                  value={entry.level}
-                  onChange={(e) => setLevel(kupah, e.target.value as KLevel)}
-                  className="max-w-[140px] h-8 text-xs"
-                >
-                  {K_LEVELS_BY_KUPAH[kupah].map((l) => (
-                    <option key={l} value={l}>
-                      {l}
-                    </option>
-                  ))}
-                </Select>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 const APPLY_STEPS: { key: string; label: string; icon: ReactNode }[] = [
   { key: "type", label: "סוג ספק", icon: <Layers className="h-4 w-4" /> },
   { key: "form", label: "פרטי הבקשה", icon: <ClipboardPlus className="h-4 w-4" /> },
@@ -757,12 +666,17 @@ function FormSection({
 }
 
 export default function ProviderApplyPage() {
+  const router = useRouter();
   const applyAsProvider = useStore((s) => s.applyAsProvider);
   const verifyProviderApplicationOtp = useStore((s) => s.verifyProviderApplicationOtp);
   const resendProviderApplicationOtp = useStore((s) => s.resendProviderApplicationOtp);
+  const demoApproveProvider = useStore((s) => s.demoApproveProvider);
+  const demoRejectProvider = useStore((s) => s.demoRejectProvider);
   const showToast = useStore((s) => s.showToast);
 
   const [phase, setPhase] = useState<Phase>("category");
+  const [applicationProviderId, setApplicationProviderId] = useState<string | null>(null);
+  const [demoOutcome, setDemoOutcome] = useState<"approved" | "rejected" | null>(null);
   const [category, setCategory] = useState<ProviderCategory | null>(null);
   const [providerType, setProviderType] = useState<ProviderType | null>(null);
   const [fullName, setFullName] = useState("");
@@ -882,6 +796,7 @@ export default function ProviderApplyPage() {
         setError(result.error ?? "שגיאה באימות");
         return;
       }
+      setApplicationProviderId(result.providerId ?? null);
       setPhase("success");
     }, 300);
   }
@@ -889,6 +804,19 @@ export default function ProviderApplyPage() {
   function handleResend() {
     const otp = resendProviderApplicationOtp();
     if (otp) showToast("קוד חדש נשלח לטלפון", { description: `קוד הדגמה: ${otp}` });
+  }
+
+  function handleDemoApprove() {
+    if (!applicationProviderId) return;
+    demoApproveProvider(applicationProviderId);
+    setDemoOutcome("approved");
+    router.push("/provider/dashboard");
+  }
+
+  function handleDemoReject() {
+    if (!applicationProviderId) return;
+    demoRejectProvider(applicationProviderId);
+    setDemoOutcome("rejected");
   }
 
   function selectCategory(c: ProviderCategory) {
@@ -1108,6 +1036,33 @@ export default function ProviderApplyPage() {
               ))}
             </div>
           </div>
+
+          {applicationProviderId && demoOutcome === null && (
+            <div className="mt-2 w-full rounded-xl border border-dashed border-amber-300 bg-amber-50/60 p-4 text-right">
+              <p className="mb-1 text-xs font-semibold text-amber-700">מצב הדגמה</p>
+              <p className="mb-3 text-xs text-amber-700/80">
+                לצורך הדגמת המוצר בלבד — דלג/י על בדיקת הרישיון האמיתית וסמלץ את תשובת צוות Healson:
+              </p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Button onClick={handleDemoApprove} className="flex-1">
+                  <CheckCircle2 className="h-4 w-4" /> אשר את הספק (דמו)
+                </Button>
+                <Button onClick={handleDemoReject} variant="outline" className="flex-1">
+                  <XCircle className="h-4 w-4" /> דחה את הספק (דמו)
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {demoOutcome === "rejected" && (
+            <div className="mt-2 w-full rounded-xl border border-danger-border bg-danger-bg p-4 text-right text-danger-text">
+              <p className="mb-1 text-sm font-semibold">הבקשה נדחתה (הדגמה)</p>
+              <p className="text-xs leading-relaxed">
+                לצורך ההדגמה, צוות Healson דחה את הבקשה — נמצאו פערים במסמכים שצורפו. במערכת אמיתית לא ניתן יהיה
+                להתחבר עם חשבון זה.
+              </p>
+            </div>
+          )}
 
           <Link href="/login" className="mt-2 text-sm font-medium text-primary hover:underline">
             חזרה למסך הכניסה
@@ -1445,7 +1400,7 @@ export default function ProviderApplyPage() {
             {config.showPrivateInsurance && (
               <MultiSelectPills
                 label="עם אילו חברות ביטוח פרטיות יש הסדר (B)"
-                options={PRIVATE_INSURERS}
+                options={PRIVATE_INSURANCE_COMPANIES}
                 value={privateInsurers}
                 onChange={setPrivateInsurers}
               />

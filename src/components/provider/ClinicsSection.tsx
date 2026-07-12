@@ -4,27 +4,37 @@ import { useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Dialog, ConfirmDialog } from "@/components/ui/Dialog";
-import { Input } from "@/components/ui/Input";
+import { Input, Select } from "@/components/ui/Input";
 import { EmptyState } from "@/components/ui/Misc";
 import { Badge } from "@/components/ui/Badge";
 import { generateId } from "@/lib/utils";
-import { Clinic, DayKey } from "@/types";
+import { Clinic, DayKey, LocationType, LOCATION_TYPE_LABELS } from "@/types";
 import { DAY_LABELS } from "@/lib/medical-tree";
 import { Plus, Pencil, Trash2, Star, MapPin } from "lucide-react";
 
 const DAYS: DayKey[] = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
 
+const PHYSICAL_LOCATION_TYPES: LocationType[] = ["clinic", "store"];
+
 export function ClinicsSection({
   clinics,
   onChange,
+  allowedLocationTypes = ["clinic"],
+  locationLabelSingular = "מרפאה",
+  locationLabelPlural = "מרפאות",
 }: {
   clinics: Clinic[];
   onChange: (clinics: Clinic[]) => void;
+  allowedLocationTypes?: LocationType[];
+  locationLabelSingular?: string;
+  locationLabelPlural?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ name: "", address: "", city: "", phone: "" });
+  const [locationType, setLocationType] = useState<LocationType>(allowedLocationTypes[0] ?? "clinic");
+  const isPhysical = PHYSICAL_LOCATION_TYPES.includes(locationType);
   const [hours, setHours] = useState<Record<DayKey, { open: boolean; start: string; end: string }>>(
     DAYS.reduce(
       (acc, d) => ({ ...acc, [d]: { open: d !== "friday" && d !== "saturday", start: "09:00", end: "17:00" } }),
@@ -35,6 +45,7 @@ export function ClinicsSection({
   function openCreate() {
     setEditingId(null);
     setForm({ name: "", address: "", city: "", phone: "" });
+    setLocationType(allowedLocationTypes[0] ?? "clinic");
     setHours(
       DAYS.reduce(
         (acc, d) => ({ ...acc, [d]: { open: d !== "friday" && d !== "saturday", start: "09:00", end: "17:00" } }),
@@ -47,6 +58,7 @@ export function ClinicsSection({
   function openEdit(clinic: Clinic) {
     setEditingId(clinic.id);
     setForm({ name: clinic.name, address: clinic.address, city: clinic.city, phone: clinic.phone });
+    setLocationType(clinic.location_type ?? allowedLocationTypes[0] ?? "clinic");
     setHours(
       DAYS.reduce((acc, d) => {
         const h = clinic.hours[d];
@@ -70,6 +82,7 @@ export function ClinicsSection({
       phone: form.phone,
       is_primary: editingId ? clinics.find((c) => c.id === editingId)?.is_primary ?? false : clinics.length === 0,
       hours: hoursRecord,
+      location_type: locationType,
     };
 
     if (editingId) {
@@ -88,23 +101,28 @@ export function ClinicsSection({
     <div>
       <div className="flex justify-end mb-3">
         <Button size="sm" onClick={openCreate}>
-          <Plus className="h-4 w-4" /> הוסף מרפאה
+          <Plus className="h-4 w-4" /> הוסף {locationLabelSingular}
         </Button>
       </div>
 
       {clinics.length === 0 ? (
-        <EmptyState icon={<MapPin className="h-10 w-10" />} title="אין מרפאות מוגדרות" />
+        <EmptyState icon={<MapPin className="h-10 w-10" />} title={`אין ${locationLabelPlural} מוגדרות`} />
       ) : (
         <div className="grid sm:grid-cols-2 gap-3">
           {clinics.map((c) => (
             <Card key={c.id} className="p-4">
               <div className="flex items-start justify-between">
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <p className="font-medium text-slate-900">{c.name}</p>
-                    {c.is_primary && <Badge tone="green">מרפאה ראשית</Badge>}
+                    {c.is_primary && <Badge tone="green">{locationLabelSingular} ראשית</Badge>}
+                    {allowedLocationTypes.length > 1 && (
+                      <Badge tone="slate">{LOCATION_TYPE_LABELS[c.location_type ?? "clinic"]}</Badge>
+                    )}
                   </div>
-                  <p className="text-xs text-slate-500 mt-1">{c.address}, {c.city}</p>
+                  {(c.address || c.city) && (
+                    <p className="text-xs text-slate-500 mt-1">{c.address}{c.address && c.city ? ", " : ""}{c.city}</p>
+                  )}
                   <p className="text-xs text-slate-400">{c.phone}</p>
                 </div>
                 <div className="flex gap-1">
@@ -136,14 +154,38 @@ export function ClinicsSection({
         </div>
       )}
 
-      <Dialog open={open} onClose={() => setOpen(false)} title={editingId ? "עריכת מרפאה" : "מרפאה חדשה"} className="max-w-xl">
+      <Dialog
+        open={open}
+        onClose={() => setOpen(false)}
+        title={editingId ? `עריכת ${locationLabelSingular}` : `${locationLabelSingular} חדש/ה`}
+        className="max-w-xl"
+      >
         <div className="flex flex-col gap-3">
           <div className="grid sm:grid-cols-2 gap-3">
-            <Input label="שם המרפאה" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-            <Input label="עיר" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} required />
-            <Input label="כתובת" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} required />
+            {allowedLocationTypes.length > 1 && (
+              <Select
+                label="סוג המיקום"
+                value={locationType}
+                onChange={(e) => setLocationType(e.target.value as LocationType)}
+                className="sm:col-span-2"
+              >
+                {allowedLocationTypes.map((t) => (
+                  <option key={t} value={t}>
+                    {LOCATION_TYPE_LABELS[t]}
+                  </option>
+                ))}
+              </Select>
+            )}
+            <Input label={`שם ה${locationLabelSingular}`} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+            <Input label="עיר" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} required={isPhysical} />
+            <Input label="כתובת" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} required={isPhysical} />
             <Input label="טלפון" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} required />
           </div>
+          {!isPhysical && (
+            <p className="text-xs text-slate-500">
+              עבור {LOCATION_TYPE_LABELS[locationType].toLowerCase()} אין צורך בכתובת פיזית — ניתן להשלים אזורי שירות בפרטי הפרופיל.
+            </p>
+          )}
           <p className="text-sm font-medium text-slate-700 mt-2">שעות פעילות</p>
           <div className="flex flex-col gap-2">
             {DAYS.map((d) => (
@@ -177,14 +219,14 @@ export function ClinicsSection({
               </div>
             ))}
           </div>
-          <Button onClick={handleSave}>שמור מרפאה</Button>
+          <Button onClick={handleSave}>שמור {locationLabelSingular}</Button>
         </div>
       </Dialog>
 
       <ConfirmDialog
         open={!!deleteId}
         onClose={() => setDeleteId(null)}
-        title="מחיקת מרפאה"
+        title={`מחיקת ${locationLabelSingular}`}
         destructive
         confirmLabel="מחק"
         onConfirm={() => {

@@ -27,13 +27,28 @@ export const LAYER_LABELS: Record<InsuranceLayer, string> = {
 // shared generic tier list — e.g. מאוחדת sells "מאוחדת עדיף"/"מאוחדת שיא",
 // כללית sells "כללית זהב"/"כללית מושלם"/"כללית פלטינום".
 export const K_LEVELS_BY_KUPAH = {
-  "כללית": ["כללית זהב", "כללית מושלם", "כללית פלטינום"],
-  "מכבי": ["מכבי כסף", "מכבי שלי","מכבי בסיס"],
-  "מאוחדת": ["מאוחדת עדיף", "מאוחדת שיא","מאוחדת בסיס "],
-  "לאומית": ["לאומית כסף", "לאומית זהב"," לאומית בסיס"],
+  "כללית": ["כללית בסיס", "כללית מושלם", "כללית פלטינום"],
+  "מכבי": ["מכבי בסיס", "מכבי שלי", "מכבי כסף"],
+  "מאוחדת": ["מאוחדת בסיס", "מאוחדת עדיף", "מאוחדת שיא"],
+  "לאומית": ["לאומית בסיס", "לאומית זהב"],
 } as const satisfies Record<Kupah, readonly string[]>;
 
 export type KLevel = (typeof K_LEVELS_BY_KUPAH)[Kupah][number];
+
+// Private health-insurance carriers (§B layer) a provider may hold a
+// billing arrangement with — a provider can have more than one.
+export const PRIVATE_INSURANCE_COMPANIES = [
+  "הראל",
+  "כלל",
+  "מגדל",
+  "הפניקס",
+  "מנורה מבטחים",
+  "איילון",
+  "AIG",
+  "שירביט",
+] as const;
+
+export type PrivateInsuranceCompany = (typeof PRIVATE_INSURANCE_COMPANIES)[number];
 
 // A provider's declared K-layer arrangement with a specific Kupah, at a
 // given supplemental-plan level — collected at application time (§apply
@@ -131,7 +146,16 @@ export interface User {
   phone?: string;
   avatar_url?: string;
   created_date: string;
+  admin_title?: AdminTitle; // only meaningful when role === "admin"
 }
+
+// Admin staff sub-role (§8.4 ADM-07) — superadmins are seeded from the team;
+// support reps are addable by an existing admin via the admin staff panel.
+export type AdminTitle = "superadmin" | "support_rep";
+export const ADMIN_TITLE_LABELS: Record<AdminTitle, string> = {
+  superadmin: "מנהל-על",
+  support_rep: "נציג שירות",
+};
 
 // ---------------------------------------------------------------------------
 // Skill taxonomy (§5) — Domain → Sub-domain → Catalog item. Admin-editable.
@@ -248,6 +272,7 @@ export interface Patient {
   assigned_provider?: string; // ProviderProfile id
   created_date: string;
   user_id?: string;
+  processing_restricted?: boolean; // §11.2 / ADM-08 — blocks new data processing (bookings/orders) when true
 }
 
 export interface Lead {
@@ -274,6 +299,17 @@ export type DayKey =
 
 export type ClinicHours = Record<DayKey, [string, string] | null>;
 
+// A provider location's kind — drives which fields are required and how
+// its weekly hours should be read (e.g. "home_visit" hours are when the
+// provider travels to patients, not when a physical site is staffed).
+export type LocationType = "clinic" | "home_visit" | "store" | "virtual";
+export const LOCATION_TYPE_LABELS: Record<LocationType, string> = {
+  clinic: "מרפאה",
+  home_visit: "ביקורי בית",
+  store: "חנות",
+  virtual: "מוקד / מרחוק",
+};
+
 export interface Clinic {
   id: string;
   name: string;
@@ -282,6 +318,16 @@ export interface Clinic {
   phone: string;
   is_primary: boolean;
   hours: ClinicHours;
+  location_type?: LocationType;
+}
+
+// A date the provider has closed (vacation/holiday/etc) on top of their
+// recurring weekly hours — the real slot generator (src/lib/scheduling.ts)
+// treats these days as fully closed regardless of what the weekly hours say.
+export interface BlockedDate {
+  id: string;
+  date: string; // yyyy-MM-dd
+  reason?: string;
 }
 
 export interface ConsultationType {
@@ -289,6 +335,7 @@ export interface ConsultationType {
   name: string;
   duration_minutes: number;
   prices: PriceByLayer[];
+  catalog_item_id?: string; // links back to a CatalogItem chosen from the Skill Tree
 }
 
 export interface ExamType {
@@ -422,6 +469,7 @@ export interface ProviderProfile {
   license_issue_date?: string;
   license_expiry_date?: string;
   image_url?: string;
+  coordination_notes?: string; // free-text notes to the Healson ops team, not shown to patients
   is_published: boolean;
   status: ProviderStatus;
   phone_verified_at?: string;
@@ -440,6 +488,11 @@ export interface ProviderProfile {
   license_verified_at?: string;
   agreement_signed_at?: string;
   onboarding_ready_at?: string;
+  // Provider-initiated Go-Live request (§apply flow, stage 4) — the provider
+  // clicks "פרסם" once onboarding_ready_at is set; this only queues the
+  // request. Healson must still call approveProviderGoLive to actually flip
+  // status to "approved" / is_published — see requestProviderGoLive in store.ts.
+  go_live_requested_at?: string;
   rejection_reason?: string;
   commission_rate?: number; // percent Healson takes on this provider's orders
   agreements: ProviderAgreement[];
@@ -447,6 +500,7 @@ export interface ProviderProfile {
   exam_types: ExamType[];
   clinic_locations: Clinic[];
   referral_forms: ReferralFormTemplate[];
+  blocked_dates?: BlockedDate[];
   created_date: string;
 }
 

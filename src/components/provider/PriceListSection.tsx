@@ -17,6 +17,34 @@ export interface PriceListEntry {
   [extra: string]: unknown;
 }
 
+/** S/K/B/H per-layer price inputs, shared by PriceListSection and
+ * ServiceCatalogSection's create/edit dialogs. */
+export function LayerPriceInputs({
+  prices,
+  onChange,
+}: {
+  prices: Record<InsuranceLayer, string>;
+  onChange: (prices: Record<InsuranceLayer, string>) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {INSURANCE_LAYERS.map((l) => (
+        <Input
+          key={l}
+          label={`מחיר ${LAYER_LABELS[l]} (${l})`}
+          type="number"
+          value={prices[l]}
+          onChange={(e) => onChange({ ...prices, [l]: e.target.value })}
+        />
+      ))}
+    </div>
+  );
+}
+
+export function emptyLayerPrices(): Record<InsuranceLayer, string> {
+  return { S: "", K: "", B: "", H: "" };
+}
+
 export function PriceListSection({
   items,
   onChange,
@@ -37,14 +65,13 @@ export function PriceListSection({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [extraValue, setExtraValue] = useState<string>("");
-  const emptyPrices = (): Record<InsuranceLayer, string> => ({ S: "", K: "", B: "", H: "" });
-  const [prices, setPrices] = useState<Record<InsuranceLayer, string>>(emptyPrices());
+  const [prices, setPrices] = useState<Record<InsuranceLayer, string>>(emptyLayerPrices());
 
   function openCreate() {
     setEditingId(null);
     setName("");
     setExtraValue("");
-    setPrices(emptyPrices());
+    setPrices(emptyLayerPrices());
     setOpen(true);
   }
 
@@ -52,7 +79,7 @@ export function PriceListSection({
     setEditingId(item.id);
     setName(item.name);
     setExtraValue(String(item[extraFieldKey] ?? ""));
-    const map = emptyPrices();
+    const map = emptyLayerPrices();
     item.prices.forEach((p) => (map[p.layer] = String(p.price)));
     setPrices(map);
     setOpen(true);
@@ -127,17 +154,7 @@ export function PriceListSection({
             required
           />
           <p className="text-xs text-slate-400">מחיר לשכבת ביטוח — השאירו ריק אם הספק לא עובד מול שכבה זו</p>
-          <div className="grid grid-cols-2 gap-2">
-            {INSURANCE_LAYERS.map((l) => (
-              <Input
-                key={l}
-                label={`מחיר ${LAYER_LABELS[l]} (${l})`}
-                type="number"
-                value={prices[l]}
-                onChange={(e) => setPrices({ ...prices, [l]: e.target.value })}
-              />
-            ))}
-          </div>
+          <LayerPriceInputs prices={prices} onChange={setPrices} />
           <Button onClick={handleSave}>שמור</Button>
         </div>
       </Dialog>

@@ -12,16 +12,19 @@ import { Dialog, ConfirmDialog } from "@/components/ui/Dialog";
 import { DataTable, DataTableColumn } from "@/components/ui/DataTable";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/Tabs";
 import {
+  ADMIN_TITLE_LABELS,
   DSR_REQUEST_TYPE_LABELS,
   DSR_REQUEST_STATUSES,
   DsrRequest,
   DsrRequestStatus,
   ProviderProfile,
   Role,
+  SERVICE_TYPE_LABELS,
+  SERVICE_TYPES,
   User,
 } from "@/types";
 import { generateId, formatDateHe } from "@/lib/utils";
-import { Plus, Trash2, Building2, Users, Settings, Percent, ShieldAlert } from "lucide-react";
+import { Plus, Trash2, Building2, Users, Settings, Percent, ShieldAlert, UserPlus } from "lucide-react";
 
 const ROLE_LABELS: Record<Role, string> = { admin: "מנהל", provider: "ספק", patient: "מטופל" };
 
@@ -29,12 +32,15 @@ export default function AdminSettingsPage() {
   const users = useStore((s) => s.users);
   const branches = useStore((s) => s.branches);
   const showToast = useStore((s) => s.showToast);
+  const addAdminUser = useStore((s) => s.addAdminUser);
 
   const [localUsers, setLocalUsers] = useState(users);
   const [localBranches, setLocalBranches] = useState(branches);
   const [branchOpen, setBranchOpen] = useState(false);
   const [branchForm, setBranchForm] = useState({ name: "", city: "", address: "" });
   const [deleteBranchId, setDeleteBranchId] = useState<string | null>(null);
+  const [repFormOpen, setRepFormOpen] = useState(false);
+  const [repForm, setRepForm] = useState({ full_name: "", email: "", phone: "" });
 
   const [settings, setSettings] = useState({
     emailNotifications: true,
@@ -55,6 +61,13 @@ export default function AdminSettingsPage() {
     setBranchForm({ name: "", city: "", address: "" });
   }
 
+  function addRep() {
+    addAdminUser(repForm);
+    showToast("נציג השירות נוסף בהצלחה", { variant: "success" });
+    setRepFormOpen(false);
+    setRepForm({ full_name: "", email: "", phone: "" });
+  }
+
   return (
     <AppLayout>
       <PageHeader title="ניהול מערכת" description="הגדרות פלטפורמה, משתמשים, עמלות ובקשות פרטיות" />
@@ -68,7 +81,52 @@ export default function AdminSettingsPage() {
           <TabsTrigger value="dsr" icon={<ShieldAlert className="h-3.5 w-3.5" />}>בקשות פרטיות</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="users">
+        <TabsContent value="users" className="flex flex-col gap-5">
+          <Card>
+            <CardHeader className="flex items-center justify-between flex-row">
+              <div>
+                <CardTitle>צוות המנהלים</CardTitle>
+                <p className="text-sm text-slate-500">מנהלי-על ונציגי שירות של Healson</p>
+              </div>
+              <Button size="sm" onClick={() => setRepFormOpen(true)}>
+                <UserPlus className="h-4 w-4" /> נציג שירות חדש
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <DataTable<User>
+                rows={users.filter((u) => u.role === "admin")}
+                rowKey={(u) => u.id}
+                emptyTitle="אין צוות מנהלים"
+                columns={
+                  [
+                    {
+                      key: "name",
+                      header: "משתמש",
+                      render: (u) => (
+                        <div className="flex items-center gap-2">
+                          <Avatar name={u.full_name} className="h-8 w-8 text-xs" />
+                          <div>
+                            <p className="text-sm font-medium text-slate-800">{u.full_name}</p>
+                            <p className="text-xs text-slate-400">{u.email}</p>
+                          </div>
+                        </div>
+                      ),
+                    },
+                    {
+                      key: "title",
+                      header: "תפקיד",
+                      render: (u) => (
+                        <Badge tone={u.admin_title === "superadmin" ? "purple" : "slate"}>
+                          {ADMIN_TITLE_LABELS[u.admin_title ?? "superadmin"]}
+                        </Badge>
+                      ),
+                    },
+                  ] satisfies DataTableColumn<User>[]
+                }
+              />
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>ניהול תפקידי משתמשים</CardTitle>
@@ -198,6 +256,17 @@ export default function AdminSettingsPage() {
         </TabsContent>
       </Tabs>
 
+      <Dialog open={repFormOpen} onClose={() => setRepFormOpen(false)} title="נציג שירות חדש">
+        <div className="flex flex-col gap-3">
+          <Input label="שם מלא" value={repForm.full_name} onChange={(e) => setRepForm({ ...repForm, full_name: e.target.value })} />
+          <Input label="אימייל" type="email" value={repForm.email} onChange={(e) => setRepForm({ ...repForm, email: e.target.value })} />
+          <Input label="טלפון" value={repForm.phone} onChange={(e) => setRepForm({ ...repForm, phone: e.target.value })} />
+          <Button onClick={addRep} disabled={!repForm.full_name || !repForm.email}>
+            הוסף נציג שירות
+          </Button>
+        </div>
+      </Dialog>
+
       <Dialog open={branchOpen} onClose={() => setBranchOpen(false)} title="סניף חדש">
         <div className="flex flex-col gap-3">
           <Input label="שם הסניף" value={branchForm.name} onChange={(e) => setBranchForm({ ...branchForm, name: e.target.value })} />
@@ -252,6 +321,8 @@ function CommissionTab() {
   const defaultCommissionRate = useStore((s) => s.defaultCommissionRate);
   const setDefaultCommissionRate = useStore((s) => s.setDefaultCommissionRate);
   const setProviderCommission = useStore((s) => s.setProviderCommission);
+  const commissionRateByServiceType = useStore((s) => s.commissionRateByServiceType);
+  const setServiceTypeCommissionRate = useStore((s) => s.setServiceTypeCommissionRate);
   const showToast = useStore((s) => s.showToast);
 
   const [defaultDraft, setDefaultDraft] = useState(String(defaultCommissionRate));
@@ -279,6 +350,30 @@ function CommissionTab() {
           >
             שמור
           </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>עמלה לפי סוג שירות</CardTitle>
+          <p className="text-sm text-slate-500">
+            חלה על הזמנות המקושרות לפריט קטלוג, כשלא הוגדרה עמלה מותאמת לספק
+          </p>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2">
+          {SERVICE_TYPES.map((type) => (
+            <div key={type} className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">
+              <span className="text-sm text-slate-700">{SERVICE_TYPE_LABELS[type]}</span>
+              <ServiceTypeCommissionEditor
+                value={commissionRateByServiceType[type]}
+                defaultRate={defaultCommissionRate}
+                onSave={(rate) => {
+                  setServiceTypeCommissionRate(type, rate);
+                  showToast("העמלה לפי סוג שירות עודכנה", { variant: "success" });
+                }}
+              />
+            </div>
+          ))}
         </CardContent>
       </Card>
 
@@ -338,20 +433,54 @@ function CommissionInlineEditor({ value, onSave }: { value: number; onSave: (rat
   );
 }
 
+function ServiceTypeCommissionEditor({
+  value,
+  defaultRate,
+  onSave,
+}: {
+  value: number | undefined;
+  defaultRate: number;
+  onSave: (rate: number | undefined) => void;
+}) {
+  const [draft, setDraft] = useState(String(value ?? defaultRate));
+  return (
+    <div className="flex items-center gap-1.5">
+      {value === undefined ? (
+        <span className="text-xs text-slate-400">ברירת מחדל ({defaultRate}%)</span>
+      ) : (
+        <span className="text-xs text-slate-600">{value}%</span>
+      )}
+      <Input type="number" value={draft} onChange={(e) => setDraft(e.target.value)} className="h-8 w-16 text-xs" />
+      <Button size="sm" variant="outline" onClick={() => onSave(Number(draft) || 0)}>
+        עדכן
+      </Button>
+      {value !== undefined && (
+        <Button size="sm" variant="outline" onClick={() => onSave(undefined)}>
+          נקה
+        </Button>
+      )}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Data subject rights queue (ADM-08) — export/rectification/erasure requests.
 // ---------------------------------------------------------------------------
+const DSR_SLA_DAYS = 30;
+const OPEN_DSR_STATUSES: DsrRequestStatus[] = ["ממתין", "בטיפול"];
+
 function DsrTab() {
   const dsrRequests = useStore((s) => s.dsrRequests);
   const patients = useStore((s) => s.patients);
   const updateDsrRequest = useStore((s) => s.updateDsrRequest);
+  const updatePatient = useStore((s) => s.updatePatient);
   const showToast = useStore((s) => s.showToast);
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>בקשות נושאי מידע</CardTitle>
-        <p className="text-sm text-slate-500">ייצוא / תיקון / מחיקה — SLA לטיפול: 30 יום ממועד הבקשה</p>
+        <p className="text-sm text-slate-500">ייצוא / תיקון / מחיקה — SLA לטיפול: {DSR_SLA_DAYS} יום ממועד הבקשה</p>
       </CardHeader>
       <CardContent>
         <DataTable<DsrRequest>
@@ -366,7 +495,12 @@ function DsrTab() {
                 header: "מטופל",
                 render: (r) => {
                   const patient = patients.find((p) => p.id === r.patient_id);
-                  return <span className="font-medium text-slate-900">{patient?.full_name ?? "—"}</span>;
+                  return (
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-medium text-slate-900">{patient?.full_name ?? "—"}</span>
+                      {patient?.processing_restricted && <Badge tone="red">עיבוד מוגבל</Badge>}
+                    </div>
+                  );
                 },
               },
               { key: "type", header: "סוג בקשה", render: (r) => <Badge tone="slate">{DSR_REQUEST_TYPE_LABELS[r.type]}</Badge> },
@@ -375,7 +509,16 @@ function DsrTab() {
                 header: "תאריך בקשה",
                 sortable: true,
                 sortValue: (r) => r.requested_at,
-                render: (r) => <span className="text-slate-500">{formatDateHe(r.requested_at)}</span>,
+                render: (r) => {
+                  const daysOpen = (Date.now() - new Date(r.requested_at).getTime()) / (1000 * 60 * 60 * 24);
+                  const breached = OPEN_DSR_STATUSES.includes(r.status) && daysOpen > DSR_SLA_DAYS;
+                  return (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-500">{formatDateHe(r.requested_at)}</span>
+                      {breached && <Badge tone="red">חריגת SLA</Badge>}
+                    </div>
+                  );
+                },
               },
               {
                 key: "status",
@@ -408,6 +551,25 @@ function DsrTab() {
               },
             ] satisfies DataTableColumn<DsrRequest>[]
           }
+          rowActions={(r) => {
+            const patient = patients.find((p) => p.id === r.patient_id);
+            if (!patient) return null;
+            return (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const restricted = !patient.processing_restricted;
+                  updatePatient(patient.id, { processing_restricted: restricted });
+                  showToast(restricted ? "עיבוד הנתונים של המטופל נחסם" : "חסימת עיבוד הנתונים בוטלה", {
+                    variant: "success",
+                  });
+                }}
+              >
+                {patient.processing_restricted ? "בטל חסימת עיבוד" : "חסום עיבוד נתונים"}
+              </Button>
+            );
+          }}
         />
       </CardContent>
     </Card>

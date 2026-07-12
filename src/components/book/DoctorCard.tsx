@@ -30,7 +30,7 @@ export function DoctorCard({
       className="group flex flex-col items-start gap-3 rounded-2xl border border-slate-200 bg-white p-5 text-right shadow-sm hover:shadow-xl hover:border-primary/30"
     >
       <div className="flex w-full items-start justify-between">
-        <Avatar name={provider.display_name} className="h-14 w-14 text-lg" />
+        <Avatar name={provider.display_name} src={provider.image_url} className="h-14 w-14 text-lg" />
         {provider.rating && (
           <span className="flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">
             <Star className="h-3.5 w-3.5 fill-amber-500 text-amber-500" /> {provider.rating}

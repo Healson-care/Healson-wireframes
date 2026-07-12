@@ -170,6 +170,7 @@ export default function ProviderReferralsPage() {
           {uploadFor?.result_files && uploadFor.result_files.length > 0 && (
             <p className="text-xs text-slate-400">קבצים קיימים: {uploadFor.result_files.map((f) => f.file_name).join(", ")}</p>
           )}
+          <p className="text-xs text-slate-400">הקובץ יהיה גלוי למטופל בלבד — ספקים אחרים ואדמין ללא הרשאה מפורשת לא יוכלו לצפות בו.</p>
           <Button onClick={handleUploadResults} loading={uploading}>
             שמור ושלח למטופל
           </Button>

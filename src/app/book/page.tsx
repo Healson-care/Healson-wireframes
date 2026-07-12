@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import { Mail, Phone, User as UserIcon, ArrowRight, ArrowLeft } from "lucide-react";
@@ -41,6 +41,7 @@ const stepTransition = { duration: 0.25, ease: "easeOut" as const };
 
 export default function BookPage() {
   const providers = useStore((s) => s.providers);
+  const appointments = useStore((s) => s.appointments);
   const quickRegisterPatient = useStore((s) => s.quickRegisterPatient);
   const addAppointment = useStore((s) => s.addAppointment);
   const updateAppointment = useStore((s) => s.updateAppointment);
@@ -63,7 +64,10 @@ export default function BookPage() {
   const [kupah, setKupah] = useState<Kupah | "">("");
 
   // Step 4: slot selection + hold
-  const [days] = useState<DaySlots[]>(() => buildDays());
+  const days: DaySlots[] = useMemo(
+    () => (selectedProvider ? buildDays(selectedProvider, appointments) : []),
+    [selectedProvider, appointments]
+  );
   const [activeDayIdx, setActiveDayIdx] = useState(0);
   const [selectedSlot, setSelectedSlot] = useState<{ date: string; time: string; label: string } | null>(null);
   const [holdExpiresAt, setHoldExpiresAt] = useState<number | null>(null);
@@ -92,6 +96,10 @@ export default function BookPage() {
   // even if they never complete payment.
   function selectSlot(date: string, time: string, label: string) {
     if (!selectedProvider) return;
+    if (patient?.processing_restricted) {
+      showToast("לא ניתן להמשיך", { description: "עיבוד הנתונים של מטופל זה חסום. פנה לתמיכה.", variant: "destructive" });
+      return;
+    }
     const appointment = addAppointment({
       client_name: leadForm.full_name,
       client_phone: leadForm.phone,
@@ -160,6 +168,10 @@ export default function BookPage() {
 
   function handlePay() {
     if (!selectedProvider || !selectedSlot || !pendingAppointmentId) return;
+    if (patient?.processing_restricted) {
+      showToast("לא ניתן להמשיך", { description: "עיבוד הנתונים של מטופל זה חסום. פנה לתמיכה.", variant: "destructive" });
+      return;
+    }
     setPaying(true);
     setTimeout(() => {
       const commissionRate = selectedProvider.commission_rate ?? 15;

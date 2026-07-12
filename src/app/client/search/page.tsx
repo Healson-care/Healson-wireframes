@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
@@ -30,6 +30,7 @@ const stepTransition = { duration: 0.25, ease: "easeOut" as const };
 export default function ClientSearchPage() {
   const router = useRouter();
   const providers = useStore((s) => s.providers);
+  const appointments = useStore((s) => s.appointments);
   const addAppointment = useStore((s) => s.addAppointment);
   const updateAppointment = useStore((s) => s.updateAppointment);
   const addOrder = useStore((s) => s.addOrder);
@@ -40,7 +41,10 @@ export default function ClientSearchPage() {
   const [step, setStep] = useState(0);
   const [selectedProvider, setSelectedProvider] = useState<ProviderProfile | null>(null);
 
-  const [days] = useState<DaySlots[]>(() => buildDays());
+  const days: DaySlots[] = useMemo(
+    () => (selectedProvider ? buildDays(selectedProvider, appointments) : []),
+    [selectedProvider, appointments]
+  );
   const [activeDayIdx, setActiveDayIdx] = useState(0);
   const [selectedSlot, setSelectedSlot] = useState<{ date: string; time: string; label: string } | null>(null);
   const [holdExpiresAt, setHoldExpiresAt] = useState<number | null>(null);
@@ -66,6 +70,10 @@ export default function ClientSearchPage() {
   // history, even if they never complete payment.
   function selectSlot(date: string, time: string, label: string) {
     if (!selectedProvider) return;
+    if (patient?.processing_restricted) {
+      showToast("לא ניתן להמשיך", { description: "עיבוד הנתונים של מטופל זה חסום. פנה לתמיכה.", variant: "destructive" });
+      return;
+    }
     const appointment = addAppointment({
       client_name: currentUser?.full_name ?? "מטופל",
       client_phone: currentUser?.phone,
@@ -116,6 +124,10 @@ export default function ClientSearchPage() {
 
   function handlePay() {
     if (!selectedProvider || !selectedSlot || !pendingAppointmentId) return;
+    if (patient?.processing_restricted) {
+      showToast("לא ניתן להמשיך", { description: "עיבוד הנתונים של מטופל זה חסום. פנה לתמיכה.", variant: "destructive" });
+      return;
+    }
     setPaying(true);
     setTimeout(() => {
       const commissionRate = selectedProvider.commission_rate ?? 15;

@@ -57,7 +57,19 @@ export const DEMO_ADMIN_USER: User = {
   email: "admin@demo.co.il",
   full_name: "מנהל מערכת",
   role: "admin",
+  admin_title: "superadmin",
   created_date: isoDateDaysFromNow(-500),
+};
+
+// A second seeded superadmin — ADM-07 requires at least 2 superadmins from
+// the team to exist out of the box (support reps are added later via the UI).
+export const DEMO_ADMIN_USER_2: User = {
+  id: "user_admin_2",
+  email: "ops@demo.co.il",
+  full_name: "דנה שגיא",
+  role: "admin",
+  admin_title: "superadmin",
+  created_date: isoDateDaysFromNow(-400),
 };
 
 export const SEED_USERS: User[] = [
@@ -65,6 +77,7 @@ export const SEED_USERS: User[] = [
   DEMO_NEW_PATIENT_USER,
   DEMO_PROVIDER_USER,
   DEMO_ADMIN_USER,
+  DEMO_ADMIN_USER_2,
 ];
 
 const provider2: ProviderProfile = {
@@ -86,10 +99,16 @@ const provider2: ProviderProfile = {
   commission_rate: 12,
   created_date: isoDateDaysFromNow(-400),
   agreements: [
-    { id: generateId("agr"), provider_id: "prov_2", layer: "K", kupah_list: ["כללית", "מכבי", "מאוחדת", "לאומית"] },
-    { id: generateId("agr"), provider_id: "prov_2", layer: "B", insurance_companies: ["כלל", "הראל"] },
+    { id: generateId("agr"), provider_id: "prov_2", layer: "K" },
+    { id: generateId("agr"), provider_id: "prov_2", layer: "B" },
     { id: generateId("agr"), provider_id: "prov_2", layer: "H" },
   ],
+  kupah_arrangements: [
+    { kupah: "כללית", level: "כללית פלטינום" },
+    { kupah: "מכבי", level: "מכבי כסף" },
+    { kupah: "לאומית", level: "לאומית זהב" },
+  ],
+  private_insurance_companies: ["כלל", "הראל"],
   consultation_types: [
     {
       id: generateId("ct"),
@@ -175,8 +194,15 @@ const provider1: ProviderProfile = {
   created_date: isoDateDaysFromNow(-600),
   agreements: [
     { id: generateId("agr"), provider_id: "prov_1", layer: "S", kupah_list: ["כללית", "מכבי", "מאוחדת", "לאומית"] },
-    { id: generateId("agr"), provider_id: "prov_1", layer: "K", kupah_list: ["כללית", "מכבי"] },
+    { id: generateId("agr"), provider_id: "prov_1", layer: "K" },
     { id: generateId("agr"), provider_id: "prov_1", layer: "H" },
+  ],
+  // Same קופה, two שב"ן plans — a provider can hold more than one plan of
+  // the same קופה (e.g. both מאוחדת עדיף and מאוחדת שיא).
+  kupah_arrangements: [
+    { kupah: "מאוחדת", level: "מאוחדת עדיף" },
+    { kupah: "מאוחדת", level: "מאוחדת שיא" },
+    { kupah: "כללית", level: "כללית מושלם" },
   ],
   consultation_types: [
     {
@@ -394,7 +420,7 @@ export const SEED_PATIENTS: Patient[] = PATIENT_NAMES.map((name, i) => {
 SEED_PATIENTS[0].full_name = DEMO_PATIENT_USER.full_name;
 SEED_PATIENTS[0].email = DEMO_PATIENT_USER.email;
 SEED_PATIENTS[0].status = "פעיל";
-SEED_PATIENTS[0].k_level = "כללית זהב";
+SEED_PATIENTS[0].k_level = "כללית מושלם";
 SEED_PATIENTS[0].has_b_insurance = true;
 SEED_PATIENTS[0].b_insurance_company = "כלל";
 SEED_PATIENTS[0].b_policy_number = "POL-100000";

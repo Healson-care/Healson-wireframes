@@ -8,7 +8,7 @@ import {
   Users,
   CalendarDays,
   FileText,
-  FlaskConical,
+  ShoppingCart,
   UserRound,
   LogOut,
   Home,
@@ -25,8 +25,8 @@ const NAV_ITEMS = [
   { href: "/provider/dashboard", label: "ראשי", icon: LayoutDashboard },
   { href: "/provider/patients", label: "מטופלים", icon: Users },
   { href: "/provider/appointments", label: "תורים", icon: CalendarDays },
+  { href: "/provider/orders", label: "הזמנות", icon: ShoppingCart },
   { href: "/provider/referrals", label: "הפניות", icon: FileText },
-  { href: "/provider/lab", label: "מעבדה", icon: FlaskConical },
   { href: "/provider/profile", label: "פרופיל", icon: UserRound },
 ];
 

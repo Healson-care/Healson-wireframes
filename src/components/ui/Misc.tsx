@@ -1,7 +1,24 @@
 import { ReactNode } from "react";
-import { Loader2, Inbox, TrendingUp, TrendingDown } from "lucide-react";
+import { Loader2, Inbox, TrendingUp, TrendingDown, HelpCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { initials } from "@/lib/utils";
+
+/** Flags a spot in the UI where a business decision hasn't been made yet
+ * (e.g. pricing governance) so it stays visible to whoever is reviewing the
+ * live product, instead of living only in an external planning doc. */
+export function OpenDecisionNote({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <div
+      className={cn(
+        "mb-4 flex items-start gap-2.5 rounded-lg border border-dashed border-warning-border bg-warning-bg px-3.5 py-2.5 text-xs text-warning-text",
+        className
+      )}
+    >
+      <HelpCircle className="h-4 w-4 shrink-0 mt-0.5" />
+      <p className="leading-relaxed">{children}</p>
+    </div>
+  );
+}
 
 export function Spinner({ className, label }: { className?: string; label?: string }) {
   return (
@@ -50,7 +67,17 @@ function gradientForName(name: string): string {
   return AVATAR_GRADIENTS[hash % AVATAR_GRADIENTS.length];
 }
 
-export function Avatar({ name, className }: { name: string; className?: string }) {
+export function Avatar({ name, src, className }: { name: string; src?: string; className?: string }) {
+  if (src) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- data-url uploads, not a static/remote asset
+      <img
+        src={src}
+        alt={name}
+        className={cn("h-9 w-9 shrink-0 rounded-full object-cover shadow-sm ring-2 ring-white", className)}
+      />
+    );
+  }
   return (
     <div
       className={cn(
