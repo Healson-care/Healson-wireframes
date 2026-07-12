@@ -751,13 +751,15 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 3,
+      version: 4,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
-      // records), and the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER
-      // seed account, are not backwards compatible with anything persisted
-      // under an earlier version — discard old state on a version bump so
-      // the app reseeds clean instead of silently missing new demo/seed data.
-      migrate: (persistedState, version) => (version < 3 ? ({} as Store) : (persistedState as Store)),
+      // records), the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER seed
+      // account, and the v3 -> v4 AppointmentStatus rename ("ממתין לאישור"
+      // -> "ממתין לתשלום מקדמה", "הושלם" -> "בוצע") are not backwards
+      // compatible with anything persisted under an earlier version —
+      // discard old state on a version bump so the app reseeds clean
+      // instead of silently keeping stale seed/demo/status data.
+      migrate: (persistedState, version) => (version < 4 ? ({} as Store) : (persistedState as Store)),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);
       },
