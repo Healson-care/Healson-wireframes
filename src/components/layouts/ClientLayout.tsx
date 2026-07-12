@@ -6,7 +6,6 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   Home,
   Search,
-  ShoppingBag,
   CalendarDays,
   FlaskConical,
   UserRound,
@@ -24,8 +23,7 @@ import { useCurrentPatient } from "@/lib/useCurrentPatient";
 const NAV_ITEMS = [
   { href: "/client", label: "בית", icon: Home },
   { href: "/client/search", label: "חיפוש", icon: Search },
-  { href: "/client/orders", label: "הזמנות", icon: ShoppingBag },
-  { href: "/client/appointments", label: "תורים", icon: CalendarDays },
+  { href: "/client/appointments", label: "היסטוריית תורים", icon: CalendarDays },
   { href: "/client/lab", label: "מעבדה", icon: FlaskConical },
   { href: "/client/profile", label: "פרופיל", icon: UserRound },
 ];
@@ -96,7 +94,7 @@ export function ClientLayout({ children }: { children: ReactNode }) {
       <main className="flex-1 mx-auto w-full max-w-2xl px-4 py-6 pb-24 sm:pb-10">{children}</main>
 
       <nav className="fixed bottom-0 inset-x-0 z-30 border-t border-slate-200 bg-white sm:hidden">
-        <div className="grid grid-cols-6">
+        <div className="grid grid-cols-5">
           {NAV_ITEMS.map((item) => (
             <Link
               key={item.href}
