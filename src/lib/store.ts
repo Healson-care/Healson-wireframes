@@ -115,7 +115,7 @@ interface AuthState {
     consents: RegistrationConsents
   ) => Patient;
   quickRegisterPatient: (
-    data: { full_name: string; phone: string; email: string } & Partial<InsuranceProfileInput>,
+    data: { full_name: string; phone: string; email: string; id_number: string; date_of_birth: string } & Partial<InsuranceProfileInput>,
     consents?: RegistrationConsents
   ) => Patient;
 }
@@ -435,6 +435,8 @@ export const useStore = create<Store>()(
           if (existingUser) set({ currentUser: existingUser });
           if (data.kupah) {
             get().updatePatient(existingPatient.id, {
+              id_number: data.id_number,
+              date_of_birth: data.date_of_birth,
               kupah: data.kupah,
               k_level: data.k_level,
               has_b_insurance: data.has_b_insurance,
@@ -463,6 +465,8 @@ export const useStore = create<Store>()(
           full_name: data.full_name,
           email: data.email,
           phone: data.phone,
+          id_number: data.id_number,
+          date_of_birth: data.date_of_birth,
           kupah: data.kupah ?? "כללית",
           k_level: data.k_level,
           has_b_insurance: data.has_b_insurance,
@@ -751,15 +755,18 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 4,
+      version: 6,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
       // records), the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER seed
-      // account, and the v3 -> v4 AppointmentStatus rename ("ממתין לאישור"
-      // -> "ממתין לתשלום מקדמה", "הושלם" -> "בוצע") are not backwards
-      // compatible with anything persisted under an earlier version —
-      // discard old state on a version bump so the app reseeds clean
-      // instead of silently keeping stale seed/demo/status data.
-      migrate: (persistedState, version) => (version < 4 ? ({} as Store) : (persistedState as Store)),
+      // account, the v3 -> v4 AppointmentStatus rename ("ממתין לאישור" ->
+      // "ממתין לתשלום מקדמה", "הושלם" -> "בוצע"), the v4 -> v5 addition of
+      // the "שולם במלואו" AppointmentStatus, and the v5 -> v6 addition of
+      // "extra"-service_type catalog items (used by the new "שירותים
+      // נוספים" search tab) are not backwards compatible with anything
+      // persisted under an earlier version — discard old state on a
+      // version bump so the app reseeds clean instead of silently keeping
+      // stale seed/demo/status/catalog data.
+      migrate: (persistedState, version) => (version < 6 ? ({} as Store) : (persistedState as Store)),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);
       },
