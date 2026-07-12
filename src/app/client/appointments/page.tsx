@@ -120,7 +120,7 @@ export default function ClientAppointmentsPage() {
 
   return (
     <ClientLayout>
-      <PageHeader title="התורים שלי" description="כל התורים ובקשות ההמתנה שלכם, מסודרים לפי מועד" />
+      <PageHeader title="היסטוריית תורים" description="כל התורים ובקשות ההמתנה שלכם, מסודרים לפי מועד" />
 
       <StatusLegend />
 

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Search, CalendarDays, ShoppingBag, UserRound } from "lucide-react";
+import { Search, CalendarDays, UserRound } from "lucide-react";
 import { ClientLayout } from "@/components/layouts/ClientLayout";
 import { useStore } from "@/lib/store";
 import { StatusBadge } from "@/components/ui/Badge";
@@ -11,8 +11,7 @@ import { formatCurrency } from "@/lib/utils";
 
 const QUICK_ACTIONS = [
   { href: "/client/search", label: "חיפוש שירותים", icon: Search },
-  { href: "/client/appointments", label: "התורים שלי", icon: CalendarDays },
-  { href: "/client/orders", label: "ההזמנות שלי", icon: ShoppingBag },
+  { href: "/client/appointments", label: "היסטוריית תורים", icon: CalendarDays },
   { href: "/client/profile", label: "הפרופיל שלי", icon: UserRound },
 ];
 
@@ -40,7 +39,7 @@ export default function ClientHomePage() {
         </p>
       </motion.div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
+      <div className="grid grid-cols-3 gap-3 mb-8">
         {QUICK_ACTIONS.map((a, i) => (
           <motion.div key={a.href} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, delay: i * 0.04 }}>
             <Link
