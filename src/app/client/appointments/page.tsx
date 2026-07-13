@@ -11,6 +11,7 @@ import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog, Dialog } from "@/components/ui/Dialog";
 import { Input } from "@/components/ui/Input";
+import { AppointmentReminderPlan } from "@/components/patient/AppointmentReminderPlan";
 import {
   ArrowLeft,
   Calendar,
@@ -552,6 +553,12 @@ export default function ClientAppointmentsPage() {
                             )}
                           </div>
                         )}
+
+                        {item.kind === "appointment" &&
+                          item.data.status !== "בוטל" &&
+                          item.data.status !== "בוצע" && (
+                            <AppointmentReminderPlan appointment={item.data} provider={provider} />
+                          )}
 
                         {item.data.status === "בוטל" && (
                           <Link href="/client/search">
