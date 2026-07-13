@@ -57,7 +57,6 @@ export default function BookPage() {
   const updateAppointment = useStore((s) => s.updateAppointment);
   const addOrder = useStore((s) => s.addOrder);
   const showToast = useStore((s) => s.showToast);
-  const currentUser = useStore((s) => s.currentUser);
   const patient = useCurrentPatient();
 
   const [step, setStep] = useState(0);
