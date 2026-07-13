@@ -5,9 +5,9 @@ import { motion } from "framer-motion";
 import { Search, CalendarDays, UserRound } from "lucide-react";
 import { ClientLayout } from "@/components/layouts/ClientLayout";
 import { useStore } from "@/lib/store";
+import { useUpcomingAppointments } from "@/lib/useUpcomingAppointments";
 import { StatusBadge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/Misc";
-import { formatCurrency } from "@/lib/utils";
 
 const QUICK_ACTIONS = [
   { href: "/client/search", label: "חיפוש שירותים", icon: Search },
@@ -15,13 +15,13 @@ const QUICK_ACTIONS = [
   { href: "/client/profile", label: "הפרופיל שלי", icon: UserRound },
 ];
 
+function formatUpcomingDate(dateIso: string) {
+  return new Date(dateIso).toLocaleDateString("he-IL", { weekday: "long", day: "2-digit", month: "2-digit" });
+}
+
 export default function ClientHomePage() {
   const currentUser = useStore((s) => s.currentUser);
-  const orders = useStore((s) => s.orders);
-
-  const myOrders = orders
-    .filter((o) => o.created_by_id === currentUser?.id || o.patient_name === currentUser?.full_name)
-    .slice(0, 3);
+  const upcomingAppointments = useUpcomingAppointments(3);
 
   const firstName = currentUser?.full_name?.split(" ")[0] ?? "";
 
@@ -53,27 +53,33 @@ export default function ClientHomePage() {
         ))}
       </div>
 
-      <h2 className="text-sm font-semibold text-slate-700 mb-3">הזמנות אחרונות</h2>
-      {myOrders.length === 0 ? (
-        <EmptyState title="אין לך עדיין הזמנות" description="חפשו שירות בריאות והתחילו את המסע שלכם" />
+      <h2 className="text-sm font-semibold text-slate-700 mb-3">התורים הקרובים שלך</h2>
+      {upcomingAppointments.length === 0 ? (
+        <EmptyState title="אין לך תורים קרובים" description="חפשו שירות בריאות וקבעו תור חדש" />
       ) : (
         <div className="flex flex-col gap-2">
-          {myOrders.map((o, i) => (
+          {upcomingAppointments.map((a, i) => (
             <motion.div
-              key={o.id}
+              key={a.id}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.18, delay: i * 0.04 }}
-              className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-3"
             >
-              <div>
-                <p className="text-sm font-medium text-slate-900">{o.item_name}</p>
-                <p className="text-xs text-slate-500">{o.provider_name}</p>
-              </div>
-              <div className="text-left">
-                <p className="text-sm font-semibold text-slate-900">{formatCurrency(o.final_price)}</p>
-                <StatusBadge status={o.status} kind="order" />
-              </div>
+              <Link
+                href="/client/appointments"
+                className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-3 transition-all hover:border-primary hover:shadow-sm"
+              >
+                <div>
+                  <p className="text-sm font-medium text-slate-900">{a.service_name}</p>
+                  <p className="text-xs text-slate-500">{a.provider_name}</p>
+                </div>
+                <div className="text-left">
+                  <p className="text-sm font-semibold text-slate-900">
+                    {formatUpcomingDate(a.date)} · {a.time}
+                  </p>
+                  <StatusBadge status={a.status} kind="appointment" />
+                </div>
+              </Link>
             </motion.div>
           ))}
         </div>
