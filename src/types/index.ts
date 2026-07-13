@@ -547,6 +547,11 @@ export interface Appointment {
   time: string; // HH:mm
   duration_minutes: number;
   status: AppointmentStatus;
+  price?: number; // total consultation price, resolved at booking time
+  deposit_amount?: number; // 30% of price, charged to hold the slot
+  // ISO timestamp of the deposit charge — starts the 48h cancellation/refund
+  // window (see CANCELLATION_WINDOW_HOURS in client/appointments/page.tsx).
+  deposit_paid_at?: string;
   kupah?: Kupah;
   notes?: string;
   created_by_id?: string; // patient id

@@ -25,6 +25,12 @@ export function isoDateDaysFromNow(days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+export function isoTimestampHoursFromNow(hours: number): string {
+  const d = new Date();
+  d.setHours(d.getHours() + hours);
+  return d.toISOString();
+}
+
 export function formatDateHe(iso?: string): string {
   if (!iso) return "—";
   try {

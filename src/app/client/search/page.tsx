@@ -84,6 +84,8 @@ export default function ClientSearchPage() {
       time,
       duration_minutes: consultation?.duration_minutes ?? 30,
       status: "ממתין לתשלום מקדמה",
+      price,
+      deposit_amount: Math.round(price * 0.3),
       kupah: patient?.kupah,
       notes: "",
       created_by_id: patient?.id ?? currentUser?.id,
@@ -134,7 +136,7 @@ export default function ClientSearchPage() {
       const commissionAmount = Math.round((price * commissionRate) / 100);
       // Payment success is the moment the pending hold becomes a confirmed
       // appointment — and the moment this lead becomes a client in practice.
-      updateAppointment(pendingAppointmentId, { status: "מאושר" });
+      updateAppointment(pendingAppointmentId, { status: "מאושר", deposit_paid_at: new Date().toISOString() });
       addOrder({
         item_name: consultation?.name ?? "ייעוץ",
         provider_id: selectedProvider.id,
