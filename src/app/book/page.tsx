@@ -2,8 +2,9 @@
 
 import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { Calendar, IdCard, Mail, Phone, User as UserIcon, ArrowRight, ArrowLeft } from "lucide-react";
+import { Calendar, IdCard, Mail, Phone, User as UserIcon, ArrowRight, ArrowLeft, LogOut } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useCurrentPatient } from "@/lib/useCurrentPatient";
 import { resolveProviderPrice } from "@/lib/pricing";
@@ -41,10 +42,17 @@ const stepVariants = {
 const stepTransition = { duration: 0.25, ease: "easeOut" as const };
 
 export default function BookPage() {
+  const router = useRouter();
   const providers = useStore((s) => s.providers);
   const appointments = useStore((s) => s.appointments);
   const patients = useStore((s) => s.patients);
+  const currentUser = useStore((s) => s.currentUser);
+  const logout = useStore((s) => s.logout);
   const quickRegisterPatient = useStore((s) => s.quickRegisterPatient);
+  const beginRegistrationVerification = useStore((s) => s.beginRegistrationVerification);
+  const verifyRegistrationSmsOtp = useStore((s) => s.verifyRegistrationSmsOtp);
+  const verifyRegistrationEmailOtp = useStore((s) => s.verifyRegistrationEmailOtp);
+  const resendRegistrationOtp = useStore((s) => s.resendRegistrationOtp);
   const addAppointment = useStore((s) => s.addAppointment);
   const updateAppointment = useStore((s) => s.updateAppointment);
   const addOrder = useStore((s) => s.addOrder);
@@ -63,8 +71,13 @@ export default function BookPage() {
   // Step 2: consent (§4.2, §11.1)
   const [consents, setConsents] = useState<ConsentValues>({});
 
-  // Step 3: insurance profile (§4.3, §7.1)
+  // Step 3: insurance profile (§4.3, §7.1), then a double SMS+email OTP
+  // gate before the lead actually becomes a registered patient.
   const [insurance, setInsurance] = useState<InsuranceProfileValue>(EMPTY_INSURANCE_PROFILE);
+  const [insurancePhase, setInsurancePhase] = useState<"form" | "otp-sms" | "otp-email">("form");
+  const [bookingSmsCode, setBookingSmsCode] = useState("");
+  const [bookingEmailCode, setBookingEmailCode] = useState("");
+  const [otpError, setOtpError] = useState("");
 
   // Step 4: slot selection + hold
   const days: DaySlots[] = useMemo(
@@ -165,6 +178,14 @@ export default function BookPage() {
 
   function handleInsuranceSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setOtpError("");
+    beginRegistrationVerification();
+    setInsurancePhase("otp-sms");
+    const hint = resendRegistrationOtp("sms");
+    showToast("קוד אימות נשלח ב-SMS", { description: `קוד הדגמה: ${hint}`, variant: "success" });
+  }
+
+  function completeQuickRegistration() {
     quickRegisterPatient(
       {
         ...leadForm,
@@ -178,6 +199,40 @@ export default function BookPage() {
       consents
     );
     setStep(4);
+  }
+
+  function handleVerifyBookingSms(e: React.FormEvent) {
+    e.preventDefault();
+    setOtpError("");
+    const result = verifyRegistrationSmsOtp(bookingSmsCode);
+    if (!result.ok) {
+      setOtpError(result.error ?? "שגיאה באימות");
+      return;
+    }
+    setInsurancePhase("otp-email");
+    const hint = resendRegistrationOtp("email");
+    showToast("קוד אימות נשלח באימייל", { description: `קוד הדגמה: ${hint}`, variant: "success" });
+  }
+
+  function handleVerifyBookingEmail(e: React.FormEvent) {
+    e.preventDefault();
+    setOtpError("");
+    const result = verifyRegistrationEmailOtp(bookingEmailCode);
+    if (!result.ok) {
+      setOtpError(result.error ?? "שגיאה באימות");
+      return;
+    }
+    completeQuickRegistration();
+  }
+
+  function handleResendBookingSms() {
+    const otp = resendRegistrationOtp("sms");
+    if (otp) showToast("קוד חדש נשלח ב-SMS", { description: `קוד הדגמה: ${otp}` });
+  }
+
+  function handleResendBookingEmail() {
+    const otp = resendRegistrationOtp("email");
+    if (otp) showToast("קוד חדש נשלח באימייל", { description: `קוד הדגמה: ${otp}` });
   }
 
   function handlePay() {
@@ -230,9 +285,30 @@ export default function BookPage() {
           <Link href="/">
             <Logo size={30} className="text-lg" />
           </Link>
-          <Link href="/" className="text-sm text-slate-500 hover:text-primary">
-            חזרה לדף הבית
-          </Link>
+          <div className="flex items-center gap-4">
+            <Link href="/" className="text-sm text-slate-500 hover:text-primary">
+              חזרה לדף הבית
+            </Link>
+            {/* A lead here (in-progress "מטופל חדש" registration, no Patient
+                record yet) has no way back to /login otherwise — the header's
+                own "אזור אישי" button just sends them right back here. */}
+            {currentUser ? (
+              <button
+                type="button"
+                onClick={() => {
+                  logout();
+                  router.push("/login");
+                }}
+                className="flex items-center gap-1 text-sm text-slate-500 hover:text-primary"
+              >
+                <LogOut className="h-3.5 w-3.5" /> התנתק
+              </button>
+            ) : (
+              <Link href="/login" className="text-sm text-slate-500 hover:text-primary">
+                כניסה
+              </Link>
+            )}
+          </div>
         </div>
       </header>
 
@@ -378,7 +454,7 @@ export default function BookPage() {
           </motion.div>
         )}
 
-        {step === 3 && selectedProvider && (
+        {step === 3 && selectedProvider && insurancePhase === "form" && (
           <motion.div key="step3" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition} className="max-w-md mx-auto">
             <button onClick={() => setStep(2)} className="text-sm text-primary mb-4 flex items-center gap-1">
               <ArrowRight className="h-3.5 w-3.5" /> חזרה
@@ -393,6 +469,79 @@ export default function BookPage() {
                 המשך לבחירת תור <ArrowLeft className="h-4 w-4" />
               </Button>
             </form>
+          </motion.div>
+        )}
+
+        {step === 3 && selectedProvider && insurancePhase === "otp-sms" && (
+          <motion.div key="step3-otp-sms" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition} className="max-w-md mx-auto">
+            <button onClick={() => setInsurancePhase("form")} className="text-sm text-primary mb-4 flex items-center gap-1">
+              <ArrowRight className="h-3.5 w-3.5" /> חזרה
+            </button>
+            <div className="text-center mb-6">
+              <h2 className="text-xl font-bold text-slate-900">אימות דו-שלבי (1/2)</h2>
+              <p className="text-slate-500 text-sm mt-1">
+                לצורך אבטחת המידע הרפואי, נדרש אימות נוסף לפני סיום ההרשמה — קוד שנשלח ב-SMS וקוד נוסף באימייל.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              {otpError && (
+                <div className="mb-3 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
+                  {otpError}
+                </div>
+              )}
+              <form onSubmit={handleVerifyBookingSms} className="flex flex-col gap-3">
+                <Input
+                  inputMode="numeric"
+                  maxLength={6}
+                  placeholder="123456"
+                  label="קוד מ-SMS"
+                  value={bookingSmsCode}
+                  onChange={(e) => setBookingSmsCode(e.target.value)}
+                  className="text-center tracking-[0.4em] text-lg"
+                  required
+                />
+                <Button type="submit" size="lg" className="w-full mt-2">
+                  אמת קוד SMS
+                </Button>
+                <button type="button" onClick={handleResendBookingSms} className="text-sm text-primary hover:underline">
+                  שלח קוד מחדש
+                </button>
+              </form>
+            </div>
+          </motion.div>
+        )}
+
+        {step === 3 && selectedProvider && insurancePhase === "otp-email" && (
+          <motion.div key="step3-otp-email" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition} className="max-w-md mx-auto">
+            <div className="text-center mb-6">
+              <h2 className="text-xl font-bold text-slate-900">אימות דו-שלבי (2/2)</h2>
+              <p className="text-slate-500 text-sm mt-1">שלחנו קוד אימות נוסף לכתובת האימייל שלך</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              {otpError && (
+                <div className="mb-3 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
+                  {otpError}
+                </div>
+              )}
+              <form onSubmit={handleVerifyBookingEmail} className="flex flex-col gap-3">
+                <Input
+                  inputMode="numeric"
+                  maxLength={6}
+                  placeholder="123456"
+                  label="קוד מהאימייל"
+                  value={bookingEmailCode}
+                  onChange={(e) => setBookingEmailCode(e.target.value)}
+                  className="text-center tracking-[0.4em] text-lg"
+                  required
+                />
+                <Button type="submit" size="lg" className="w-full mt-2">
+                  אמת קוד והמשך לבחירת תור <ArrowLeft className="h-4 w-4" />
+                </Button>
+                <button type="button" onClick={handleResendBookingEmail} className="text-sm text-primary hover:underline">
+                  שלח קוד מחדש
+                </button>
+              </form>
+            </div>
           </motion.div>
         )}
 
