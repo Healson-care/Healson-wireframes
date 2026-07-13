@@ -64,7 +64,6 @@ const ROLE_CARDS: {
 export default function LandingPage() {
   const router = useRouter();
   const currentUser = useStore((s) => s.currentUser);
-  const hasHydrated = useStore((s) => s.hasHydrated);
   const loginAsDemo = useStore((s) => s.loginAsDemo);
   const showToast = useStore((s) => s.showToast);
 
@@ -94,19 +93,15 @@ export default function LandingPage() {
             <a href="#hospitals" className="hover:text-primary transition-colors">בתי חולים</a>
           </nav>
           <div className="flex items-center gap-2">
-            {hasHydrated && (
-              <>
-                <Link href={currentUser ? homeForRole(currentUser.role) : "/login"}>
-                  <Button variant={currentUser ? "primary" : "ghost"} size="sm">
-                    אזור אישי
-                  </Button>
-                </Link>
-                {!currentUser && (
-                  <Link href="/book">
-                    <Button size="sm">קביעת תור</Button>
-                  </Link>
-                )}
-              </>
+            <Link href={currentUser ? homeForRole(currentUser.role) : "/login"}>
+              <Button variant={currentUser ? "primary" : "ghost"} size="sm">
+                אזור אישי
+              </Button>
+            </Link>
+            {!currentUser && (
+              <Link href="/book">
+                <Button size="sm">קביעת תור</Button>
+              </Link>
             )}
           </div>
         </div>
@@ -226,7 +221,7 @@ export default function LandingPage() {
           silently swap them to a different demo account and let them skip
           straight into the personal area. The header's own "לאזור האישי"
           button already covers "already logged in" navigation correctly. */}
-      {hasHydrated && !currentUser && (
+      {!currentUser && (
         <section id="entry" className="mx-auto max-w-6xl px-4 py-14">
           <div className="text-center mb-8">
             <h2 className="text-2xl sm:text-3xl font-bold text-slate-900">כבר יש לכם תיק ב-HEALSON?</h2>

@@ -59,6 +59,12 @@ interface PendingLoginVerification {
   smsVerified: boolean;
 }
 
+interface PendingRegistrationVerification {
+  smsOtp: string;
+  emailOtp: string;
+  smsVerified: boolean;
+}
+
 interface PendingProviderApplication {
   provider_type: ProviderType;
   full_name: string;
@@ -107,6 +113,11 @@ interface AuthState {
   verifyLoginSmsOtp: (code: string) => { ok: boolean; error?: string };
   verifyLoginEmailOtp: (code: string) => { ok: boolean; error?: string };
   resendLoginOtp: (channel: "sms" | "email") => string | null;
+  pendingRegistrationVerification: PendingRegistrationVerification | null;
+  beginRegistrationVerification: () => void;
+  verifyRegistrationSmsOtp: (code: string) => { ok: boolean; error?: string };
+  verifyRegistrationEmailOtp: (code: string) => { ok: boolean; error?: string };
+  resendRegistrationOtp: (channel: "sms" | "email") => string | null;
   loginWithGoogle: () => void;
   register: (email: string, password: string) => { ok: boolean; otpHint: string };
   verifyOtp: (email: string, code: string) => { ok: boolean; error?: string };
@@ -239,6 +250,7 @@ export const useStore = create<Store>()(
       pendingRegistration: null,
       pendingProviderApplication: null,
       pendingLoginVerification: null,
+      pendingRegistrationVerification: null,
 
       login: (email, password) => {
         if (!email || !password) return { ok: false, error: "נא להזין אימייל וסיסמה" };
@@ -360,6 +372,40 @@ export const useStore = create<Store>()(
 
       resendLoginOtp: (channel) => {
         const pending = get().pendingLoginVerification;
+        if (!pending) return null;
+        return channel === "sms" ? pending.smsOtp : pending.emailOtp;
+      },
+
+      // Policy: a new patient must also clear the SMS+email double OTP —
+      // as the very last step, right before they become a registered
+      // patient — same as the step-up an existing patient clears at login.
+      // Demo-only: fixed codes, nothing is actually sent.
+      beginRegistrationVerification: () => {
+        set({
+          pendingRegistrationVerification: { smsOtp: "123456", emailOtp: "654321", smsVerified: false },
+        });
+      },
+
+      verifyRegistrationSmsOtp: (code) => {
+        const pending = get().pendingRegistrationVerification;
+        if (!pending) return { ok: false, error: "לא נמצא תהליך אימות פעיל" };
+        if (code !== pending.smsOtp) return { ok: false, error: "קוד שגוי, נסה שנית" };
+        set({ pendingRegistrationVerification: { ...pending, smsVerified: true } });
+        return { ok: true };
+      },
+
+      verifyRegistrationEmailOtp: (code) => {
+        const pending = get().pendingRegistrationVerification;
+        if (!pending || !pending.smsVerified) {
+          return { ok: false, error: "יש לאמת קודם את הקוד שנשלח ב-SMS" };
+        }
+        if (code !== pending.emailOtp) return { ok: false, error: "קוד שגוי, נסה שנית" };
+        set({ pendingRegistrationVerification: null });
+        return { ok: true };
+      },
+
+      resendRegistrationOtp: (channel) => {
+        const pending = get().pendingRegistrationVerification;
         if (!pending) return null;
         return channel === "sms" ? pending.smsOtp : pending.emailOtp;
       },
