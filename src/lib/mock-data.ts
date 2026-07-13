@@ -14,7 +14,7 @@ import {
   ProviderProfile,
   User,
 } from "@/types";
-import { generateId, isoDateDaysFromNow } from "./utils";
+import { generateId, isoDateDaysFromNow, isoTimestampHoursFromNow } from "./utils";
 import { SEED_SKILL_DOMAINS, SEED_SKILL_SUBDOMAINS } from "./medical-tree";
 import { resolveCatalogPrice } from "./pricing";
 
@@ -146,7 +146,7 @@ const provider2: ProviderProfile = {
   clinic_locations: [
     {
       id: generateId("clinic"),
-      name: "מרפאת הלב תל אביב",
+      name: "הדסה עין כרם",
       address: "רחוב איבן גבירול 50",
       city: "תל אביב",
       phone: "03-5551234",
@@ -239,7 +239,7 @@ const provider1: ProviderProfile = {
   clinic_locations: [
     {
       id: generateId("clinic"),
-      name: "מרפאת אורתופדיה רמת גן",
+      name: "שערי צדק",
       address: "ביאליק 12",
       city: "רמת גן",
       phone: "03-6661234",
@@ -668,6 +668,10 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
       "בוצע",
       "בוטל",
     ];
+    const status = statusPool[i % statusPool.length];
+    const item = SEED_CATALOG[i % SEED_CATALOG.length];
+    const resolved = resolveCatalogPrice(item.base_price, patient);
+    const depositPaid = status === "מאושר" || status === "שולם במלואו" || status === "בוצע";
     return {
       id: generateId("appt"),
       client_name: patient.full_name,
@@ -678,7 +682,12 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
       date: isoDateDaysFromNow(dayOffset),
       time: `${String(hour).padStart(2, "0")}:00`,
       duration_minutes: 30,
-      status: statusPool[i % statusPool.length],
+      status,
+      price: resolved.price,
+      deposit_amount: Math.round(resolved.price * 0.3),
+      // Alternate between "still inside the 48h refund window" and "long past
+      // it" so the demo data shows both cancellation-policy states.
+      deposit_paid_at: depositPaid ? isoTimestampHoursFromNow(i % 2 === 0 ? -10 : -96) : undefined,
       kupah: patient.kupah,
       notes: "",
       created_by_id: patient.id,
