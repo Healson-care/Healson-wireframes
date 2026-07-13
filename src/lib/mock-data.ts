@@ -210,7 +210,6 @@ const provider1: ProviderProfile = {
       name: "ייעוץ אורתופדי - ברך",
       duration_minutes: 30,
       prices: [
-        { layer: "S", price: 45 },
         { layer: "K", price: 120 },
         { layer: "H", price: 450 },
       ],
@@ -322,7 +321,121 @@ const provider4: ProviderProfile = {
   referral_forms: [],
 };
 
-export const SEED_PROVIDERS: ProviderProfile[] = [provider1, provider2, provider3, provider4];
+// Published gastro provider whose K/B agreements are gated to kupot/insurers
+// other than the demo patient's own (§7.1) — no arrangement price here, but
+// since the provider still declares those layers, the patient can claim the
+// visit back from their own מכבי-שלי / מגדל cover after paying in full.
+const provider5: ProviderProfile = {
+  id: "prov_5",
+  display_name: "ד\"ר עדי רון",
+  title: "ד\"ר",
+  specialty: "גסטרואנטרולוגיה",
+  bio: "מומחית לגסטרואנטרולוגיה ואנדוסקופיה, עם התמקדות באבחון וטיפול במחלות מערכת העיכול.",
+  languages: ["עברית", "אנגלית"],
+  rating: 4.7,
+  review_count: 156,
+  license_number: "MD-65310",
+  license_issuer: "משרד הבריאות",
+  license_issue_date: isoDateDaysFromNow(-1800),
+  license_expiry_date: isoDateDaysFromNow(1000),
+  is_published: true,
+  status: "approved",
+  commission_rate: 14,
+  created_date: isoDateDaysFromNow(-250),
+  agreements: [
+    { id: generateId("agr"), provider_id: "prov_5", layer: "K", kupah_list: ["כללית", "מאוחדת", "לאומית"] },
+    { id: generateId("agr"), provider_id: "prov_5", layer: "B", insurance_companies: ["כלל", "הראל"] },
+    { id: generateId("agr"), provider_id: "prov_5", layer: "H" },
+  ],
+  private_insurance_companies: ["כלל", "הראל"],
+  consultation_types: [
+    {
+      id: generateId("ct"),
+      name: "ייעוץ גסטרואנטרולוגי",
+      duration_minutes: 30,
+      prices: [
+        { layer: "K", price: 150 },
+        { layer: "B", price: 70 },
+        { layer: "H", price: 480 },
+      ],
+    },
+  ],
+  exam_types: [],
+  clinic_locations: [
+    {
+      id: generateId("clinic"),
+      name: "מרפאת עיכול חיפה",
+      address: "הנמל 22",
+      city: "חיפה",
+      phone: "04-8551234",
+      is_primary: true,
+      hours: {
+        sunday: ["09:00", "17:00"],
+        monday: ["09:00", "17:00"],
+        tuesday: ["09:00", "17:00"],
+        wednesday: ["09:00", "17:00"],
+        thursday: ["09:00", "15:00"],
+        friday: null,
+        saturday: null,
+      },
+    },
+  ],
+  referral_forms: [],
+};
+
+// Published private-pay-only provider (§7.1) — no S/K/B agreement declared
+// at all, so no patient sees an arrangement or a reimbursement note here,
+// regardless of what insurance they hold.
+const provider6: ProviderProfile = {
+  id: "prov_6",
+  display_name: "ד\"ר יובל שרון",
+  title: "ד\"ר",
+  specialty: "רפואת עיניים",
+  bio: "רופא עיניים בכיר המתמחה בניתוחי קטרקט ובטיפול לייזר, עובד באופן פרטי בלבד.",
+  languages: ["עברית", "אנגלית"],
+  rating: 4.9,
+  review_count: 87,
+  license_number: "MD-58821",
+  license_issuer: "משרד הבריאות",
+  license_issue_date: isoDateDaysFromNow(-2200),
+  license_expiry_date: isoDateDaysFromNow(1200),
+  is_published: true,
+  status: "approved",
+  commission_rate: 15,
+  created_date: isoDateDaysFromNow(-180),
+  agreements: [{ id: generateId("agr"), provider_id: "prov_6", layer: "H" }],
+  consultation_types: [
+    {
+      id: generateId("ct"),
+      name: "ייעוץ רפואת עיניים",
+      duration_minutes: 20,
+      prices: [{ layer: "H", price: 390 }],
+    },
+  ],
+  exam_types: [],
+  clinic_locations: [
+    {
+      id: generateId("clinic"),
+      name: "מרפאת עיניים הרצליה",
+      address: "סוקולוב 10",
+      city: "הרצליה",
+      phone: "09-9551234",
+      is_primary: true,
+      hours: {
+        sunday: ["08:30", "16:30"],
+        monday: ["08:30", "16:30"],
+        tuesday: ["08:30", "16:30"],
+        wednesday: ["08:30", "16:30"],
+        thursday: ["08:30", "16:30"],
+        friday: null,
+        saturday: null,
+      },
+    },
+  ],
+  referral_forms: [],
+};
+
+export const SEED_PROVIDERS: ProviderProfile[] = [provider1, provider2, provider3, provider4, provider5, provider6];
 
 // ---------------------------------------------------------------------------
 // Catalog items — derived from the skill taxonomy, 2 items per sub-domain.
@@ -332,7 +445,15 @@ function buildCatalog(): CatalogItem[] {
   let tavarCode = 100000;
   for (const domain of SEED_SKILL_DOMAINS) {
     const providerId =
-      domain.slug === "orthopedics" ? provider1.id : domain.slug === "cardiology" ? provider2.id : provider3.id;
+      domain.slug === "orthopedics"
+        ? provider1.id
+        : domain.slug === "cardiology"
+        ? provider2.id
+        : domain.slug === "gastro"
+        ? provider5.id
+        : domain.slug === "ophthalmology"
+        ? provider6.id
+        : provider3.id;
     const subdomains = SEED_SKILL_SUBDOMAINS.filter((s) => s.domain_id === domain.id);
 
     for (const sub of subdomains) {
@@ -434,9 +555,10 @@ export const SEED_PATIENTS: Patient[] = PATIENT_NAMES.map((name, i) => {
 SEED_PATIENTS[0].full_name = DEMO_PATIENT_USER.full_name;
 SEED_PATIENTS[0].email = DEMO_PATIENT_USER.email;
 SEED_PATIENTS[0].status = "פעיל";
-SEED_PATIENTS[0].k_level = "כללית מושלם";
+SEED_PATIENTS[0].kupah = "מכבי";
+SEED_PATIENTS[0].k_level = "מכבי שלי";
 SEED_PATIENTS[0].has_b_insurance = true;
-SEED_PATIENTS[0].b_insurance_company = "כלל";
+SEED_PATIENTS[0].b_insurance_company = "מגדל";
 SEED_PATIENTS[0].b_policy_number = "POL-100000";
 
 // ---------------------------------------------------------------------------

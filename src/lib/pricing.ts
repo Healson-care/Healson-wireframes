@@ -55,6 +55,64 @@ export function resolveProviderPrice(
   return null;
 }
 
+export interface PriceBreakdown {
+  /** Full/out-of-pocket price (layer H) — always shown as the baseline reference. */
+  privatePrice: number;
+  /**
+   * A negotiated lower price this provider bills the patient directly, matched
+   * against the patient's held S/K/B layer — patient pays this instead of the
+   * private price up front.
+   */
+  arrangement?: { price: number; layer: InsuranceLayer; label: string };
+  /**
+   * No negotiated price at this provider, but the patient holds a plan under
+   * a layer this provider generally engages with (declares an agreement for,
+   * just not one matching this patient's specific kupah/insurer) — patient
+   * pays the private price and can separately file for reimbursement.
+   */
+  reimbursementSources?: string[];
+}
+
+/**
+ * Richer counterpart to resolveProviderPrice (§7.1): instead of collapsing
+ * straight to a single number, separates "you pay less here" (an arrangement)
+ * from "you pay full price but can claim it back" (reimbursement) so the UI
+ * can explain *why* a price is what it is.
+ */
+export function resolvePriceBreakdown(
+  prices: PriceByLayer[],
+  agreements: ProviderAgreement[] | undefined,
+  patient: Patient | null | undefined
+): PriceBreakdown | null {
+  const privateEntry = prices.find((p) => p.layer === "H");
+  if (!patient || !privateEntry) return null;
+  const privatePrice = privateEntry.price;
+
+  const resolved = resolveProviderPrice(prices, agreements, patient);
+  if (resolved && resolved.layer !== "H") {
+    const label =
+      resolved.layer === "S"
+        ? "מחיר סל קופה"
+        : resolved.layer === "K"
+        ? `מחיר הסדר · ${patient.k_level}`
+        : `מחיר הסדר · ${patient.b_insurance_company}`;
+    return { privatePrice, arrangement: { price: resolved.price, layer: resolved.layer, label } };
+  }
+
+  // No arrangement matched this patient specifically — but if the provider
+  // still declares that layer (just gated to other kupot/insurers), the
+  // patient's own plan can still be claimed back from directly.
+  const providerLayers = new Set((agreements ?? []).map((a) => a.layer));
+  const reimbursementSources: string[] = [];
+  if (patient.k_level && providerLayers.has("K")) reimbursementSources.push(patient.k_level);
+  if (patient.has_b_insurance && providerLayers.has("B") && patient.b_insurance_company) {
+    reimbursementSources.push(patient.b_insurance_company);
+  }
+  if (reimbursementSources.length > 0) return { privatePrice, reimbursementSources };
+
+  return { privatePrice };
+}
+
 /**
  * Generic reference-catalog pricing (§5.3 items aren't tied to one booking
  * provider) — approximates the copay a patient would pay under their best

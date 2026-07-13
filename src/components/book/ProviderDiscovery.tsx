@@ -61,11 +61,12 @@ export function ProviderDiscovery({
   const [priceRange, setPriceRange] = useState("");
   const [referralCode, setReferralCode] = useState("");
   const [referralFile, setReferralFile] = useState<File | null>(null);
-  const [searched, setSearched] = useState(false);
+  // Results are visible immediately (§7.1 pricing demo) — filters narrow the
+  // list live rather than gating whether it's shown at all.
+  const [searched, setSearched] = useState(true);
 
   function changeTab(tab: ServiceTab) {
     setActiveTab(tab);
-    setSearched(false);
   }
 
   function updateDomain(value: string) {
