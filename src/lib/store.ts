@@ -819,7 +819,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 7,
+      version: 8,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
       // records), the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER seed
       // account, the v3 -> v4 AppointmentStatus rename ("ממתין לאישור" ->
@@ -827,14 +827,16 @@ export const useStore = create<Store>()(
       // additions (User.admin_title, Patient.processing_restricted,
       // commissionRateByServiceType, second seeded superadmin), the v5 -> v6
       // addition of the "שולם במלואו" AppointmentStatus and "extra"-service_type
-      // catalog items (used by the new "שירותים נוספים" search tab), and the
+      // catalog items (used by the new "שירותים נוספים" search tab), the
       // v6 -> v7 correction of K_LEVELS_BY_KUPAH plan names (stray whitespace
       // trimmed, so persisted kupah_arrangements referencing the old literal
-      // strings would silently stop matching) are not backwards compatible
-      // with anything persisted under an earlier version — discard old state
-      // on a version bump so the app reseeds clean instead of silently
-      // keeping stale seed/demo/status/catalog data.
-      migrate: (persistedState, version) => (version < 7 ? ({} as Store) : (persistedState as Store)),
+      // strings would silently stop matching), and the v7 -> v8 addition of
+      // two published demo providers (§7.1 pricing-policy examples) plus the
+      // demo patient's insurance profile switching to מכבי / מכבי שלי / מגדל
+      // are not backwards compatible with anything persisted under an earlier
+      // version — discard old state on a version bump so the app reseeds
+      // clean instead of silently keeping stale seed/demo/status/catalog data.
+      migrate: (persistedState, version) => (version < 8 ? ({} as Store) : (persistedState as Store)),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);
       },
