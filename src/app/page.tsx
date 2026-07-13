@@ -64,11 +64,21 @@ const ROLE_CARDS: {
 export default function LandingPage() {
   const router = useRouter();
   const currentUser = useStore((s) => s.currentUser);
+  const hasHydrated = useStore((s) => s.hasHydrated);
   const loginAsDemo = useStore((s) => s.loginAsDemo);
   const showToast = useStore((s) => s.showToast);
 
   function enterAs(role: Role) {
     loginAsDemo(role);
+    if (role === "patient" && useStore.getState().pendingLoginVerification) {
+      // Existing patient: loginAsDemo queued the double SMS+email OTP
+      // step-up instead of signing in directly. Send them to /login, which
+      // picks up the pending verification and resumes the OTP screens —
+      // otherwise they'd be bounced from /client back to a blank login form
+      // with no explanation.
+      router.push("/login");
+      return;
+    }
     setTimeout(() => router.push(homeForRole(role)), 50);
   }
 
@@ -84,18 +94,18 @@ export default function LandingPage() {
             <a href="#hospitals" className="hover:text-primary transition-colors">בתי חולים</a>
           </nav>
           <div className="flex items-center gap-2">
-            {currentUser ? (
-              <Link href={homeForRole(currentUser.role)}>
-                <Button size="sm">לאזור האישי</Button>
-              </Link>
-            ) : (
+            {hasHydrated && (
               <>
-                <Link href="/login">
-                  <Button variant="ghost" size="sm">כניסה</Button>
+                <Link href={currentUser ? homeForRole(currentUser.role) : "/login"}>
+                  <Button variant={currentUser ? "primary" : "ghost"} size="sm">
+                    אזור אישי
+                  </Button>
                 </Link>
-                <Link href="/book">
-                  <Button size="sm">קביעת תור</Button>
-                </Link>
+                {!currentUser && (
+                  <Link href="/book">
+                    <Button size="sm">קביעת תור</Button>
+                  </Link>
+                )}
               </>
             )}
           </div>
@@ -216,7 +226,7 @@ export default function LandingPage() {
           silently swap them to a different demo account and let them skip
           straight into the personal area. The header's own "לאזור האישי"
           button already covers "already logged in" navigation correctly. */}
-      {!currentUser && (
+      {hasHydrated && !currentUser && (
         <section id="entry" className="mx-auto max-w-6xl px-4 py-14">
           <div className="text-center mb-8">
             <h2 className="text-2xl sm:text-3xl font-bold text-slate-900">כבר יש לכם תיק ב-HEALSON?</h2>
