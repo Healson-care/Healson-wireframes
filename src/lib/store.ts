@@ -14,6 +14,7 @@ import {
   LabReferral,
   Order,
   Patient,
+  PatientDocument,
   ProviderProfile,
   Role,
   ServiceType,
@@ -30,6 +31,7 @@ import {
   SEED_BRANCHES,
   SEED_CATALOG,
   SEED_CONSENT_RECORDS,
+  SEED_DOCUMENTS,
   SEED_DSR_REQUESTS,
   SEED_LAB_REFERRALS,
   SEED_LEADS,
@@ -62,6 +64,19 @@ interface PendingProviderSubmission {
   otp: string;
 }
 
+interface PendingLoginVerification {
+  userId: string;
+  smsOtp: string;
+  emailOtp: string;
+  smsVerified: boolean;
+}
+
+interface PendingRegistrationVerification {
+  smsOtp: string;
+  emailOtp: string;
+  smsVerified: boolean;
+}
+
 export interface InsuranceProfileInput {
   kupah: Kupah;
   k_level?: KLevel;
@@ -77,7 +92,16 @@ interface AuthState {
   currentUser: User | null;
   pendingRegistration: PendingRegistration | null;
   pendingProviderSubmission: PendingProviderSubmission | null;
-  login: (email: string, password: string) => { ok: boolean; error?: string };
+  pendingLoginVerification: PendingLoginVerification | null;
+  login: (email: string, password: string) => { ok: boolean; error?: string; requiresOtp?: boolean };
+  verifyLoginSmsOtp: (code: string) => { ok: boolean; error?: string };
+  verifyLoginEmailOtp: (code: string) => { ok: boolean; error?: string };
+  resendLoginOtp: (channel: "sms" | "email") => string | null;
+  pendingRegistrationVerification: PendingRegistrationVerification | null;
+  beginRegistrationVerification: () => void;
+  verifyRegistrationSmsOtp: (code: string) => { ok: boolean; error?: string };
+  verifyRegistrationEmailOtp: (code: string) => { ok: boolean; error?: string };
+  resendRegistrationOtp: (channel: "sms" | "email") => string | null;
   loginWithGoogle: () => void;
   register: (email: string, password: string) => { ok: boolean; otpHint: string };
   verifyOtp: (email: string, code: string) => { ok: boolean; error?: string };
@@ -137,6 +161,7 @@ interface EntitiesState {
   orders: Order[];
   labReferrals: LabReferral[];
   visitRecords: VisitRecord[];
+  documents: PatientDocument[];
   waitlist: WaitlistEntry[];
   branches: typeof SEED_BRANCHES;
   consentRecords: ConsentRecord[];
@@ -186,6 +211,8 @@ interface EntitiesState {
 
   addVisitRecord: (v: Omit<VisitRecord, "id" | "created_date">) => VisitRecord;
   updateVisitRecord: (id: string, data: Partial<VisitRecord>) => void;
+  addDocument: (d: Omit<PatientDocument, "id" | "created_date">) => PatientDocument;
+  updateDocument: (id: string, data: Partial<PatientDocument>) => void;
 
   addWaitlistEntry: (w: Omit<WaitlistEntry, "id" | "created_date" | "status">) => WaitlistEntry;
 
@@ -231,6 +258,8 @@ export const useStore = create<Store>()(
       currentUser: null,
       pendingRegistration: null,
       pendingProviderSubmission: null,
+      pendingLoginVerification: null,
+      pendingRegistrationVerification: null,
 
       login: (email, password) => {
         if (!email || !password) return { ok: false, error: "נא להזין אימייל וסיסמה" };
@@ -254,6 +283,23 @@ export const useStore = create<Store>()(
             if (provider?.status === "suspended") {
               return { ok: false, error: "חשבון הספק מושהה זמנית. אנא פנה לתמיכה." };
             }
+          }
+          // Policy: an existing patient (already has a Patient record, i.e.
+          // finished registration) must clear a double OTP step-up — SMS
+          // then email — before the personal area unlocks. Demo-only: the
+          // codes are fixed, nothing is actually sent.
+          const isExistingPatient =
+            existing.role === "patient" && get().patients.some((p) => p.user_id === existing.id);
+          if (isExistingPatient) {
+            set({
+              pendingLoginVerification: {
+                userId: existing.id,
+                smsOtp: "123456",
+                emailOtp: "654321",
+                smsVerified: false,
+              },
+            });
+            return { ok: true, requiresOtp: true };
           }
           set({ currentUser: existing });
           return { ok: true };
@@ -296,7 +342,81 @@ export const useStore = create<Store>()(
           return;
         }
         const user = get().users.find((u) => u.role === role) ?? null;
+        // Demo shortcut for an existing patient still has to clear the
+        // double OTP gate, same as the real login form — otherwise the
+        // wireframe would show the policy inconsistently to whoever is
+        // running the demo.
+        if (user && role === "patient" && get().patients.some((p) => p.user_id === user.id)) {
+          set({
+            pendingLoginVerification: {
+              userId: user.id,
+              smsOtp: "123456",
+              emailOtp: "654321",
+              smsVerified: false,
+            },
+          });
+          return;
+        }
         set({ currentUser: user });
+      },
+
+      verifyLoginSmsOtp: (code) => {
+        const pending = get().pendingLoginVerification;
+        if (!pending) return { ok: false, error: "לא נמצא תהליך אימות פעיל" };
+        if (code !== pending.smsOtp) return { ok: false, error: "קוד שגוי, נסה שנית" };
+        set({ pendingLoginVerification: { ...pending, smsVerified: true } });
+        return { ok: true };
+      },
+
+      verifyLoginEmailOtp: (code) => {
+        const pending = get().pendingLoginVerification;
+        if (!pending || !pending.smsVerified) {
+          return { ok: false, error: "יש לאמת קודם את הקוד שנשלח ב-SMS" };
+        }
+        if (code !== pending.emailOtp) return { ok: false, error: "קוד שגוי, נסה שנית" };
+        const user = get().users.find((u) => u.id === pending.userId) ?? null;
+        set({ currentUser: user, pendingLoginVerification: null });
+        return { ok: true };
+      },
+
+      resendLoginOtp: (channel) => {
+        const pending = get().pendingLoginVerification;
+        if (!pending) return null;
+        return channel === "sms" ? pending.smsOtp : pending.emailOtp;
+      },
+
+      // Policy: a new patient must also clear the SMS+email double OTP —
+      // as the very last step, right before they become a registered
+      // patient — same as the step-up an existing patient clears at login.
+      // Demo-only: fixed codes, nothing is actually sent.
+      beginRegistrationVerification: () => {
+        set({
+          pendingRegistrationVerification: { smsOtp: "123456", emailOtp: "654321", smsVerified: false },
+        });
+      },
+
+      verifyRegistrationSmsOtp: (code) => {
+        const pending = get().pendingRegistrationVerification;
+        if (!pending) return { ok: false, error: "לא נמצא תהליך אימות פעיל" };
+        if (code !== pending.smsOtp) return { ok: false, error: "קוד שגוי, נסה שנית" };
+        set({ pendingRegistrationVerification: { ...pending, smsVerified: true } });
+        return { ok: true };
+      },
+
+      verifyRegistrationEmailOtp: (code) => {
+        const pending = get().pendingRegistrationVerification;
+        if (!pending || !pending.smsVerified) {
+          return { ok: false, error: "יש לאמת קודם את הקוד שנשלח ב-SMS" };
+        }
+        if (code !== pending.emailOtp) return { ok: false, error: "קוד שגוי, נסה שנית" };
+        set({ pendingRegistrationVerification: null });
+        return { ok: true };
+      },
+
+      resendRegistrationOtp: (channel) => {
+        const pending = get().pendingRegistrationVerification;
+        if (!pending) return null;
+        return channel === "sms" ? pending.smsOtp : pending.emailOtp;
       },
 
       register: (email, password) => {
@@ -506,6 +626,7 @@ export const useStore = create<Store>()(
       orders: SEED_ORDERS,
       labReferrals: SEED_LAB_REFERRALS,
       visitRecords: SEED_VISIT_RECORDS,
+      documents: SEED_DOCUMENTS,
       waitlist: [],
       branches: SEED_BRANCHES,
       consentRecords: SEED_CONSENT_RECORDS,
@@ -723,6 +844,15 @@ export const useStore = create<Store>()(
         set((s) => ({
           visitRecords: s.visitRecords.map((v) => (v.id === id ? { ...v, ...data } : v)),
         })),
+      addDocument: (d) => {
+        const record: PatientDocument = { ...d, id: generateId("doc"), created_date: new Date().toISOString() };
+        set((s) => ({ documents: [record, ...s.documents] }));
+        return record;
+      },
+      updateDocument: (id, data) =>
+        set((s) => ({
+          documents: s.documents.map((d) => (d.id === id ? { ...d, ...data } : d)),
+        })),
 
       addWaitlistEntry: (w) => {
         const record: WaitlistEntry = { ...w, id: generateId("wait"), status: "ממתין", created_date: new Date().toISOString() };
@@ -834,7 +964,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 11,
+      version: 12,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
       // records), the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER seed
       // account, the v3 -> v4 AppointmentStatus rename ("ממתין לאישור" ->
@@ -845,28 +975,20 @@ export const useStore = create<Store>()(
       // catalog items (used by the new "שירותים נוספים" search tab), the
       // v6 -> v7 correction of K_LEVELS_BY_KUPAH plan names (stray whitespace
       // trimmed, so persisted kupah_arrangements referencing the old literal
-      // strings would silently stop matching), the v7 -> v8 addition of
-      // provider calendars-linked-to-services onboarding gating + visitRecords
-      // + demo credential issuance (new seeded provider/patient data these
-      // features rely on), and the v8 -> v9 merge of the separate
-      // consultations/exams catalog split into one unified services list
-      // (exam_types seed entries moved into consultation_types) are not
-      // backwards compatible with anything persisted under an earlier
-      // version — discard old state on a version bump so the app reseeds
-      // clean instead of silently keeping stale seed/demo/status/catalog data.
-      // ...the v9 -> v10 rework of provider signup (account + session now
-      // created immediately at registration instead of after Ops verifies
-      // the license; dropped the mock demo_temp_password/credentials_issued_at
-      // fields since no new credential is issued anymore), and the v10 -> v11
-      // skill-tree expansion (5 -> 30 domains, one per doctor specialty) plus
-      // making the reference catalog global (buildCatalog no longer pins
-      // every seeded item's provider_id to one of the 3 demo providers) —
-      // a persisted v10 catalog still has every item pinned to a demo
-      // provider, so any other provider's specialty-scoped picker would find
-      // zero selectable items and the "save" button would stay disabled
-      // forever. Discard old state on a version bump so the app reseeds
-      // clean instead of silently keeping stale seed/demo/status/catalog data.
-      migrate: (persistedState, version) => (version < 11 ? ({} as Store) : (persistedState as Store)),
+      // strings would silently stop matching) are not backwards compatible
+      // with anything persisted under an earlier version. From v7, two
+      // branches of work bumped this independently and reused the same
+      // v8/v9/v10 numbers for unrelated schema changes — provider
+      // calendars-linked-to-services onboarding gating, visitRecords, demo
+      // credential issuance, the consultations/exams catalog merge, the
+      // provider-signup rework (immediate account+session instead of
+      // waiting on Ops), and the skill-tree/global-catalog expansion on one
+      // side; two published demo providers, Appointment.price/deposit
+      // fields, and the documents tab on the other. v12 reconciles both
+      // into one combined schema — discard any state persisted under either
+      // branch's numbering so the app reseeds clean instead of silently
+      // keeping stale seed/demo/status/catalog data.
+      migrate: (persistedState, version) => (version < 12 ? ({} as Store) : (persistedState as Store)),
       // Uploaded files (photos/PDFs) are stored as base64 data URLs inside
       // this same persisted blob (no real backend — see file.ts). If a
       // single write ever still exceeds the browser's localStorage quota

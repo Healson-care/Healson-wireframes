@@ -1,5 +1,18 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Project context: this is a demo wireframe
+
+This is a **demo/wireframe**, not a production system — a fully local,
+mock-data-driven app with no backend, no database, and no real payments
+(see `src/lib/store.ts` / `src/lib/mock-data.ts`). When implementing or
+reviewing product logic here, prioritize **simulating the flow clearly and
+making it easy to demo and understand** over backend correctness, edge-case
+robustness, or production-grade engineering (data integrity across records,
+race conditions, persistence, etc. are explicitly out of scope unless asked
+for). Business rules (pricing, cancellation windows, statuses...) should be
+implemented in the simplest way that makes the intended flow visible and
+demonstrable, not the most technically rigorous way.
+
 ## Getting Started
 
 First, run the development server:

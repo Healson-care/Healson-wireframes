@@ -6,9 +6,9 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   Home,
   Search,
-  ShoppingBag,
   CalendarDays,
-  FlaskConical,
+  FileText,
+  Bell,
   UserRound,
   LogOut,
 } from "lucide-react";
@@ -24,9 +24,9 @@ import { useCurrentPatient } from "@/lib/useCurrentPatient";
 const NAV_ITEMS = [
   { href: "/client", label: "בית", icon: Home },
   { href: "/client/search", label: "חיפוש", icon: Search },
-  { href: "/client/orders", label: "הזמנות", icon: ShoppingBag },
-  { href: "/client/appointments", label: "תורים", icon: CalendarDays },
-  { href: "/client/lab", label: "מעבדה", icon: FlaskConical },
+  { href: "/client/appointments", label: "היסטוריית תורים", icon: CalendarDays },
+  { href: "/client/reminders", label: "תזכורות", icon: Bell },
+  { href: "/client/documents", label: "מסמכים", icon: FileText },
   { href: "/client/profile", label: "פרופיל", icon: UserRound },
 ];
 

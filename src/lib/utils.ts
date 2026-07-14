@@ -25,6 +25,18 @@ export function isoDateDaysFromNow(days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+export function isoTimestampHoursFromNow(hours: number): string {
+  const d = new Date();
+  d.setHours(d.getHours() + hours);
+  return d.toISOString();
+}
+
+export function yearsSince(iso?: string): number | null {
+  if (!iso) return null;
+  const years = (Date.now() - new Date(iso).getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+  return years >= 1 ? Math.floor(years) : null;
+}
+
 export function formatDateHe(iso?: string): string {
   if (!iso) return "—";
   try {

@@ -72,6 +72,15 @@ export default function LandingPage() {
 
   function enterAs(role: Role) {
     loginAsDemo(role);
+    if (role === "patient" && useStore.getState().pendingLoginVerification) {
+      // Existing patient: loginAsDemo queued the double SMS+email OTP
+      // step-up instead of signing in directly. Send them to /login, which
+      // picks up the pending verification and resumes the OTP screens —
+      // otherwise they'd be bounced from /client back to a blank login form
+      // with no explanation.
+      router.push("/login");
+      return;
+    }
     setTimeout(() => router.push(homeForRole(role)), 50);
   }
 
@@ -87,19 +96,15 @@ export default function LandingPage() {
             <a href="#hospitals" className="hover:text-primary transition-colors">בתי חולים</a>
           </nav>
           <div className="flex items-center gap-2">
-            {currentUser ? (
-              <Link href={homeForRole(currentUser.role)}>
-                <Button size="sm">לאזור האישי</Button>
+            <Link href={currentUser ? homeForRole(currentUser.role) : "/login"}>
+              <Button variant={currentUser ? "primary" : "ghost"} size="sm">
+                אזור אישי
+              </Button>
+            </Link>
+            {!currentUser && (
+              <Link href="/book">
+                <Button size="sm">קביעת תור</Button>
               </Link>
-            ) : (
-              <>
-                <Link href="/login">
-                  <Button variant="ghost" size="sm">כניסה</Button>
-                </Link>
-                <Link href="/book">
-                  <Button size="sm">קביעת תור</Button>
-                </Link>
-              </>
             )}
           </div>
         </div>

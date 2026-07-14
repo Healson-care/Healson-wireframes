@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { CreditCard, ShieldCheck, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -32,6 +33,10 @@ export function PaymentPanel({
   paying: boolean;
   onPay: () => void;
 }) {
+  const [saveCard, setSaveCard] = useState(false);
+  const depositAmount = Math.round(price * 0.3);
+  const balanceAmount = price - depositAmount;
+
   return (
     <div>
       <div className="text-center mb-4">
@@ -67,7 +72,14 @@ export function PaymentPanel({
         <div className="h-px bg-slate-100 my-3" />
         <div className="flex items-center justify-between">
           <span className="text-sm font-semibold text-slate-700">מקדמה לתשלום</span>
-          <span className="text-lg font-bold text-primary">{formatCurrency(price)}</span>
+          <span className="text-lg font-bold text-primary">{formatCurrency(depositAmount)}</span>
+        </div>
+        <p className="text-[11px] text-slate-400 mt-1">
+          לשריון התור נדרש תשלום מקדמה עכשיו. היתרה תיגבה במועד התור.
+        </p>
+        <div className="flex items-center justify-between mt-2">
+          <span className="text-[11px] text-slate-400">יתרה לתשלום בתור</span>
+          <span className="text-[11px] text-slate-400">{formatCurrency(balanceAmount)}</span>
         </div>
       </div>
 
@@ -100,13 +112,22 @@ export function PaymentPanel({
             </div>
             <Input placeholder="MM/YY" dir="ltr" defaultValue="08/28" />
             <Input placeholder="CVV" dir="ltr" defaultValue="•••" />
+            <label className="col-span-2 flex items-center gap-2 text-xs text-slate-500 mt-1 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={saveCard}
+                onChange={(e) => setSaveCard(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
+              />
+              שמור את פרטי הכרטיס לתשלומים הבאים (הדגמה)
+            </label>
           </div>
         )}
         <p className="flex items-center gap-1.5 text-[11px] text-slate-400 mb-4">
           <ShieldCheck className="h-3.5 w-3.5" /> תשלום מאובטח בתקן PCI DSS · מצב הדגמה, לא מתבצע חיוב אמיתי
         </p>
         <Button size="lg" className="w-full" loading={paying} onClick={onPay}>
-          שלם {formatCurrency(price)} ואשר תור
+          שלם {formatCurrency(depositAmount)} ואשר תור
         </Button>
       </div>
     </div>

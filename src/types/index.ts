@@ -601,6 +601,11 @@ export interface Appointment {
   time: string; // HH:mm
   duration_minutes: number;
   status: AppointmentStatus;
+  price?: number; // total consultation price, resolved at booking time
+  deposit_amount?: number; // 30% of price, charged to hold the slot
+  // ISO timestamp of the deposit charge — starts the 48h cancellation/refund
+  // window (see CANCELLATION_WINDOW_HOURS in client/appointments/page.tsx).
+  deposit_paid_at?: string;
   kupah?: Kupah;
   notes?: string;
   created_by_id?: string; // patient id
@@ -677,6 +682,38 @@ export interface VisitRecord {
   instructions?: string;
   provider_documents?: UploadedFile[];
   created_date: string;
+}
+
+// Patient-facing "documents" tab. Lab results (LabReferral, above) are shown
+// in the same tab but keep living in their own array — the documents page
+// adapts them into this shape for display instead of duplicating the data.
+export type DocumentCategory =
+  | "referral_personal"
+  | "receipt"
+  | "visit_summary"
+  | "questionnaire"
+  | "lab_result";
+
+export const DOCUMENT_CATEGORIES: { id: DocumentCategory; label: string }[] = [
+  { id: "referral_personal", label: "הפניות וטפסים אישיים" },
+  { id: "receipt", label: "קבלות וחשבוניות" },
+  { id: "visit_summary", label: "סיכומי ביקור וטפסי רופא" },
+  { id: "questionnaire", label: "שאלונים" },
+  { id: "lab_result", label: "תוצאות מעבדה" },
+];
+
+export type DocumentStatus = "ממתין למילוי" | "זמין";
+
+export interface PatientDocument {
+  id: string;
+  patient_id: string;
+  category: DocumentCategory;
+  title: string;
+  uploaded_by: "patient" | "provider" | "system";
+  appointment_id?: string;
+  status?: DocumentStatus;
+  created_date: string;
+  file?: UploadedFile;
 }
 
 export interface Branch {

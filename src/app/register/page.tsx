@@ -22,13 +22,17 @@ import {
   InsuranceProfileValue,
 } from "@/components/patient/InsuranceProfileForm";
 
-type Phase = "credentials" | "otp" | "profile" | "consent";
+type Phase = "credentials" | "otp" | "profile" | "consent" | "final-sms" | "final-email";
 
 export default function RegisterPage() {
   const router = useRouter();
   const register = useStore((s) => s.register);
   const verifyOtp = useStore((s) => s.verifyOtp);
   const resendOtp = useStore((s) => s.resendOtp);
+  const beginRegistrationVerification = useStore((s) => s.beginRegistrationVerification);
+  const verifyRegistrationSmsOtp = useStore((s) => s.verifyRegistrationSmsOtp);
+  const verifyRegistrationEmailOtp = useStore((s) => s.verifyRegistrationEmailOtp);
+  const resendRegistrationOtp = useStore((s) => s.resendRegistrationOtp);
   const currentUser = useStore((s) => s.currentUser);
   const hasHydrated = useStore((s) => s.hasHydrated);
   const completePatientRegistration = useStore((s) => s.completePatientRegistration);
@@ -40,6 +44,8 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [otpCode, setOtpCode] = useState("");
+  const [finalSmsCode, setFinalSmsCode] = useState("");
+  const [finalEmailCode, setFinalEmailCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -155,6 +161,56 @@ export default function RegisterPage() {
     router.push(redirectTo || "/client");
   }
 
+  function handleStartFinalVerification() {
+    setError("");
+    beginRegistrationVerification();
+    setPhase("final-sms");
+    const hint = resendRegistrationOtp("sms");
+    showToast("קוד אימות נשלח ב-SMS", { description: `קוד הדגמה: ${hint}`, variant: "success" });
+  }
+
+  function handleVerifyFinalSms(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    setTimeout(() => {
+      const result = verifyRegistrationSmsOtp(finalSmsCode);
+      setLoading(false);
+      if (!result.ok) {
+        setError(result.error ?? "שגיאה באימות");
+        return;
+      }
+      setPhase("final-email");
+      const hint = resendRegistrationOtp("email");
+      showToast("קוד אימות נשלח באימייל", { description: `קוד הדגמה: ${hint}`, variant: "success" });
+    }, 300);
+  }
+
+  function handleVerifyFinalEmail(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    setTimeout(() => {
+      const result = verifyRegistrationEmailOtp(finalEmailCode);
+      setLoading(false);
+      if (!result.ok) {
+        setError(result.error ?? "שגיאה באימות");
+        return;
+      }
+      handleFinish();
+    }, 300);
+  }
+
+  function handleResendFinalSms() {
+    const otp = resendRegistrationOtp("sms");
+    if (otp) showToast("קוד חדש נשלח ב-SMS", { description: `קוד הדגמה: ${otp}` });
+  }
+
+  function handleResendFinalEmail() {
+    const otp = resendRegistrationOtp("email");
+    if (otp) showToast("קוד חדש נשלח באימייל", { description: `קוד הדגמה: ${otp}` });
+  }
+
   if (effectivePhase === "otp") {
     return (
       <AuthLayout>
@@ -234,9 +290,75 @@ export default function RegisterPage() {
         <h1 className="text-lg font-semibold text-slate-900 mb-1">הסכמות</h1>
         <p className="text-sm text-slate-500 mb-5">אנא סמנו את ההסכמות הנדרשות כדי להמשיך</p>
         <ConsentCheckboxes value={consents} onChange={setConsents} />
-        <Button className="w-full mt-4" disabled={!canFinish} onClick={handleFinish}>
+        <Button className="w-full mt-4" disabled={!canFinish} onClick={handleStartFinalVerification}>
           סיום ההרשמה
         </Button>
+      </AuthLayout>
+    );
+  }
+
+  if (effectivePhase === "final-sms") {
+    return (
+      <AuthLayout>
+        <h1 className="text-lg font-semibold text-slate-900 mb-1">אימות דו-שלבי (1/2)</h1>
+        <p className="text-sm text-slate-500 mb-5">
+          לצורך אבטחת המידע הרפואי, נדרש אימות נוסף לפני סיום ההרשמה — קוד שנשלח ב-SMS וקוד נוסף באימייל.
+        </p>
+        {error && (
+          <div className="mb-4 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
+            {error}
+          </div>
+        )}
+        <form onSubmit={handleVerifyFinalSms} className="flex flex-col gap-3">
+          <Input
+            inputMode="numeric"
+            maxLength={6}
+            placeholder="123456"
+            label="קוד מ-SMS"
+            value={finalSmsCode}
+            onChange={(e) => setFinalSmsCode(e.target.value)}
+            className="text-center tracking-[0.4em] text-lg"
+            required
+          />
+          <Button type="submit" loading={loading} className="w-full">
+            אמת קוד SMS
+          </Button>
+          <button type="button" onClick={handleResendFinalSms} className="text-sm text-primary hover:underline">
+            שלח קוד מחדש
+          </button>
+        </form>
+      </AuthLayout>
+    );
+  }
+
+  if (effectivePhase === "final-email") {
+    return (
+      <AuthLayout>
+        <h1 className="text-lg font-semibold text-slate-900 mb-1">אימות דו-שלבי (2/2)</h1>
+        <p className="text-sm text-slate-500 mb-5">שלחנו קוד אימות נוסף לכתובת האימייל שלך</p>
+        {error && (
+          <div className="mb-4 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
+            {error}
+          </div>
+        )}
+        <form onSubmit={handleVerifyFinalEmail} className="flex flex-col gap-3">
+          <Input
+            inputMode="numeric"
+            maxLength={6}
+            placeholder="123456"
+            label="קוד מהאימייל"
+            value={finalEmailCode}
+            onChange={(e) => setFinalEmailCode(e.target.value)}
+            className="text-center tracking-[0.4em] text-lg"
+            required
+          />
+          <Button type="submit" loading={loading} className="w-full">
+            אמת קוד וסיים הרשמה
+          </Button>
+          <button type="button" onClick={handleResendFinalEmail} className="text-sm text-primary hover:underline">
+            שלח קוד מחדש
+          </button>
+        </form>
       </AuthLayout>
     );
   }

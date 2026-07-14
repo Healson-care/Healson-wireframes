@@ -4,6 +4,7 @@ import {
   CatalogItem,
   ConsentRecord,
   CONSENT_DOCUMENT_VERSION,
+  DocumentCategory,
   DsrRequest,
   Kupah,
   K_LEVELS_BY_KUPAH,
@@ -11,11 +12,12 @@ import {
   LabReferral,
   Order,
   Patient,
+  PatientDocument,
   ProviderProfile,
   User,
   VisitRecord,
 } from "@/types";
-import { generateId, isoDateDaysFromNow } from "./utils";
+import { generateId, isoDateDaysFromNow, isoTimestampHoursFromNow } from "./utils";
 import { SEED_SKILL_DOMAINS, SEED_SKILL_SUBDOMAINS } from "./medical-tree";
 import { resolveCatalogPrice } from "./pricing";
 
@@ -222,7 +224,6 @@ const provider1: ProviderProfile = {
       name: "ייעוץ אורתופדי - ברך",
       duration_minutes: 30,
       prices: [
-        { layer: "S", price: 45 },
         { layer: "K", price: 120 },
         { layer: "H", price: 450 },
       ],
@@ -347,7 +348,121 @@ const provider4: ProviderProfile = {
   referral_forms: [],
 };
 
-export const SEED_PROVIDERS: ProviderProfile[] = [provider1, provider2, provider3, provider4];
+// Published gastro provider whose K/B agreements are gated to kupot/insurers
+// other than the demo patient's own (§7.1) — no arrangement price here, but
+// since the provider still declares those layers, the patient can claim the
+// visit back from their own מכבי-שלי / מגדל cover after paying in full.
+const provider5: ProviderProfile = {
+  id: "prov_5",
+  display_name: "ד\"ר עדי רון",
+  title: "ד\"ר",
+  specialty: "גסטרואנטרולוגיה",
+  bio: "מומחית לגסטרואנטרולוגיה ואנדוסקופיה, עם התמקדות באבחון וטיפול במחלות מערכת העיכול.",
+  languages: ["עברית", "אנגלית"],
+  rating: 4.7,
+  review_count: 156,
+  license_number: "MD-65310",
+  license_issuer: "משרד הבריאות",
+  license_issue_date: isoDateDaysFromNow(-1800),
+  license_expiry_date: isoDateDaysFromNow(1000),
+  is_published: true,
+  status: "approved",
+  commission_rate: 14,
+  created_date: isoDateDaysFromNow(-250),
+  agreements: [
+    { id: generateId("agr"), provider_id: "prov_5", layer: "K", kupah_list: ["כללית", "מאוחדת", "לאומית"] },
+    { id: generateId("agr"), provider_id: "prov_5", layer: "B", insurance_companies: ["כלל", "הראל"] },
+    { id: generateId("agr"), provider_id: "prov_5", layer: "H" },
+  ],
+  private_insurance_companies: ["כלל", "הראל"],
+  consultation_types: [
+    {
+      id: generateId("ct"),
+      name: "ייעוץ גסטרואנטרולוגי",
+      duration_minutes: 30,
+      prices: [
+        { layer: "K", price: 150 },
+        { layer: "B", price: 70 },
+        { layer: "H", price: 480 },
+      ],
+    },
+  ],
+  exam_types: [],
+  clinic_locations: [
+    {
+      id: generateId("clinic"),
+      name: "מרפאת עיכול חיפה",
+      address: "הנמל 22",
+      city: "חיפה",
+      phone: "04-8551234",
+      is_primary: true,
+      hours: {
+        sunday: ["09:00", "17:00"],
+        monday: ["09:00", "17:00"],
+        tuesday: ["09:00", "17:00"],
+        wednesday: ["09:00", "17:00"],
+        thursday: ["09:00", "15:00"],
+        friday: null,
+        saturday: null,
+      },
+    },
+  ],
+  referral_forms: [],
+};
+
+// Published private-pay-only provider (§7.1) — no S/K/B agreement declared
+// at all, so no patient sees an arrangement or a reimbursement note here,
+// regardless of what insurance they hold.
+const provider6: ProviderProfile = {
+  id: "prov_6",
+  display_name: "ד\"ר יובל שרון",
+  title: "ד\"ר",
+  specialty: "רפואת עיניים",
+  bio: "רופא עיניים בכיר המתמחה בניתוחי קטרקט ובטיפול לייזר, עובד באופן פרטי בלבד.",
+  languages: ["עברית", "אנגלית"],
+  rating: 4.9,
+  review_count: 87,
+  license_number: "MD-58821",
+  license_issuer: "משרד הבריאות",
+  license_issue_date: isoDateDaysFromNow(-2200),
+  license_expiry_date: isoDateDaysFromNow(1200),
+  is_published: true,
+  status: "approved",
+  commission_rate: 15,
+  created_date: isoDateDaysFromNow(-180),
+  agreements: [{ id: generateId("agr"), provider_id: "prov_6", layer: "H" }],
+  consultation_types: [
+    {
+      id: generateId("ct"),
+      name: "ייעוץ רפואת עיניים",
+      duration_minutes: 20,
+      prices: [{ layer: "H", price: 390 }],
+    },
+  ],
+  exam_types: [],
+  clinic_locations: [
+    {
+      id: generateId("clinic"),
+      name: "מרפאת עיניים הרצליה",
+      address: "סוקולוב 10",
+      city: "הרצליה",
+      phone: "09-9551234",
+      is_primary: true,
+      hours: {
+        sunday: ["08:30", "16:30"],
+        monday: ["08:30", "16:30"],
+        tuesday: ["08:30", "16:30"],
+        wednesday: ["08:30", "16:30"],
+        thursday: ["08:30", "16:30"],
+        friday: null,
+        saturday: null,
+      },
+    },
+  ],
+  referral_forms: [],
+};
+
+export const SEED_PROVIDERS: ProviderProfile[] = [provider1, provider2, provider3, provider4, provider5, provider6];
 
 // ---------------------------------------------------------------------------
 // Catalog items — derived from the skill taxonomy, 3 items per sub-domain.
@@ -490,9 +605,10 @@ export const SEED_PATIENTS: Patient[] = PATIENT_NAMES.map((name, i) => {
 SEED_PATIENTS[0].full_name = DEMO_PATIENT_USER.full_name;
 SEED_PATIENTS[0].email = DEMO_PATIENT_USER.email;
 SEED_PATIENTS[0].status = "פעיל";
-SEED_PATIENTS[0].k_level = "כללית מושלם";
+SEED_PATIENTS[0].kupah = "מכבי";
+SEED_PATIENTS[0].k_level = "מכבי שלי";
 SEED_PATIENTS[0].has_b_insurance = true;
-SEED_PATIENTS[0].b_insurance_company = "כלל";
+SEED_PATIENTS[0].b_insurance_company = "מגדל";
 SEED_PATIENTS[0].b_policy_number = "POL-100000";
 
 // ---------------------------------------------------------------------------
@@ -602,6 +718,10 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
       "בוצע",
       "בוטל",
     ];
+    const status = statusPool[i % statusPool.length];
+    const item = SEED_CATALOG[i % SEED_CATALOG.length];
+    const resolved = resolveCatalogPrice(item.base_price, patient);
+    const depositPaid = status === "מאושר" || status === "שולם במלואו" || status === "בוצע";
     return {
       id: generateId("appt"),
       client_name: patient.full_name,
@@ -612,7 +732,12 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
       date: isoDateDaysFromNow(dayOffset),
       time: `${String(hour).padStart(2, "0")}:00`,
       duration_minutes: 30,
-      status: statusPool[i % statusPool.length],
+      status,
+      price: resolved.price,
+      deposit_amount: Math.round(resolved.price * 0.3),
+      // Alternate between "still inside the 48h refund window" and "long past
+      // it" so the demo data shows both cancellation-policy states.
+      deposit_paid_at: depositPaid ? isoTimestampHoursFromNow(i % 2 === 0 ? -10 : -96) : undefined,
       kupah: patient.kupah,
       notes: "",
       created_by_id: patient.id,
@@ -746,6 +871,100 @@ export const SEED_VISIT_RECORDS: VisitRecord[] = [
     instructions: "מעקב שגרתי בעוד שנה, אלא אם כן יופיעו תסמינים.",
     created_date: isoDateDaysFromNow(-12),
   },
+];
+
+// ---------------------------------------------------------------------------
+// Documents — the patient-facing "מסמכים" tab.
+// ---------------------------------------------------------------------------
+const demoPatient = SEED_PATIENTS[0];
+const demoDocAppointments = SEED_APPOINTMENTS.filter((a) => a.created_by_id === demoPatient.id);
+
+export const SEED_DOCUMENTS: PatientDocument[] = [
+  {
+    id: generateId("doc"),
+    patient_id: demoPatient.id,
+    category: "referral_personal",
+    title: "הפניה לבדיקת MRI לברך",
+    uploaded_by: "patient",
+    appointment_id: demoDocAppointments[0]?.id,
+    created_date: isoDateDaysFromNow(-6),
+    file: { file_name: "הפניה_MRI.pdf", uploaded_at: isoDateDaysFromNow(-6), data_url: "data:application/pdf;base64," },
+  },
+  {
+    id: generateId("doc"),
+    patient_id: demoPatient.id,
+    category: "referral_personal",
+    title: "צילום תעודת זהות",
+    uploaded_by: "patient",
+    created_date: isoDateDaysFromNow(-30),
+    file: { file_name: "תז.jpg", uploaded_at: isoDateDaysFromNow(-30), data_url: "data:image/jpeg;base64," },
+  },
+  {
+    id: generateId("doc"),
+    patient_id: demoPatient.id,
+    category: "receipt",
+    title: "חשבונית - ייעוץ אורתופדי",
+    uploaded_by: "system",
+    appointment_id: demoDocAppointments[1]?.id,
+    created_date: isoDateDaysFromNow(-14),
+    file: { file_name: "חשבונית_1042.pdf", uploaded_at: isoDateDaysFromNow(-14), data_url: "data:application/pdf;base64," },
+  },
+  {
+    id: generateId("doc"),
+    patient_id: demoPatient.id,
+    category: "receipt",
+    title: "קבלה - מקדמה על תור",
+    uploaded_by: "system",
+    created_date: isoDateDaysFromNow(-3),
+    file: { file_name: "קבלה_2231.pdf", uploaded_at: isoDateDaysFromNow(-3), data_url: "data:application/pdf;base64," },
+  },
+  {
+    id: generateId("doc"),
+    patient_id: demoPatient.id,
+    category: "visit_summary",
+    title: "סיכום ביקור - ייעוץ קרדיולוגי",
+    uploaded_by: "provider",
+    appointment_id: demoDocAppointments[1]?.id,
+    created_date: isoDateDaysFromNow(-10),
+    file: { file_name: "סיכום_ביקור.pdf", uploaded_at: isoDateDaysFromNow(-10), data_url: "data:application/pdf;base64," },
+  },
+  {
+    id: generateId("doc"),
+    patient_id: demoPatient.id,
+    category: "questionnaire",
+    title: "שאלון בריאות לפני בדיקת מאמץ",
+    uploaded_by: "system",
+    appointment_id: demoDocAppointments[0]?.id,
+    status: "ממתין למילוי",
+    created_date: isoDateDaysFromNow(-1),
+  },
+  {
+    id: generateId("doc"),
+    patient_id: demoPatient.id,
+    category: "questionnaire",
+    title: "שאלון טרום הרדמה",
+    uploaded_by: "system",
+    status: "זמין",
+    created_date: isoDateDaysFromNow(-20),
+    file: { file_name: "שאלון_הרדמה.pdf", uploaded_at: isoDateDaysFromNow(-19), data_url: "data:application/pdf;base64," },
+  },
+  // Spread a few documents across other patients too, so the tab isn't
+  // demo-patient-only.
+  ...SEED_PATIENTS.slice(1, 4).map((patient, i) => {
+    const category = (["referral_personal", "receipt", "visit_summary"] as DocumentCategory[])[i];
+    const title = ["הפניה לבדיקת דם", "חשבונית - בדיקת מאמץ", "סיכום ביקור - ייעוץ אורתופדי"][i];
+    const uploadedBy = (["patient", "system", "provider"] as PatientDocument["uploaded_by"][])[i];
+    const createdDate = isoDateDaysFromNow(-(i + 1) * 8);
+    return {
+      id: generateId("doc"),
+      patient_id: patient.id,
+      category,
+      title,
+      uploaded_by: uploadedBy,
+      created_date: createdDate,
+      file: { file_name: `מסמך_${i + 1}.pdf`, uploaded_at: createdDate, data_url: "data:application/pdf;base64," },
+    };
+  }),
 ];
 
 // ---------------------------------------------------------------------------
