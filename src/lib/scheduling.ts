@@ -52,13 +52,18 @@ export function buildDays(provider: ProviderProfile, appointments: Appointment[]
       .map((a) => `${a.date}T${a.time}`)
   );
 
-  return Array.from({ length: daysAhead }, (_, dayIdx) => {
+  // Saturday (שבת) is never bookable, so it's skipped entirely rather than
+  // shown as a day with no slots — the day picker keeps advancing until it
+  // has collected `daysAhead` real (non-Saturday) options.
+  const days: DaySlots[] = [];
+  for (let dayOffset = 1; days.length < daysAhead; dayOffset++) {
     const d = new Date();
-    d.setDate(d.getDate() + dayIdx + 1);
+    d.setDate(d.getDate() + dayOffset);
+    const dayKey = DAY_KEYS[d.getDay()];
+    if (dayKey === "saturday") continue;
+
     const date = d.toISOString().slice(0, 10);
     const label = d.toLocaleDateString("he-IL", { weekday: "short", day: "2-digit", month: "2-digit" });
-
-    const dayKey = DAY_KEYS[d.getDay()];
     const range = location?.hours[dayKey];
     const isBlocked = blockedDates.has(date);
 
@@ -68,8 +73,9 @@ export function buildDays(provider: ProviderProfile, appointments: Appointment[]
       available: !occupied.has(`${date}T${time}`),
     }));
 
-    return { date, label, slots };
-  });
+    days.push({ date, label, slots });
+  }
+  return days;
 }
 
 // Deterministic (not random) "days until this provider's next opening" used

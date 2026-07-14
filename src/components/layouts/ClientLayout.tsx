@@ -7,7 +7,7 @@ import {
   Home,
   Search,
   CalendarDays,
-  FlaskConical,
+  FileText,
   Bell,
   UserRound,
   LogOut,
@@ -26,7 +26,7 @@ const NAV_ITEMS = [
   { href: "/client/search", label: "חיפוש", icon: Search },
   { href: "/client/appointments", label: "היסטוריית תורים", icon: CalendarDays },
   { href: "/client/reminders", label: "תזכורות", icon: Bell },
-  { href: "/client/lab", label: "מעבדה", icon: FlaskConical },
+  { href: "/client/documents", label: "מסמכים", icon: FileText },
   { href: "/client/profile", label: "פרופיל", icon: UserRound },
 ];
 
