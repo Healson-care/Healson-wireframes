@@ -338,12 +338,59 @@ export interface BlockedDate {
   reason?: string;
 }
 
+// Service type a provider picks when adding a service to their own catalog
+// (distinct from the admin-managed master-catalog ServiceType above — this
+// is the provider-facing 7-category classification requested for provider
+// onboarding, e.g. "ייעוץ" vs "טיפול" vs "ניתוח").
+export type ProviderServiceType = "consultation" | "treatment" | "surgery" | "procedure" | "imaging" | "test" | "product";
+export const PROVIDER_SERVICE_TYPES: ProviderServiceType[] = [
+  "consultation",
+  "treatment",
+  "surgery",
+  "procedure",
+  "imaging",
+  "test",
+  "product",
+];
+export const PROVIDER_SERVICE_TYPE_LABELS: Record<ProviderServiceType, string> = {
+  consultation: "ייעוץ",
+  treatment: "טיפול",
+  surgery: "ניתוח",
+  procedure: "פעולה",
+  imaging: "הדמייה",
+  test: "בדיקה",
+  product: "מוצר",
+};
+
+export type AnesthesiaType = "local" | "sedation" | "general";
+export const ANESTHESIA_TYPES: AnesthesiaType[] = ["local", "sedation", "general"];
+export const ANESTHESIA_TYPE_LABELS: Record<AnesthesiaType, string> = {
+  local: "מקומית",
+  sedation: "הרדמה מקומית + הרגעה",
+  general: "כללית",
+};
+
 export interface ConsultationType {
   id: string;
   name: string;
   duration_minutes: number;
   prices: PriceByLayer[];
   catalog_item_id?: string; // links back to a CatalogItem chosen from the Skill Tree
+  service_type?: ProviderServiceType;
+  linked_clinic_ids?: string[]; // Clinic ("calendar") ids this service can be booked against
+  // Requires a referral/pre-authorization from the patient's kupah before
+  // booking — relevant across every service_type, so kept ungated.
+  requires_referral?: boolean;
+  // "test" (בדיקה) prep fields.
+  requires_fasting?: boolean;
+  sample_type?: string;
+  // "surgery" (ניתוח) prep/logistics fields.
+  anesthesia_type?: AnesthesiaType;
+  recovery_days?: number;
+  requires_hospital?: boolean;
+  // "imaging" (הדמייה) prep fields.
+  requires_contrast?: boolean;
+  has_radiation?: boolean;
 }
 
 export interface ExamType {
@@ -351,6 +398,8 @@ export interface ExamType {
   name: string;
   lab_code: string;
   prices: PriceByLayer[];
+  service_type?: ProviderServiceType;
+  linked_clinic_ids?: string[];
 }
 
 export interface ReferralFormField {
@@ -494,6 +543,11 @@ export interface ProviderProfile {
   location_count?: number;
   member_provider_types?: ProviderType[]; // organization only — which provider types operate under it
   license_verified_at?: string;
+  // Set once the provider clicks "שלח לבדיקת Healson" on /apply, after
+  // registering + logging in and filling out their profile — this is the
+  // boundary between "still completing registration" (provider keeps editing
+  // on /apply) and "submitted, awaiting Ops review" (admin queue picks it up).
+  application_submitted_at?: string;
   agreement_signed_at?: string;
   onboarding_ready_at?: string;
   // Provider-initiated Go-Live request (§apply flow, stage 4) — the provider
@@ -605,6 +659,24 @@ export interface LabReferral {
   notes?: string;
   results?: string;
   result_files?: UploadedFile[];
+}
+
+// A provider's own note on a specific patient — visit summary, clinical
+// instructions and any documents they attach. Scoped to the provider who
+// wrote it: a provider's patient-chart view only ever queries records where
+// provider_id matches their own id, so a patient's history with a different
+// provider never surfaces here (see /provider/patients/[id]).
+export interface VisitRecord {
+  id: string;
+  provider_id: string;
+  provider_name: string;
+  patient_id: string;
+  appointment_id?: string;
+  visit_date: string; // yyyy-MM-dd
+  summary: string;
+  instructions?: string;
+  provider_documents?: UploadedFile[];
+  created_date: string;
 }
 
 export interface Branch {

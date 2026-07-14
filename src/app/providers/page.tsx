@@ -9,12 +9,12 @@ import { Input, Select, Textarea } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { DataTable, DataTableColumn } from "@/components/ui/DataTable";
-import { DOCTOR_SUBTYPE_LABELS, ProviderProfile, PROVIDER_STATUS_LABELS } from "@/types";
+import { DOCTOR_SUBTYPE_LABELS, ProviderProfile, PROVIDER_STATUS_LABELS, PROVIDER_TYPE_LABELS } from "@/types";
 import { formatDateHe } from "@/lib/utils";
 import { ProviderForm, ProviderFormValues } from "@/components/admin/ProviderForm";
 import { ProviderJourneyStepper } from "@/components/provider/ProviderJourneyStepper";
 import { MonthlyReportSection } from "@/components/provider/MonthlyReportSection";
-import { Plus, Search, BadgeCheck, Stethoscope, Ban, ShieldCheck, PauseCircle, PlayCircle, ClipboardList, Rocket } from "lucide-react";
+import { Plus, Search, BadgeCheck, Stethoscope, Ban, ShieldCheck, PauseCircle, PlayCircle, ClipboardList, Rocket, TriangleAlert } from "lucide-react";
 
 export default function ProvidersPage() {
   const providers = useStore((s) => s.providers);
@@ -59,18 +59,19 @@ export default function ProvidersPage() {
   }
 
   function handleVerifyLicense(p: ProviderProfile) {
-    const tempPassword = verifyProviderLicense(p.id);
-    const user = users.find((u) => u.id === p.user_id);
+    verifyProviderLicense(p.id);
     showToast("הרישיון אומת — הספק עבר לשלב האונבורדינג", {
-      description: user
-        ? `נשלחו לספק פרטי התחברות ל-${user.email} (סיסמה זמנית להדגמה: ${tempPassword})`
-        : undefined,
+      description: "הספק יכול כעת להמשיך להגדרת הסכם, הסדרים וקטלוג שירותים.",
       variant: "success",
     });
   }
 
   const filtered = useMemo(() => {
     return providers.filter((p) => {
+      // A provider can now hold a live session from the moment they register
+      // (PROV-REGISTRATION), before they've finished filling out / submitting
+      // their application — Ops shouldn't see those half-finished signups.
+      if (p.status === "pending_review" && !p.application_submitted_at) return false;
       if (statusFilter === "published" && !p.is_published) return false;
       if (statusFilter === "unpublished" && p.is_published) return false;
       if (statusFilter === "go_live_requested" && !(p.status === "onboarding" && p.go_live_requested_at)) return false;
@@ -230,11 +231,9 @@ export default function ProvidersPage() {
         }
         rowActions={(p) => (
           <>
-            {(p.status === "pending_review" || p.status === "onboarding") && (
-              <Button variant="outline" size="sm" onClick={() => setReviewTarget(p)}>
-                <ClipboardList className="h-3.5 w-3.5" /> פרטים
-              </Button>
-            )}
+            <Button variant="outline" size="sm" onClick={() => setReviewTarget(p)}>
+              <ClipboardList className="h-3.5 w-3.5" /> פרטים
+            </Button>
             {p.status === "pending_review" && (
               <Button variant="outline" size="sm" onClick={() => handleVerifyLicense(p)}>
                 <ShieldCheck className="h-3.5 w-3.5" /> אמת רישיון
@@ -303,55 +302,141 @@ export default function ProvidersPage() {
               </Badge>
             )}
 
-            {reviewTarget.status === "onboarding" && (
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="rounded-lg bg-slate-50 p-3">
-                  <p className="text-slate-500 text-xs mb-1">חתימת הסכם עם Healson</p>
-                  <p className="font-medium text-slate-900">
-                    {reviewTarget.agreement_signed_at ? formatDateHe(reviewTarget.agreement_signed_at) : "טרם נחתם"}
-                  </p>
-                </div>
-                <div className="rounded-lg bg-slate-50 p-3">
-                  <p className="text-slate-500 text-xs mb-1">בקשת פרסום (Go-Live)</p>
-                  <p className="font-medium text-slate-900">
-                    {reviewTarget.go_live_requested_at ? formatDateHe(reviewTarget.go_live_requested_at) : "הספק טרם ביקש פרסום"}
-                  </p>
-                </div>
-                <div className="rounded-lg bg-slate-50 p-3 col-span-2">
-                  <p className="text-slate-500 text-xs mb-1.5">הסדרי ביטוח</p>
-                  {reviewTarget.agreements.length === 0 ? (
-                    <p className="font-medium text-slate-900">טרם הוגדרו</p>
-                  ) : (
-                    <div className="flex flex-wrap gap-1.5">
-                      {(reviewTarget.kupah_arrangements ?? []).map((a) => (
-                        <Badge key={`${a.kupah}-${a.level}`} tone="slate">
-                          {a.level}
-                        </Badge>
-                      ))}
-                      {(reviewTarget.private_insurance_companies ?? []).map((c) => (
-                        <Badge key={c} tone="purple">
-                          {c}
-                        </Badge>
-                      ))}
-                      {(reviewTarget.kupah_arrangements ?? []).length === 0 &&
-                        (reviewTarget.private_insurance_companies ?? []).length === 0 && (
-                          <span className="font-medium text-slate-900">
-                            {reviewTarget.agreements.map((a) => a.layer).join(", ")}
-                          </span>
-                        )}
-                    </div>
-                  )}
-                </div>
-                <div className="rounded-lg bg-slate-50 p-3 col-span-2">
-                  <p className="text-slate-500 text-xs mb-1">קטלוג שירותים</p>
-                  <p className="font-medium text-slate-900">
-                    {reviewTarget.consultation_types.length + reviewTarget.exam_types.length} פריטים
-                  </p>
-                </div>
+            {/* Personal & professional details — always visible, any status (ADM-11: full record view) */}
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="rounded-lg bg-slate-50 p-3">
+                <p className="text-slate-500 text-xs mb-1">איש קשר</p>
+                <p className="font-medium text-slate-900">{reviewTarget.contact_name || reviewTarget.display_name}</p>
               </div>
-            )}
+              <div className="rounded-lg bg-slate-50 p-3">
+                <p className="text-slate-500 text-xs mb-1">טלפון / אימייל</p>
+                <p className="font-medium text-slate-900">
+                  {reviewTarget.contact_phone || users.find((u) => u.id === reviewTarget.user_id)?.phone || "—"}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {reviewTarget.contact_email || users.find((u) => u.id === reviewTarget.user_id)?.email || "—"}
+                </p>
+              </div>
+              {reviewTarget.business_reg_number && (
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="text-slate-500 text-xs mb-1">מס&apos; עוסק/ח&quot;פ</p>
+                  <p className="font-medium text-slate-900">{reviewTarget.business_reg_number}</p>
+                </div>
+              )}
+              <div className="rounded-lg bg-slate-50 p-3">
+                <p className="text-slate-500 text-xs mb-1">עמלת Healson</p>
+                <p className="font-medium text-slate-900">{reviewTarget.commission_rate ?? 15}%</p>
+              </div>
+              {(reviewTarget.sub_specialties?.length ?? 0) > 0 && (
+                <div className="rounded-lg bg-slate-50 p-3 col-span-2">
+                  <p className="text-slate-500 text-xs mb-1.5">תתי-התמחות</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {reviewTarget.sub_specialties!.map((s) => (
+                      <Badge key={s} tone="slate">
+                        {s}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {(reviewTarget.service_areas?.length ?? 0) > 0 && (
+                <div className="rounded-lg bg-slate-50 p-3 col-span-2">
+                  <p className="text-slate-500 text-xs mb-1.5">אזורי שירות</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {reviewTarget.service_areas!.map((s) => (
+                      <Badge key={s} tone="slate">
+                        {s}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {(reviewTarget.member_provider_types?.length ?? 0) > 0 && (
+                <div className="rounded-lg bg-slate-50 p-3 col-span-2">
+                  <p className="text-slate-500 text-xs mb-1.5">סוגי ספקים בארגון</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {reviewTarget.member_provider_types!.map((t) => (
+                      <Badge key={t} tone="slate">
+                        {PROVIDER_TYPE_LABELS[t]}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {reviewTarget.bio && (
+                <div className="rounded-lg bg-slate-50 p-3 col-span-2">
+                  <p className="text-slate-500 text-xs mb-1">על אודות (bio)</p>
+                  <p className="text-slate-800">{reviewTarget.bio}</p>
+                </div>
+              )}
+              {reviewTarget.coordination_notes && (
+                <div className="rounded-lg bg-slate-50 p-3 col-span-2">
+                  <p className="text-slate-500 text-xs mb-1">הנחיות תיאום (פנימי, לא גלוי למטופלים)</p>
+                  <p className="text-slate-800">{reviewTarget.coordination_notes}</p>
+                </div>
+              )}
+            </div>
 
-            {reviewTarget.status === "onboarding" && (reviewTarget.consultation_types.length > 0 || reviewTarget.exam_types.length > 0) && (
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="rounded-lg bg-slate-50 p-3">
+                <p className="text-slate-500 text-xs mb-1">חתימת הסכם עם Healson</p>
+                <p className="font-medium text-slate-900">
+                  {reviewTarget.agreement_signed_at ? formatDateHe(reviewTarget.agreement_signed_at) : "טרם נחתם"}
+                </p>
+              </div>
+              <div className="rounded-lg bg-slate-50 p-3">
+                <p className="text-slate-500 text-xs mb-1">בקשת פרסום (Go-Live)</p>
+                <p className="font-medium text-slate-900">
+                  {reviewTarget.go_live_requested_at ? formatDateHe(reviewTarget.go_live_requested_at) : "הספק טרם ביקש פרסום"}
+                </p>
+              </div>
+              <div className="rounded-lg bg-slate-50 p-3 col-span-2">
+                <p className="text-slate-500 text-xs mb-1.5">הסדרי ביטוח</p>
+                {reviewTarget.agreements.length === 0 ? (
+                  <p className="font-medium text-slate-900">טרם הוגדרו</p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {(reviewTarget.kupah_arrangements ?? []).map((a) => (
+                      <Badge key={`${a.kupah}-${a.level}`} tone="slate">
+                        {a.level}
+                      </Badge>
+                    ))}
+                    {(reviewTarget.private_insurance_companies ?? []).map((c) => (
+                      <Badge key={c} tone="purple">
+                        {c}
+                      </Badge>
+                    ))}
+                    {(reviewTarget.kupah_arrangements ?? []).length === 0 &&
+                      (reviewTarget.private_insurance_companies ?? []).length === 0 && (
+                        <span className="font-medium text-slate-900">
+                          {reviewTarget.agreements.map((a) => a.layer).join(", ")}
+                        </span>
+                      )}
+                  </div>
+                )}
+              </div>
+              <div className="rounded-lg bg-slate-50 p-3">
+                <p className="text-slate-500 text-xs mb-1">יומנים</p>
+                <p className="font-medium text-slate-900">{reviewTarget.clinic_locations.length} הוגדרו</p>
+              </div>
+              <div className="rounded-lg bg-slate-50 p-3 col-span-2">
+                <p className="text-slate-500 text-xs mb-1">קטלוג שירותים</p>
+                <p className="font-medium text-slate-900">
+                  {reviewTarget.consultation_types.length + reviewTarget.exam_types.length} פריטים
+                </p>
+                {(() => {
+                  const allServices = [...reviewTarget.consultation_types, ...reviewTarget.exam_types];
+                  const unlinked = allServices.filter((s) => (s.linked_clinic_ids?.length ?? 0) === 0).length;
+                  return unlinked > 0 ? (
+                    <p className="flex items-center gap-1 text-xs text-warning-text font-medium mt-1">
+                      <TriangleAlert className="h-3 w-3" /> {unlinked} שירותים לא משויכים ליומן
+                    </p>
+                  ) : null;
+                })()}
+              </div>
+            </div>
+
+            {(reviewTarget.consultation_types.length > 0 || reviewTarget.exam_types.length > 0) && (
               <OpenDecisionNote>
                 <b>טרם הוחלט:</b> מדיניות תמחור סופית — הספק קבע את המחירים הבאים בעצמו; טרם הוחלט האם Healson צריכה
                 לאשר/להגביל את הטווח כחלק מסקירה זו.
@@ -374,6 +459,19 @@ export default function ProvidersPage() {
                   <p className="font-medium text-slate-400">אין קובץ</p>
                 )}
               </div>
+              {reviewTarget.medical_resume_file && (
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="text-slate-500 text-xs mb-1">קורות חיים מקצועיים</p>
+                  <a
+                    href={reviewTarget.medical_resume_file.data_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-primary hover:underline"
+                  >
+                    {reviewTarget.medical_resume_file.file_name}
+                  </a>
+                </div>
+              )}
               {reviewTarget.doctor_subtype === "surgeon" && (
                 <>
                   <div className="rounded-lg bg-slate-50 p-3">
@@ -421,60 +519,62 @@ export default function ProvidersPage() {
               />
             )}
 
-            <div className="flex flex-wrap gap-2 justify-end">
-              {reviewTarget.status === "onboarding" && (
+            {(reviewTarget.status === "pending_review" || reviewTarget.status === "onboarding") && (
+              <div className="flex flex-wrap gap-2 justify-end">
+                {reviewTarget.status === "onboarding" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setChangesTarget(reviewTarget);
+                      setReviewTarget(null);
+                    }}
+                  >
+                    בקש תיקונים
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    setChangesTarget(reviewTarget);
+                    setRejectTarget(reviewTarget);
                     setReviewTarget(null);
                   }}
                 >
-                  בקש תיקונים
+                  דחה
                 </Button>
-              )}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setRejectTarget(reviewTarget);
-                  setReviewTarget(null);
-                }}
-              >
-                דחה
-              </Button>
-              {reviewTarget.status === "pending_review" ? (
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    handleVerifyLicense(reviewTarget);
-                    setReviewTarget(null);
-                  }}
-                >
-                  <ShieldCheck className="h-3.5 w-3.5" /> אמת רישיון
-                </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  disabled={!reviewTarget.go_live_requested_at}
-                  title={
-                    !reviewTarget.onboarding_ready_at
-                      ? "האונבורדינג טרם הושלם"
-                      : !reviewTarget.go_live_requested_at
-                      ? "הספק טרם ביקש פרסום"
-                      : undefined
-                  }
-                  onClick={() => {
-                    approveProviderGoLive(reviewTarget.id);
-                    showToast("הספק אושר ל-Go-Live ופורסם", { variant: "success" });
-                    setReviewTarget(null);
-                  }}
-                >
-                  <Rocket className="h-3.5 w-3.5" /> אשר Go-Live ופרסם
-                </Button>
-              )}
-            </div>
+                {reviewTarget.status === "pending_review" ? (
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      handleVerifyLicense(reviewTarget);
+                      setReviewTarget(null);
+                    }}
+                  >
+                    <ShieldCheck className="h-3.5 w-3.5" /> אמת רישיון
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    disabled={!reviewTarget.go_live_requested_at}
+                    title={
+                      !reviewTarget.onboarding_ready_at
+                        ? "האונבורדינג טרם הושלם"
+                        : !reviewTarget.go_live_requested_at
+                        ? "הספק טרם ביקש פרסום"
+                        : undefined
+                    }
+                    onClick={() => {
+                      approveProviderGoLive(reviewTarget.id);
+                      showToast("הספק אושר ל-Go-Live ופורסם", { variant: "success" });
+                      setReviewTarget(null);
+                    }}
+                  >
+                    <Rocket className="h-3.5 w-3.5" /> אשר Go-Live ופרסם
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
         )}
       </Dialog>

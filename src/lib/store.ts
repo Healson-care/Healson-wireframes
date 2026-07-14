@@ -1,30 +1,27 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import {
   Appointment,
   CatalogItem,
   ConsentRecord,
   ConsentType,
   CONSENT_DOCUMENT_VERSION,
-  DoctorSubtype,
   DsrRequest,
   DsrRequestStatus,
   Kupah,
   KLevel,
-  KupahArrangement,
   Lead,
   LabReferral,
   Order,
   Patient,
   ProviderProfile,
-  ProviderType,
   Role,
   ServiceType,
   SkillDomain,
   SkillSubdomain,
   ToastItem,
-  UploadedFile,
   User,
+  VisitRecord,
   WaitlistEntry,
 } from "@/types";
 import {
@@ -40,6 +37,7 @@ import {
   SEED_PATIENTS,
   SEED_PROVIDERS,
   SEED_USERS,
+  SEED_VISIT_RECORDS,
 } from "./mock-data";
 import { SEED_SKILL_DOMAINS, SEED_SKILL_SUBDOMAINS } from "./medical-tree";
 import { generateId } from "./utils";
@@ -53,31 +51,14 @@ interface PendingRegistration {
   otp: string;
 }
 
-interface PendingProviderApplication {
-  provider_type: ProviderType;
-  full_name: string;
-  contact_name?: string;
-  contact_phone?: string;
-  contact_email?: string;
-  title?: string;
-  specialty: string;
-  license_number?: string;
-  business_reg_number?: string;
-  phone: string;
-  email: string;
-  license_file?: UploadedFile;
-  doctor_subtype?: DoctorSubtype;
-  surgical_board_certificate?: UploadedFile;
-  malpractice_insurance_file?: UploadedFile;
-  surgical_privileges_hospital?: string;
-  description?: string;
-  medical_resume_file?: UploadedFile;
-  kupah_arrangements?: KupahArrangement[];
-  private_insurance_companies?: string[];
-  service_areas?: string[];
-  sub_specialties?: string[];
-  location_count?: number;
-  member_provider_types?: ProviderType[];
+// Held between the provider clicking "שלח לבדיקת Healson" on /apply (which
+// re-checks license-number uniqueness against the profile's already-saved
+// fields — see submitProviderApplication) and phone-OTP verification. Unlike
+// the old PendingProviderApplication, no applicant data lives here: by this
+// point the ProviderProfile already exists and has been filled in
+// incrementally (the applicant registered + logged in back at step 1).
+interface PendingProviderSubmission {
+  providerId: string;
   otp: string;
 }
 
@@ -95,15 +76,26 @@ export type RegistrationConsents = Partial<Record<ConsentType, boolean>>;
 interface AuthState {
   currentUser: User | null;
   pendingRegistration: PendingRegistration | null;
-  pendingProviderApplication: PendingProviderApplication | null;
+  pendingProviderSubmission: PendingProviderSubmission | null;
   login: (email: string, password: string) => { ok: boolean; error?: string };
   loginWithGoogle: () => void;
   register: (email: string, password: string) => { ok: boolean; otpHint: string };
   verifyOtp: (email: string, code: string) => { ok: boolean; error?: string };
   resendOtp: () => string | null;
-  applyAsProvider: (
-    data: Omit<PendingProviderApplication, "otp">
-  ) => { ok: boolean; error?: string; otpHint?: string };
+  // Provider signup step 1 — creates the User + a bare ProviderProfile and
+  // logs the applicant in immediately (mirrors register/verifyOtp above),
+  // instead of waiting until Ops verifies the license (see PROV-ONBOARDING).
+  registerProviderAccount: (
+    full_name: string,
+    phone: string,
+    email: string,
+    password: string
+  ) => { ok: boolean; error?: string };
+  // Provider signup step 4 — called once the applicant has filled out their
+  // profile (already persisted incrementally via upsertProviderProfile) and
+  // clicks "שלח לבדיקת Healson". Re-checks license-number uniqueness and
+  // stages phone-OTP verification before flipping application_submitted_at.
+  submitProviderApplication: (providerId: string) => { ok: boolean; error?: string; otpHint?: string };
   verifyProviderApplicationOtp: (code: string) => { ok: boolean; error?: string; providerId?: string };
   resendProviderApplicationOtp: () => string | null;
   forgotPassword: (email: string) => { ok: boolean };
@@ -144,6 +136,7 @@ interface EntitiesState {
   appointments: Appointment[];
   orders: Order[];
   labReferrals: LabReferral[];
+  visitRecords: VisitRecord[];
   waitlist: WaitlistEntry[];
   branches: typeof SEED_BRANCHES;
   consentRecords: ConsentRecord[];
@@ -167,7 +160,7 @@ interface EntitiesState {
     data: Partial<ProviderProfile>
   ) => ProviderProfile;
   updateProviderById: (id: string, data: Partial<ProviderProfile>) => void;
-  verifyProviderLicense: (id: string) => string;
+  verifyProviderLicense: (id: string) => void;
   demoApproveProvider: (id: string) => void;
   demoRejectProvider: (id: string, reason?: string) => void;
   rejectProvider: (id: string, reason: string) => void;
@@ -190,6 +183,9 @@ interface EntitiesState {
 
   addLabReferral: (r: Omit<LabReferral, "id" | "created_date">) => LabReferral;
   updateLabReferral: (id: string, data: Partial<LabReferral>) => void;
+
+  addVisitRecord: (v: Omit<VisitRecord, "id" | "created_date">) => VisitRecord;
+  updateVisitRecord: (id: string, data: Partial<VisitRecord>) => void;
 
   addWaitlistEntry: (w: Omit<WaitlistEntry, "id" | "created_date" | "status">) => WaitlistEntry;
 
@@ -234,7 +230,7 @@ export const useStore = create<Store>()(
       // ---------------- Auth ----------------
       currentUser: null,
       pendingRegistration: null,
-      pendingProviderApplication: null,
+      pendingProviderSubmission: null,
 
       login: (email, password) => {
         if (!email || !password) return { ok: false, error: "נא להזין אימייל וסיסמה" };
@@ -244,9 +240,9 @@ export const useStore = create<Store>()(
         if (existing) {
           if (existing.role === "provider") {
             const provider = get().providers.find((p) => p.user_id === existing.id);
-            if (provider?.status === "pending_review") {
-              return { ok: false, error: "בקשת ההצטרפות שלך עדיין ממתינה לבדיקת רישיון. נעדכן אותך במייל בסיום הבדיקה." };
-            }
+            // pending_review no longer blocks login (PROV-REGISTRATION) — the
+            // provider already has a session from registerProviderAccount and
+            // ProviderLayout routes them to /provider/register to finish or await review.
             if (provider?.status === "rejected") {
               return {
                 ok: false,
@@ -340,64 +336,57 @@ export const useStore = create<Store>()(
         return pending ? pending.otp : null;
       },
 
-      applyAsProvider: (data) => {
-        const emailTaken = get().users.some((u) => u.email.toLowerCase() === data.email.toLowerCase());
+      registerProviderAccount: (full_name, phone, email, password) => {
+        void password; // mocked — no real auth/password storage anywhere in this app (see login())
+        const emailTaken = get().users.some((u) => u.email.toLowerCase() === email.toLowerCase());
         if (emailTaken) return { ok: false, error: "כתובת האימייל כבר רשומה במערכת" };
+        const newUser: User = {
+          id: generateId("user"),
+          email,
+          full_name,
+          phone,
+          role: "provider",
+          created_date: new Date().toISOString(),
+        };
+        set((s) => ({ users: [...s.users, newUser] }));
+        get().upsertProviderProfile(newUser.id, { display_name: full_name });
+        // Logged in immediately (PROV-REGISTRATION) — unlike the old
+        // apply-then-wait-for-Ops flow, the applicant gets a real session
+        // the moment their account exists and completes the rest of their
+        // profile (type/details/documents/submit) on /apply while already
+        // authenticated, mirroring register()/verifyOtp() for patients.
+        set({ currentUser: newUser });
+        return { ok: true };
+      },
+
+      submitProviderApplication: (providerId) => {
+        const provider = get().providers.find((p) => p.id === providerId);
+        if (!provider) return { ok: false, error: "לא נמצא פרופיל ספק" };
         const licenseTaken =
-          !!data.license_number &&
-          get().providers.some((p) => p.status !== "rejected" && p.license_number === data.license_number);
+          !!provider.license_number &&
+          get().providers.some(
+            (p) => p.id !== providerId && p.status !== "rejected" && p.license_number === provider.license_number
+          );
         if (licenseTaken) return { ok: false, error: "מספר הרישיון כבר רשום במערכת" };
         const otp = "123456";
-        set({ pendingProviderApplication: { ...data, otp } });
+        set({ pendingProviderSubmission: { providerId, otp } });
         return { ok: true, otpHint: otp };
       },
 
       verifyProviderApplicationOtp: (code) => {
-        const pending = get().pendingProviderApplication;
+        const pending = get().pendingProviderSubmission;
         if (!pending) return { ok: false, error: "לא נמצאה בקשת הצטרפות פעילה" };
         if (code !== pending.otp) return { ok: false, error: "קוד שגוי, נסה שנית" };
-        const newUser: User = {
-          id: generateId("user"),
-          email: pending.email,
-          full_name: pending.full_name,
-          role: "provider",
-          phone: pending.phone,
-          created_date: new Date().toISOString(),
-        };
-        set((s) => ({ users: [...s.users, newUser], pendingProviderApplication: null }));
-        const provider = get().upsertProviderProfile(newUser.id, {
-          provider_type: pending.provider_type,
-          display_name: pending.full_name,
-          contact_name: pending.contact_name,
-          contact_phone: pending.contact_phone,
-          contact_email: pending.contact_email,
-          title: pending.title,
-          specialty: pending.specialty,
-          license_number: pending.license_number,
-          business_reg_number: pending.business_reg_number,
-          license_file: pending.license_file,
-          doctor_subtype: pending.doctor_subtype,
-          surgical_board_certificate: pending.surgical_board_certificate,
-          malpractice_insurance_file: pending.malpractice_insurance_file,
-          surgical_privileges_hospital: pending.surgical_privileges_hospital,
-          bio: pending.description,
-          medical_resume_file: pending.medical_resume_file,
-          kupah_arrangements: pending.kupah_arrangements,
-          private_insurance_companies: pending.private_insurance_companies,
-          service_areas: pending.service_areas,
-          sub_specialties: pending.sub_specialties,
-          location_count: pending.location_count,
-          member_provider_types: pending.member_provider_types,
+        get().updateProviderById(pending.providerId, {
           phone_verified_at: new Date().toISOString(),
-          status: "pending_review",
+          application_submitted_at: new Date().toISOString(),
         });
-        // No token/session is issued at this stage (PROV-APPLICATION) — the
-        // applicant only gets full login access once Ops verifies the license.
-        return { ok: true, providerId: provider.id };
+        set({ pendingProviderSubmission: null });
+        return { ok: true, providerId: pending.providerId };
       },
 
       resendProviderApplicationOtp: () => {
-        const pending = get().pendingProviderApplication;
+        const pending = get().pendingProviderSubmission;
         return pending ? pending.otp : null;
       },
 
@@ -516,6 +505,7 @@ export const useStore = create<Store>()(
       appointments: SEED_APPOINTMENTS,
       orders: SEED_ORDERS,
       labReferrals: SEED_LAB_REFERRALS,
+      visitRecords: SEED_VISIT_RECORDS,
       waitlist: [],
       branches: SEED_BRANCHES,
       consentRecords: SEED_CONSENT_RECORDS,
@@ -573,14 +563,27 @@ export const useStore = create<Store>()(
           providers: s.providers.map((p) => {
             if (p.id !== id) return p;
             const updated = { ...p, ...data };
+            // Providers can only be published when fully approved. Keep the
+            // model consistent even if a write path accidentally toggles
+            // is_published while the provider is pending review or onboarding.
+            if (updated.status !== "approved") {
+              updated.is_published = false;
+            }
             // Onboarding readiness (FEAT-06) is derived, not set by any single
             // screen — recompute it here so every write path (agreements,
-            // catalog, sign) stays in sync automatically.
+            // catalog, calendars, linking, sign) stays in sync automatically.
+            // Requires calendars ("יומנים") to exist AND at least one service
+            // actually linked to one — a service defined before any calendar
+            // exists doesn't count (see ServiceCatalogSection/PriceListSection's
+            // "add a calendar first" flag).
+            const allServices = [...updated.consultation_types, ...updated.exam_types];
             if (
               updated.status === "onboarding" &&
               !updated.onboarding_ready_at &&
               updated.agreements.length > 0 &&
-              (updated.consultation_types.length > 0 || updated.exam_types.length > 0) &&
+              allServices.length > 0 &&
+              updated.clinic_locations.length > 0 &&
+              allServices.some((sv) => (sv.linked_clinic_ids?.length ?? 0) > 0) &&
               updated.agreement_signed_at
             ) {
               updated.onboarding_ready_at = new Date().toISOString();
@@ -590,24 +593,23 @@ export const useStore = create<Store>()(
         })),
 
       verifyProviderLicense: (id) => {
-        // Mock credential issuance: the applicant never set a password at
-        // application time (PROV-APPLICATION §out-of-scope) — a temporary
-        // one is "sent" to them once Ops verifies the license and opens
-        // onboarding access. Login itself never actually checks the
-        // password (see login(), matching the rest of this mock app).
-        const tempPassword = Math.random().toString(36).slice(-8);
-        get().updateProviderById(id, { status: "onboarding", license_verified_at: new Date().toISOString() });
-        return tempPassword;
+        // No new credential is issued here (PROV-REGISTRATION) — the
+        // provider already has their own account/session from
+        // registerProviderAccount, so this just unlocks onboarding access.
+        get().updateProviderById(id, {
+          status: "onboarding",
+          license_verified_at: new Date().toISOString(),
+        });
       },
       // Demo shortcut (product-demo flow) — skips the real Ops license-review
-      // + Go-Live pipeline entirely: the applicant is dropped straight into
-      // their own /provider/dashboard to self-serve the rest of the setup
-      // (catalog/locations/availability) and gets logged in immediately,
-      // since normally no session is issued until Ops verifies the license.
+      // + Go-Live pipeline entirely, dropping the applicant straight into
+      // their own /provider/dashboard fully approved+published so they can
+      // self-serve the rest of the setup (catalog/locations/availability).
       demoApproveProvider: (id) => {
         const provider = get().providers.find((p) => p.id === id);
         get().updateProviderById(id, {
           status: "approved",
+          is_published: true,
           license_verified_at: new Date().toISOString(),
           rejection_reason: undefined,
         });
@@ -675,6 +677,9 @@ export const useStore = create<Store>()(
           created_date: new Date().toISOString(),
           ...data,
         };
+        if (record.status !== "approved") {
+          record.is_published = false;
+        }
         set((s) => ({ providers: [...s.providers, record] }));
         return record;
       },
@@ -707,6 +712,16 @@ export const useStore = create<Store>()(
       updateLabReferral: (id, data) =>
         set((s) => ({
           labReferrals: s.labReferrals.map((r) => (r.id === id ? { ...r, ...data } : r)),
+        })),
+
+      addVisitRecord: (v) => {
+        const record: VisitRecord = { ...v, id: generateId("visit"), created_date: new Date().toISOString() };
+        set((s) => ({ visitRecords: [record, ...s.visitRecords] }));
+        return record;
+      },
+      updateVisitRecord: (id, data) =>
+        set((s) => ({
+          visitRecords: s.visitRecords.map((v) => (v.id === id ? { ...v, ...data } : v)),
         })),
 
       addWaitlistEntry: (w) => {
@@ -819,7 +834,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 7,
+      version: 11,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
       // records), the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER seed
       // account, the v3 -> v4 AppointmentStatus rename ("ממתין לאישור" ->
@@ -827,14 +842,53 @@ export const useStore = create<Store>()(
       // additions (User.admin_title, Patient.processing_restricted,
       // commissionRateByServiceType, second seeded superadmin), the v5 -> v6
       // addition of the "שולם במלואו" AppointmentStatus and "extra"-service_type
-      // catalog items (used by the new "שירותים נוספים" search tab), and the
+      // catalog items (used by the new "שירותים נוספים" search tab), the
       // v6 -> v7 correction of K_LEVELS_BY_KUPAH plan names (stray whitespace
       // trimmed, so persisted kupah_arrangements referencing the old literal
-      // strings would silently stop matching) are not backwards compatible
-      // with anything persisted under an earlier version — discard old state
-      // on a version bump so the app reseeds clean instead of silently
-      // keeping stale seed/demo/status/catalog data.
-      migrate: (persistedState, version) => (version < 7 ? ({} as Store) : (persistedState as Store)),
+      // strings would silently stop matching), the v7 -> v8 addition of
+      // provider calendars-linked-to-services onboarding gating + visitRecords
+      // + demo credential issuance (new seeded provider/patient data these
+      // features rely on), and the v8 -> v9 merge of the separate
+      // consultations/exams catalog split into one unified services list
+      // (exam_types seed entries moved into consultation_types) are not
+      // backwards compatible with anything persisted under an earlier
+      // version — discard old state on a version bump so the app reseeds
+      // clean instead of silently keeping stale seed/demo/status/catalog data.
+      // ...the v9 -> v10 rework of provider signup (account + session now
+      // created immediately at registration instead of after Ops verifies
+      // the license; dropped the mock demo_temp_password/credentials_issued_at
+      // fields since no new credential is issued anymore), and the v10 -> v11
+      // skill-tree expansion (5 -> 30 domains, one per doctor specialty) plus
+      // making the reference catalog global (buildCatalog no longer pins
+      // every seeded item's provider_id to one of the 3 demo providers) —
+      // a persisted v10 catalog still has every item pinned to a demo
+      // provider, so any other provider's specialty-scoped picker would find
+      // zero selectable items and the "save" button would stay disabled
+      // forever. Discard old state on a version bump so the app reseeds
+      // clean instead of silently keeping stale seed/demo/status/catalog data.
+      migrate: (persistedState, version) => (version < 11 ? ({} as Store) : (persistedState as Store)),
+      // Uploaded files (photos/PDFs) are stored as base64 data URLs inside
+      // this same persisted blob (no real backend — see file.ts). If a
+      // single write ever still exceeds the browser's localStorage quota
+      // (e.g. many uploads accumulated over a long demo session), swallow
+      // it here instead of letting it throw an unhandled rejection that
+      // breaks every subsequent store write app-wide — the in-memory state
+      // (and thus the current session) stays fully usable either way, it
+      // just won't survive a refresh.
+      storage: createJSONStorage(() => ({
+        getItem: (name) => localStorage.getItem(name),
+        setItem: (name, value) => {
+          try {
+            localStorage.setItem(name, value);
+          } catch (err) {
+            console.warn(
+              "[healson] localStorage quota exceeded — this change won't persist across page reloads.",
+              err
+            );
+          }
+        },
+        removeItem: (name) => localStorage.removeItem(name),
+      })),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);
       },

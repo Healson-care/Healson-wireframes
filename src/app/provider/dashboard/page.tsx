@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import Link from "next/link";
 import { ProviderLayout } from "@/components/layouts/ProviderLayout";
 import { useStore } from "@/lib/store";
@@ -8,13 +8,13 @@ import { useCurrentProvider } from "@/lib/useCurrentPatient";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/Tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { Input, Select, Textarea } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { Avatar, EmptyState, OpenDecisionNote, PageHeader, StatCard } from "@/components/ui/Misc";
 import { CardListSkeleton, Skeleton } from "@/components/ui/Skeleton";
 import { PriceListEntry, PriceListSection } from "@/components/provider/PriceListSection";
 import { ServiceCatalogSection } from "@/components/provider/ServiceCatalogSection";
 import { ClinicsSection } from "@/components/provider/ClinicsSection";
+import { AvailabilitySection } from "@/components/provider/AvailabilitySection";
 import { ReferralFormsSection } from "@/components/provider/ReferralFormsSection";
 import { AgreementsSection } from "@/components/provider/AgreementsSection";
 import { BlockedDatesSection } from "@/components/provider/BlockedDatesSection";
@@ -22,9 +22,7 @@ import { MonthlyReportSection } from "@/components/provider/MonthlyReportSection
 import { BarChartSimple, LineChartSimple } from "@/components/charts/SimpleCharts";
 import {
   LayoutDashboard,
-  Shield,
   Stethoscope,
-  FlaskConical,
   MapPin,
   FileText,
   CalendarDays,
@@ -33,24 +31,20 @@ import {
   CheckCircle2,
   BadgeCheck,
   Handshake,
-  Upload,
   Star,
   FileBarChart,
   Clock,
 } from "lucide-react";
 import { formatCurrency, formatDateHe, monthOverMonthTrend, buildMonthlyData } from "@/lib/utils";
-import { fileToDataUrl } from "@/lib/file";
-import { DAY_LABELS } from "@/lib/medical-tree";
-import { PROVIDER_STATUS_LABELS, LOCATION_TYPE_LABELS } from "@/types";
+import { PROVIDER_STATUS_LABELS } from "@/types";
 import {
+  getNextProviderAction,
   getProviderSetupConfig,
   isSetupReadyToPublish,
   isCatalogComplete,
   isLocationsComplete,
   isAvailabilityComplete,
 } from "@/lib/provider-setup";
-
-const LANGUAGE_OPTIONS = ["עברית", "ערבית", "רוסית", "אנגלית"];
 
 export default function ProviderDashboardPage() {
   const currentUser = useStore((s) => s.currentUser);
@@ -59,8 +53,6 @@ export default function ProviderDashboardPage() {
   const orders = useStore((s) => s.orders);
   const patients = useStore((s) => s.patients);
   const appointments = useStore((s) => s.appointments);
-  const skillDomains = useStore((s) => s.skillDomains);
-  const skillSubdomains = useStore((s) => s.skillSubdomains);
   const showToast = useStore((s) => s.showToast);
 
   // Create an empty profile automatically the first time a provider logs in.
@@ -72,41 +64,6 @@ export default function ProviderDashboardPage() {
       });
     }
   }, [currentUser, provider, upsertProviderProfile]);
-
-  const [licenseForm, setLicenseForm] = useState({
-    display_name: "",
-    title: "",
-    specialty: "",
-    license_number: "",
-    license_issuer: "",
-    license_issue_date: "",
-    license_expiry_date: "",
-    bio: "",
-    coordination_notes: "",
-  });
-  const [languages, setLanguages] = useState<string[]>([]);
-  const [subSpecialties, setSubSpecialties] = useState<string[]>([]);
-  const [imageUrl, setImageUrl] = useState<string | undefined>(undefined);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
-
-  const [licenseLoadedFor, setLicenseLoadedFor] = useState<string | null>(null);
-  if (provider && provider.id !== licenseLoadedFor) {
-    setLicenseLoadedFor(provider.id);
-    setLicenseForm({
-      display_name: provider.display_name ?? "",
-      title: provider.title ?? "",
-      specialty: provider.specialty ?? "",
-      license_number: provider.license_number ?? "",
-      license_issuer: provider.license_issuer ?? "",
-      license_issue_date: provider.license_issue_date ?? "",
-      license_expiry_date: provider.license_expiry_date ?? "",
-      bio: provider.bio ?? "",
-      coordination_notes: provider.coordination_notes ?? "",
-    });
-    setLanguages(provider.languages ?? []);
-    setSubSpecialties(provider.sub_specialties ?? []);
-    setImageUrl(provider.image_url);
-  }
 
   if (!provider || !currentUser) {
     return (
@@ -145,27 +102,9 @@ export default function ProviderDashboardPage() {
   const locationsDone = isLocationsComplete(provider);
   const availabilityDone = isAvailabilityComplete(provider);
   const readyToPublish = isSetupReadyToPublish(provider);
-
-  function saveLicense(e: React.FormEvent) {
-    e.preventDefault();
-    upsertProviderProfile(currentUser!.id, { ...licenseForm, languages, sub_specialties: subSpecialties, image_url: imageUrl });
-    showToast("פרטי הפרופיל נשמרו בהצלחה", { variant: "success" });
-  }
-
-  function toggleLanguage(lang: string) {
-    setLanguages((prev) => (prev.includes(lang) ? prev.filter((l) => l !== lang) : [...prev, lang]));
-  }
-
-  function toggleSubSpecialty(name: string) {
-    setSubSpecialties((prev) => (prev.includes(name) ? prev.filter((s) => s !== name) : [...prev, name]));
-  }
-
-  async function handlePhotoSelect(file: File | undefined) {
-    if (!file) return;
-    setUploadingPhoto(true);
-    setImageUrl(await fileToDataUrl(file));
-    setUploadingPhoto(false);
-  }
+  const nextAction = getNextProviderAction(provider);
+  const isLive = provider.status === "approved" && provider.is_published;
+  const canTogglePublish = provider.status === "approved" && readyToPublish;
 
   return (
     <ProviderLayout>
@@ -173,19 +112,21 @@ export default function ProviderDashboardPage() {
         title="לוח הבקרה שלי"
         description="ניהול הפרופיל המקצועי, שירותים ופעילות שוטפת"
         actions={
-          <Button
-            variant={provider.is_published ? "outline" : "primary"}
-            disabled={!provider.is_published && !readyToPublish}
-            title={!provider.is_published && !readyToPublish ? "יש להשלים קטלוג, מיקומים וזמינות לפני הפרסום" : undefined}
-            onClick={() => {
-              upsertProviderProfile(currentUser!.id, { is_published: !provider.is_published });
-              showToast(provider.is_published ? "הפרופיל הוסר מהפרסום" : "הפרופיל פורסם בהצלחה", {
-                variant: "success",
-              });
-            }}
-          >
-            {provider.is_published ? "בטל פרסום" : "פרסם פרופיל"}
-          </Button>
+          provider.status === "approved" ? (
+            <Button
+              variant={isLive ? "outline" : "primary"}
+              disabled={!canTogglePublish}
+              title={!canTogglePublish ? "יש להשלים קטלוג, מיקומים וזמינות לפני הפרסום" : undefined}
+              onClick={() => {
+                upsertProviderProfile(currentUser!.id, { is_published: !provider.is_published });
+                showToast(provider.is_published ? "הפרופיל הוסר מהפרסום" : "הפרופיל פורסם בהצלחה", {
+                  variant: "success",
+                });
+              }}
+            >
+              {isLive ? "בטל פרסום" : "פרסם פרופיל"}
+            </Button>
+          ) : undefined
         }
       />
 
@@ -227,7 +168,7 @@ export default function ProviderDashboardPage() {
               )}
             </div>
           </div>
-          <div className={`grid gap-3 text-center ${setupConfig.showExamsCatalog ? "grid-cols-3" : "grid-cols-2"}`}>
+          <div className="grid grid-cols-2 gap-3 text-center">
             <div className="rounded-xl bg-white/70 px-3 py-2 shadow-sm">
               <p className="text-lg font-bold text-slate-900">{provider.consultation_types.length}</p>
               <p className="text-xs text-slate-500">{setupConfig.catalogLabel}</p>
@@ -236,35 +177,23 @@ export default function ProviderDashboardPage() {
               <p className="text-lg font-bold text-slate-900">{provider.clinic_locations.length}</p>
               <p className="text-xs text-slate-500">{setupConfig.locationLabelPlural}</p>
             </div>
-            {setupConfig.showExamsCatalog && (
-              <div className="rounded-xl bg-white/70 px-3 py-2 shadow-sm">
-                <p className="text-lg font-bold text-slate-900">{provider.exam_types.length}</p>
-                <p className="text-xs text-slate-500">בדיקות</p>
-              </div>
-            )}
           </div>
         </div>
       </div>
 
-      {!provider.is_published && !readyToPublish && (
+      {nextAction && (
         <div className="mb-6 rounded-lg border border-warning-border bg-warning-bg px-4 py-3 text-sm text-warning-text">
-          כדי לפרסם ולהתחיל לקבל תורים, יש להשלים: {setupConfig.catalogLabel}
-          {setupConfig.locationTypes.length > 0 ? `, ${setupConfig.locationLabelPlural}` : ""}
-          {setupConfig.showAvailability ? ", זמינות" : ""}.
+          {nextAction}
         </div>
       )}
 
       <Tabs defaultValue="overview">
         <TabsList className="mb-4 flex-wrap">
           <TabsTrigger value="overview" icon={<LayoutDashboard className="h-3.5 w-3.5" />}>סקירה</TabsTrigger>
-          <TabsTrigger value="license" icon={<Shield className="h-3.5 w-3.5" />}>רישיון</TabsTrigger>
           {setupConfig.showAgreements && (
             <TabsTrigger value="agreements" icon={<Handshake className="h-3.5 w-3.5" />}>הסדרים</TabsTrigger>
           )}
           <TabsTrigger value="consultations" icon={<Stethoscope className="h-3.5 w-3.5" />}>{setupConfig.catalogLabel}</TabsTrigger>
-          {setupConfig.showExamsCatalog && (
-            <TabsTrigger value="exams" icon={<FlaskConical className="h-3.5 w-3.5" />}>בדיקות</TabsTrigger>
-          )}
           <TabsTrigger value="clinics" icon={<MapPin className="h-3.5 w-3.5" />}>{setupConfig.locationLabelPlural}</TabsTrigger>
           <TabsTrigger value="forms" icon={<FileText className="h-3.5 w-3.5" />}>תבניות הפניה</TabsTrigger>
           {setupConfig.showAvailability && (
@@ -373,140 +302,6 @@ export default function ProviderDashboardPage() {
           </div>
         </TabsContent>
 
-        <TabsContent value="license">
-          <Card>
-            <CardHeader>
-              <CardTitle>פרופיל ורישיון</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={saveLicense} className="grid sm:grid-cols-2 gap-3">
-                <div className="sm:col-span-2 flex items-center gap-4">
-                  <Avatar name={licenseForm.display_name || currentUser.full_name} src={imageUrl} className="h-16 w-16 text-lg" />
-                  <label className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 px-4 py-2.5 text-sm text-slate-600 cursor-pointer hover:border-primary">
-                    <Upload className="h-4 w-4" />
-                    {uploadingPhoto ? "מעלה..." : "העלאת תמונת פרופיל"}
-                    <input
-                      type="file"
-                      accept=".jpg,.jpeg,.png"
-                      className="hidden"
-                      onChange={(e) => handlePhotoSelect(e.target.files?.[0])}
-                    />
-                  </label>
-                </div>
-                <Select
-                  label="תואר"
-                  value={licenseForm.title}
-                  onChange={(e) => setLicenseForm({ ...licenseForm, title: e.target.value })}
-                >
-                  <option value="">בחר</option>
-                  <option value='ד"ר'>{'ד"ר'}</option>
-                  <option value="פרופ'">{"פרופ'"}</option>
-                  <option value="מר/גב'">{"מר/גב'"}</option>
-                </Select>
-                <Input
-                  label="שם תצוגה"
-                  value={licenseForm.display_name}
-                  onChange={(e) => setLicenseForm({ ...licenseForm, display_name: e.target.value })}
-                  required
-                />
-                <Input
-                  label="תחום התמחות"
-                  value={licenseForm.specialty}
-                  onChange={(e) => setLicenseForm({ ...licenseForm, specialty: e.target.value })}
-                  required
-                />
-                <Input
-                  label="מספר רישיון"
-                  value={licenseForm.license_number}
-                  onChange={(e) => setLicenseForm({ ...licenseForm, license_number: e.target.value })}
-                  required
-                />
-                <Input
-                  label="גוף מנפיק"
-                  value={licenseForm.license_issuer}
-                  onChange={(e) => setLicenseForm({ ...licenseForm, license_issuer: e.target.value })}
-                />
-                <Input
-                  label="תאריך הנפקת רישיון"
-                  type="date"
-                  value={licenseForm.license_issue_date}
-                  onChange={(e) => setLicenseForm({ ...licenseForm, license_issue_date: e.target.value })}
-                />
-                <Input
-                  label="תאריך תפוגת רישיון"
-                  type="date"
-                  value={licenseForm.license_expiry_date}
-                  onChange={(e) => setLicenseForm({ ...licenseForm, license_expiry_date: e.target.value })}
-                />
-                <div className="sm:col-span-2">
-                  <p className="text-sm font-medium text-slate-700 mb-2">שפות</p>
-                  <div className="flex flex-wrap gap-2">
-                    {LANGUAGE_OPTIONS.map((lang) => (
-                      <button
-                        key={lang}
-                        type="button"
-                        onClick={() => toggleLanguage(lang)}
-                        className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                          languages.includes(lang) ? "bg-primary text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                        }`}
-                      >
-                        {lang}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                {skillDomains.length > 0 && (
-                  <div className="sm:col-span-2">
-                    <p className="text-sm font-medium text-slate-700 mb-2">תחומי משנה (Skill Tree)</p>
-                    <div className="flex flex-col gap-2">
-                      {skillDomains.map((domain) => {
-                        const subdomains = skillSubdomains.filter((sd) => sd.domain_id === domain.id);
-                        if (subdomains.length === 0) return null;
-                        return (
-                          <div key={domain.id}>
-                            <p className="text-xs text-slate-400 mb-1">{domain.name_he}</p>
-                            <div className="flex flex-wrap gap-2">
-                              {subdomains.map((sd) => (
-                                <button
-                                  key={sd.id}
-                                  type="button"
-                                  onClick={() => toggleSubSpecialty(sd.name_he)}
-                                  className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                                    subSpecialties.includes(sd.name_he)
-                                      ? "bg-primary text-white"
-                                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                                  }`}
-                                >
-                                  {sd.name_he}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-                <Textarea
-                  label="על אודות (bio) — יוצג למטופלים"
-                  value={licenseForm.bio}
-                  onChange={(e) => setLicenseForm({ ...licenseForm, bio: e.target.value })}
-                  className="sm:col-span-2"
-                />
-                <Textarea
-                  label="הנחיות תיאום לצוות Healson (לא גלוי למטופלים)"
-                  value={licenseForm.coordination_notes}
-                  onChange={(e) => setLicenseForm({ ...licenseForm, coordination_notes: e.target.value })}
-                  className="sm:col-span-2"
-                />
-                <Button type="submit" className="sm:col-span-2 self-start mt-2">
-                  שמור פרופיל
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
         {setupConfig.showAgreements && (
           <TabsContent value="agreements">
             <AgreementsSection
@@ -536,6 +331,8 @@ export default function ProviderDashboardPage() {
               onChange={(items) => upsertProviderProfile(currentUser!.id, { consultation_types: items })}
               providerId={provider.id}
               itemLabel={setupConfig.catalogItemLabel}
+              clinics={provider.clinic_locations}
+              providerSpecialty={provider.specialty}
             />
           ) : (
             <PriceListSection
@@ -545,22 +342,10 @@ export default function ProviderDashboardPage() {
               extraFieldLabel={setupConfig.catalogExtraFieldLabel}
               extraFieldType={setupConfig.catalogExtraFieldType}
               itemLabel={setupConfig.catalogItemLabel}
+              clinics={provider.clinic_locations}
             />
           )}
         </TabsContent>
-
-        {setupConfig.showExamsCatalog && (
-          <TabsContent value="exams">
-            <PriceListSection
-              items={provider.exam_types as unknown as PriceListEntry[]}
-              onChange={(items) => upsertProviderProfile(currentUser!.id, { exam_types: items as unknown as typeof provider.exam_types })}
-              extraFieldKey="lab_code"
-              extraFieldLabel="קוד מעבדה"
-              extraFieldType="text"
-              itemLabel="בדיקה"
-            />
-          </TabsContent>
-        )}
 
         <TabsContent value="clinics">
           <ClinicsSection
@@ -581,39 +366,12 @@ export default function ProviderDashboardPage() {
 
         {setupConfig.showAvailability && (
         <TabsContent value="schedule">
-          <Card>
-            <CardHeader>
-              <CardTitle>זמינות שבועית</CardTitle>
-              <p className="text-sm text-slate-500">
-                שעות הפעילות של כל {setupConfig.locationLabelSingular} — לעריכה יש לעבור לטאב &quot;{setupConfig.locationLabelPlural}&quot;
-              </p>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              {provider.clinic_locations.length === 0 ? (
-                <EmptyState title={`הגדר/י ${setupConfig.locationLabelSingular} כדי לראות זמינות`} />
-              ) : (
-                provider.clinic_locations.map((c) => (
-                  <div key={c.id}>
-                    <div className="mb-2 flex items-center gap-2">
-                      <p className="text-sm font-medium text-slate-800">{c.name}</p>
-                      <Badge tone="slate">{LOCATION_TYPE_LABELS[c.location_type ?? "clinic"]}</Badge>
-                      {c.is_primary && <Badge tone="green">ראשי</Badge>}
-                    </div>
-                    <div className="grid sm:grid-cols-2 gap-2">
-                      {Object.entries(c.hours).map(([day, range]) => (
-                        <div key={day} className="flex justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm">
-                          <span className="text-slate-600">{DAY_LABELS[day]}</span>
-                          <span className="font-medium text-slate-800">
-                            {range ? `${range[0]} - ${range[1]}` : "סגור"}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
+          <AvailabilitySection
+            clinics={provider.clinic_locations}
+            onChange={(clinics) => upsertProviderProfile(currentUser!.id, { clinic_locations: clinics })}
+            locationLabelSingular={setupConfig.locationLabelSingular}
+            locationLabelPlural={setupConfig.locationLabelPlural}
+          />
 
           <div className="mt-4">
             <BlockedDatesSection

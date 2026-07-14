@@ -13,6 +13,9 @@ import {
   Building2,
   ArrowLeft,
   CalendarPlus,
+  Users,
+  Wallet,
+  Rocket,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Button } from "@/components/ui/Button";
@@ -210,6 +213,75 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+
+      {/* Provider recruitment banner — a distinct, high-contrast "become a
+          partner" pitch (Booking/Amazon-style), separate from the patient-
+          facing hero above and the demo role-entry cards below. Hidden once
+          logged in, same rationale as the entry section underneath. */}
+      {!currentUser && (
+        <section className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-900 to-primary/40 py-16">
+          <div className="pointer-events-none absolute inset-0 -z-10">
+            <div className="absolute -top-20 right-10 h-72 w-72 rounded-full bg-primary/30 blur-3xl" />
+            <div className="absolute -bottom-24 -left-10 h-80 w-80 rounded-full bg-accent/20 blur-3xl" />
+          </div>
+          <div className="mx-auto max-w-6xl px-4">
+            <div className="grid lg:grid-cols-[1.1fr_0.9fr] gap-10 items-center">
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, margin: "-60px" }}
+                transition={{ duration: 0.5, ease: "easeOut" }}
+              >
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white/90 mb-5">
+                  <Stethoscope className="h-3.5 w-3.5" /> להצטרפות ספקי שירותי בריאות
+                </span>
+                <h2 className="text-3xl sm:text-4xl font-bold text-white leading-[1.15] tracking-tight">
+                  אתם רופאים, מטפלים או ארגון בריאות?
+                  <br />
+                  הצטרפו ל-<span className="text-accent">HEALSON</span> ותתחילו לקבל לקוחות
+                </h2>
+                <p className="mt-4 text-white/70 leading-relaxed max-w-lg text-lg">
+                  פתיחת חשבון תוך דקה, כניסה מיידית לאזור האישי שלכם, והשלמת הפרטים בקצב שלכם — בדיוק כמו בפלטפורמות
+                  המובילות בעולם.
+                </p>
+                <div className="mt-7">
+                  <Link href="/apply">
+                    <Button size="lg" className="shadow-xl shadow-primary/30">
+                      <Rocket className="h-4 w-4" /> הצטרפו כנותן שירות ל-HEALSON
+                    </Button>
+                  </Link>
+                </div>
+              </motion.div>
+
+              <motion.div
+                className="grid sm:grid-cols-3 gap-3 lg:gap-4"
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true, margin: "-60px" }}
+                variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.1 } } }}
+              >
+                {[
+                  { icon: Users, label: "אלפי מטופלים", desc: "פוטנציאליים מחפשים שירות כמו שלכם" },
+                  { icon: Wallet, label: "יומן ותשלומים", desc: "ניהול הכל במקום אחד, בלי בלגן" },
+                  { icon: Rocket, label: "עולים לאוויר מהר", desc: "מהרשמה ועד קבלת לקוחות — במהירות" },
+                ].map((item) => (
+                  <motion.div
+                    key={item.label}
+                    variants={{ hidden: { opacity: 0, y: 16 }, visible: { opacity: 1, y: 0 } }}
+                    className="flex flex-col items-start gap-2 rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm"
+                  >
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-accent">
+                      <item.icon className="h-4 w-4" />
+                    </div>
+                    <p className="text-sm font-semibold text-white">{item.label}</p>
+                    <p className="text-xs text-white/60 leading-relaxed">{item.desc}</p>
+                  </motion.div>
+                ))}
+              </motion.div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Only offered to anonymous visitors — once someone is already logged
           in (e.g. a lead mid-registration), this generic role-switch would

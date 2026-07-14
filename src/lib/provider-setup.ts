@@ -33,10 +33,10 @@ const DURATION_FIELD = {
 export const PROVIDER_SETUP_CONFIG: Record<ProviderType, ProviderTypeSetupConfig> = {
   doctor: {
     ...DURATION_FIELD,
-    catalogLabel: "ייעוצים",
-    catalogItemLabel: "ייעוץ",
+    catalogLabel: "שירותים",
+    catalogItemLabel: "שירות",
     useSkillTreeCatalog: true,
-    showExamsCatalog: true,
+    showExamsCatalog: false,
     showAgreements: true,
     locationTypes: ["clinic", "home_visit"],
     locationLabelSingular: "מרפאה",
@@ -86,7 +86,7 @@ export const PROVIDER_SETUP_CONFIG: Record<ProviderType, ProviderTypeSetupConfig
     catalogLabel: "שירותים",
     catalogItemLabel: "שירות",
     useSkillTreeCatalog: true,
-    showExamsCatalog: true,
+    showExamsCatalog: false,
     showAgreements: true,
     locationTypes: ["clinic"],
     locationLabelSingular: "מרפאה",
@@ -98,7 +98,7 @@ export const PROVIDER_SETUP_CONFIG: Record<ProviderType, ProviderTypeSetupConfig
     catalogLabel: "שירותים",
     catalogItemLabel: "שירות",
     useSkillTreeCatalog: true,
-    showExamsCatalog: true,
+    showExamsCatalog: false,
     showAgreements: true,
     locationTypes: ["clinic"],
     locationLabelSingular: "סניף",
@@ -110,7 +110,7 @@ export const PROVIDER_SETUP_CONFIG: Record<ProviderType, ProviderTypeSetupConfig
     catalogLabel: "מחלקות ושירותים",
     catalogItemLabel: "שירות",
     useSkillTreeCatalog: true,
-    showExamsCatalog: true,
+    showExamsCatalog: false,
     showAgreements: true,
     locationTypes: ["clinic"],
     locationLabelSingular: "מתחם",
@@ -195,4 +195,62 @@ export function isSetupReadyToPublish(provider: ProviderProfile): boolean {
   if (config.locationTypes.length > 0 && !isLocationsComplete(provider)) return false;
   if (config.showAvailability && !isAvailabilityComplete(provider)) return false;
   return true;
+}
+
+// Tab key of the first unfinished onboarding step, in the same order as the
+// checklist shown on /provider/onboarding — used to auto-select that tab.
+// Kept provider-null-safe so callers can run it unconditionally (e.g. in a
+// hook that must fire on every render, before any early return).
+export function getFirstIncompleteStepKey(provider: ProviderProfile): string | undefined {
+  const config = getProviderSetupConfig(provider.provider_type);
+  const steps: { done: boolean; key: string }[] = [
+    { done: !!provider.agreement_signed_at, key: "sign" },
+    ...(config.showAgreements ? [{ done: provider.agreements.length > 0, key: "agreements" }] : []),
+    { done: isCatalogComplete(provider), key: "catalog" },
+    ...(config.locationTypes.length > 0 ? [{ done: isLocationsComplete(provider), key: "locations" }] : []),
+    ...(config.showAvailability ? [{ done: isAvailabilityComplete(provider), key: "availability" }] : []),
+  ];
+  return steps.find((s) => !s.done)?.key;
+}
+
+// Single source of truth for "what's the one thing to do next" — shown as a
+// banner on both /provider/onboarding and the dashboard's overview tab, so a
+// provider always sees the same prioritized message regardless of which page
+// they're on. Returns null once there's nothing outstanding.
+export function getNextProviderAction(provider: ProviderProfile): string | null {
+  const config = getProviderSetupConfig(provider.provider_type);
+
+  if (provider.status === "pending_review") {
+    return provider.application_submitted_at
+      ? "הבקשה שלך ממתינה לבדיקת רישיון על ידי צוות Healson — נעדכן אותך במייל בסיום הבדיקה."
+      : "השלימו את פרטי הבקשה ושלחו אותה לבדיקת Healson.";
+  }
+
+  if (provider.status === "onboarding") {
+    if (!provider.agreement_signed_at) return "יש לחתום על ההסכם עם Healson כדי להמשיך.";
+    if (config.showAgreements && (provider.agreements?.length ?? 0) === 0) {
+      return "הגדירו הסדרי ביטוח (S/K/B/H) לפני שתוכלו לפרסם שירותים.";
+    }
+    if (!isCatalogComplete(provider)) {
+      return `נשאר לך להוסיף ${config.catalogItemLabel} ראשון כדי להתחיל לקבל הזמנות.`;
+    }
+    if (config.locationTypes.length > 0 && !isLocationsComplete(provider)) {
+      return `נשאר לך להוסיף ${config.locationLabelSingular} ראשון/ה כדי להתחיל לקבל הזמנות.`;
+    }
+    if (config.showAvailability && !isAvailabilityComplete(provider)) {
+      return `חסרה זמינות פעילה עבור אחד ה${config.locationLabelPlural} שלך.`;
+    }
+    if (provider.go_live_requested_at) {
+      return "ביקשת פרסום — ממתינים לאישור Go-Live סופי של צוות Healson.";
+    }
+    return 'החשבון שלך מוכן להפעלה — לחצו על "פרסם" כדי לשלוח לאישור סופי.';
+  }
+
+  if (provider.status === "approved" && !provider.is_published) {
+    return isSetupReadyToPublish(provider)
+      ? 'הפרופיל מוכן — לחצו על "פרסם" כדי להתחיל לקבל הזמנות.'
+      : "השלימו קטלוג, מיקומים וזמינות כדי לפרסם את הפרופיל.";
+  }
+
+  return null;
 }
