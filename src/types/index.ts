@@ -612,6 +612,38 @@ export interface LabReferral {
   result_files?: UploadedFile[];
 }
 
+// Patient-facing "documents" tab. Lab results (LabReferral, above) are shown
+// in the same tab but keep living in their own array — the documents page
+// adapts them into this shape for display instead of duplicating the data.
+export type DocumentCategory =
+  | "referral_personal"
+  | "receipt"
+  | "visit_summary"
+  | "questionnaire"
+  | "lab_result";
+
+export const DOCUMENT_CATEGORIES: { id: DocumentCategory; label: string }[] = [
+  { id: "referral_personal", label: "הפניות וטפסים אישיים" },
+  { id: "receipt", label: "קבלות וחשבוניות" },
+  { id: "visit_summary", label: "סיכומי ביקור וטפסי רופא" },
+  { id: "questionnaire", label: "שאלונים" },
+  { id: "lab_result", label: "תוצאות מעבדה" },
+];
+
+export type DocumentStatus = "ממתין למילוי" | "זמין";
+
+export interface PatientDocument {
+  id: string;
+  patient_id: string;
+  category: DocumentCategory;
+  title: string;
+  uploaded_by: "patient" | "provider" | "system";
+  appointment_id?: string;
+  status?: DocumentStatus;
+  created_date: string;
+  file?: UploadedFile;
+}
+
 export interface Branch {
   id: string;
   name: string;

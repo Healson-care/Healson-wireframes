@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { ClientLayout } from "@/components/layouts/ClientLayout";
 import { useStore } from "@/lib/store";
@@ -11,6 +12,7 @@ import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog, Dialog } from "@/components/ui/Dialog";
 import { Input } from "@/components/ui/Input";
+import { Popover } from "@/components/ui/Popover";
 import { AppointmentReminderPlan } from "@/components/patient/AppointmentReminderPlan";
 import {
   ArrowLeft,
@@ -19,6 +21,7 @@ import {
   ChevronDown,
   Clock,
   CreditCard,
+  FileText,
   Info,
   MapPin,
   Phone,
@@ -35,6 +38,7 @@ import {
   APPOINTMENT_STATUSES,
   Appointment,
   AppointmentStatus,
+  DOCUMENT_CATEGORIES,
   WaitlistEntry,
   WaitlistStatus,
 } from "@/types";
@@ -261,10 +265,15 @@ function FilterChip({
   );
 }
 
-export default function ClientAppointmentsPage() {
+function ClientAppointmentsPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const highlightId = searchParams.get("appointment");
+
   const appointments = useStore((s) => s.appointments);
   const waitlist = useStore((s) => s.waitlist);
   const providers = useStore((s) => s.providers);
+  const documents = useStore((s) => s.documents);
   const updateAppointment = useStore((s) => s.updateAppointment);
   const showToast = useStore((s) => s.showToast);
   const currentUser = useStore((s) => s.currentUser);
@@ -278,10 +287,19 @@ export default function ClientAppointmentsPage() {
   const [dateTo, setDateTo] = useState("");
   const [dateDialogOpen, setDateDialogOpen] = useState(false);
 
-  const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
+  // Arrived here via a "קשור לתור" link on a document — pre-expand that
+  // appointment's details on mount.
+  const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>(() =>
+    highlightId ? { [highlightId]: true } : {}
+  );
   function toggleExpanded(id: string) {
     setExpandedIds((prev) => ({ ...prev, [id]: !prev[id] }));
   }
+
+  useEffect(() => {
+    if (!highlightId) return;
+    document.getElementById(`appt-${highlightId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [highlightId]);
 
   const isMine = (entry: { created_by_id?: string }) =>
     entry.created_by_id === patient?.id || entry.created_by_id === currentUser?.id;
@@ -407,9 +425,10 @@ export default function ClientAppointmentsPage() {
           {filteredItems.map((item, i) => {
             const isExpanded = !!expandedIds[item.data.id];
             const provider = providers.find((p) => p.id === item.data.provider_id);
+            const linkedDocs = item.kind === "appointment" ? documents.filter((d) => d.appointment_id === item.data.id) : [];
             return (
             <motion.div key={`${item.kind}-${item.data.id}`} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18, delay: i * 0.03 }}>
-              <Card className="p-4">
+              <Card id={`appt-${item.data.id}`} className={cn("p-4", highlightId === item.data.id && "ring-2 ring-primary")}>
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
@@ -422,6 +441,41 @@ export default function ClientAppointmentsPage() {
                     <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
                       <MapPin className="h-3 w-3" /> {item.data.provider_name}
                     </p>
+                    {linkedDocs.length > 0 && (
+                      <Popover
+                        trigger={
+                          <span className="flex items-center gap-1 text-xs text-primary hover:underline mt-1">
+                            <FileText className="h-3 w-3" /> מסמכים מקושרים ({linkedDocs.length})
+                          </span>
+                        }
+                      >
+                        {(close) => (
+                          <div className="flex flex-col gap-2 text-sm">
+                            <p className="font-semibold text-slate-900">מסמכים לתור זה</p>
+                            <div className="flex flex-col gap-1.5">
+                              {linkedDocs.map((d) => (
+                                <div key={d.id} className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5">
+                                  <span className="text-xs font-medium text-slate-700 truncate">{d.title}</span>
+                                  <span className="shrink-0 text-[10px] text-slate-400">
+                                    {DOCUMENT_CATEGORIES.find((c) => c.id === d.category)?.label}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                            <Button
+                              size="sm"
+                              className="mt-1 w-full"
+                              onClick={() => {
+                                close();
+                                router.push(`/client/documents?appointment=${item.data.id}`);
+                              }}
+                            >
+                              לצפייה מלאה במסמכים
+                            </Button>
+                          </div>
+                        )}
+                      </Popover>
+                    )}
                   </div>
                   {item.kind === "appointment" ? (
                     item.data.status === "ממתין לתשלום מקדמה" ? (
@@ -609,5 +663,13 @@ export default function ClientAppointmentsPage() {
         }}
       />
     </ClientLayout>
+  );
+}
+
+export default function ClientAppointmentsPage() {
+  return (
+    <Suspense fallback={<ClientLayout>{null}</ClientLayout>}>
+      <ClientAppointmentsPageContent />
+    </Suspense>
   );
 }

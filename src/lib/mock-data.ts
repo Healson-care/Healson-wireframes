@@ -4,6 +4,7 @@ import {
   CatalogItem,
   ConsentRecord,
   CONSENT_DOCUMENT_VERSION,
+  DocumentCategory,
   DsrRequest,
   Kupah,
   K_LEVELS_BY_KUPAH,
@@ -11,6 +12,7 @@ import {
   LabReferral,
   Order,
   Patient,
+  PatientDocument,
   ProviderProfile,
   User,
 } from "@/types";
@@ -768,6 +770,100 @@ export const SEED_LAB_REFERRALS: LabReferral[] = Array.from({ length: 10 }).map(
     };
   }
 );
+
+// ---------------------------------------------------------------------------
+// Documents — the patient-facing "מסמכים" tab.
+// ---------------------------------------------------------------------------
+const demoPatient = SEED_PATIENTS[0];
+const demoDocAppointments = SEED_APPOINTMENTS.filter((a) => a.created_by_id === demoPatient.id);
+
+export const SEED_DOCUMENTS: PatientDocument[] = [
+  {
+    id: generateId("doc"),
+    patient_id: demoPatient.id,
+    category: "referral_personal",
+    title: "הפניה לבדיקת MRI לברך",
+    uploaded_by: "patient",
+    appointment_id: demoDocAppointments[0]?.id,
+    created_date: isoDateDaysFromNow(-6),
+    file: { file_name: "הפניה_MRI.pdf", uploaded_at: isoDateDaysFromNow(-6), data_url: "data:application/pdf;base64," },
+  },
+  {
+    id: generateId("doc"),
+    patient_id: demoPatient.id,
+    category: "referral_personal",
+    title: "צילום תעודת זהות",
+    uploaded_by: "patient",
+    created_date: isoDateDaysFromNow(-30),
+    file: { file_name: "תז.jpg", uploaded_at: isoDateDaysFromNow(-30), data_url: "data:image/jpeg;base64," },
+  },
+  {
+    id: generateId("doc"),
+    patient_id: demoPatient.id,
+    category: "receipt",
+    title: "חשבונית - ייעוץ אורתופדי",
+    uploaded_by: "system",
+    appointment_id: demoDocAppointments[1]?.id,
+    created_date: isoDateDaysFromNow(-14),
+    file: { file_name: "חשבונית_1042.pdf", uploaded_at: isoDateDaysFromNow(-14), data_url: "data:application/pdf;base64," },
+  },
+  {
+    id: generateId("doc"),
+    patient_id: demoPatient.id,
+    category: "receipt",
+    title: "קבלה - מקדמה על תור",
+    uploaded_by: "system",
+    created_date: isoDateDaysFromNow(-3),
+    file: { file_name: "קבלה_2231.pdf", uploaded_at: isoDateDaysFromNow(-3), data_url: "data:application/pdf;base64," },
+  },
+  {
+    id: generateId("doc"),
+    patient_id: demoPatient.id,
+    category: "visit_summary",
+    title: "סיכום ביקור - ייעוץ קרדיולוגי",
+    uploaded_by: "provider",
+    appointment_id: demoDocAppointments[1]?.id,
+    created_date: isoDateDaysFromNow(-10),
+    file: { file_name: "סיכום_ביקור.pdf", uploaded_at: isoDateDaysFromNow(-10), data_url: "data:application/pdf;base64," },
+  },
+  {
+    id: generateId("doc"),
+    patient_id: demoPatient.id,
+    category: "questionnaire",
+    title: "שאלון בריאות לפני בדיקת מאמץ",
+    uploaded_by: "system",
+    appointment_id: demoDocAppointments[0]?.id,
+    status: "ממתין למילוי",
+    created_date: isoDateDaysFromNow(-1),
+  },
+  {
+    id: generateId("doc"),
+    patient_id: demoPatient.id,
+    category: "questionnaire",
+    title: "שאלון טרום הרדמה",
+    uploaded_by: "system",
+    status: "זמין",
+    created_date: isoDateDaysFromNow(-20),
+    file: { file_name: "שאלון_הרדמה.pdf", uploaded_at: isoDateDaysFromNow(-19), data_url: "data:application/pdf;base64," },
+  },
+  // Spread a few documents across other patients too, so the tab isn't
+  // demo-patient-only.
+  ...SEED_PATIENTS.slice(1, 4).map((patient, i) => {
+    const category = (["referral_personal", "receipt", "visit_summary"] as DocumentCategory[])[i];
+    const title = ["הפניה לבדיקת דם", "חשבונית - בדיקת מאמץ", "סיכום ביקור - ייעוץ אורתופדי"][i];
+    const uploadedBy = (["patient", "system", "provider"] as PatientDocument["uploaded_by"][])[i];
+    const createdDate = isoDateDaysFromNow(-(i + 1) * 8);
+    return {
+      id: generateId("doc"),
+      patient_id: patient.id,
+      category,
+      title,
+      uploaded_by: uploadedBy,
+      created_date: createdDate,
+      file: { file_name: `מסמך_${i + 1}.pdf`, uploaded_at: createdDate, data_url: "data:application/pdf;base64," },
+    };
+  }),
+];
 
 // ---------------------------------------------------------------------------
 // Branches

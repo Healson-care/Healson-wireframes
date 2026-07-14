@@ -16,6 +16,7 @@ import {
   LabReferral,
   Order,
   Patient,
+  PatientDocument,
   ProviderProfile,
   ProviderType,
   Role,
@@ -33,6 +34,7 @@ import {
   SEED_BRANCHES,
   SEED_CATALOG,
   SEED_CONSENT_RECORDS,
+  SEED_DOCUMENTS,
   SEED_DSR_REQUESTS,
   SEED_LAB_REFERRALS,
   SEED_LEADS,
@@ -166,6 +168,7 @@ interface EntitiesState {
   appointments: Appointment[];
   orders: Order[];
   labReferrals: LabReferral[];
+  documents: PatientDocument[];
   waitlist: WaitlistEntry[];
   branches: typeof SEED_BRANCHES;
   consentRecords: ConsentRecord[];
@@ -212,6 +215,9 @@ interface EntitiesState {
 
   addLabReferral: (r: Omit<LabReferral, "id" | "created_date">) => LabReferral;
   updateLabReferral: (id: string, data: Partial<LabReferral>) => void;
+
+  addDocument: (d: Omit<PatientDocument, "id" | "created_date">) => PatientDocument;
+  updateDocument: (id: string, data: Partial<PatientDocument>) => void;
 
   addWaitlistEntry: (w: Omit<WaitlistEntry, "id" | "created_date" | "status">) => WaitlistEntry;
 
@@ -631,6 +637,7 @@ export const useStore = create<Store>()(
       appointments: SEED_APPOINTMENTS,
       orders: SEED_ORDERS,
       labReferrals: SEED_LAB_REFERRALS,
+      documents: SEED_DOCUMENTS,
       waitlist: [],
       branches: SEED_BRANCHES,
       consentRecords: SEED_CONSENT_RECORDS,
@@ -824,6 +831,16 @@ export const useStore = create<Store>()(
           labReferrals: s.labReferrals.map((r) => (r.id === id ? { ...r, ...data } : r)),
         })),
 
+      addDocument: (d) => {
+        const record: PatientDocument = { ...d, id: generateId("doc"), created_date: new Date().toISOString() };
+        set((s) => ({ documents: [record, ...s.documents] }));
+        return record;
+      },
+      updateDocument: (id, data) =>
+        set((s) => ({
+          documents: s.documents.map((d) => (d.id === id ? { ...d, ...data } : d)),
+        })),
+
       addWaitlistEntry: (w) => {
         const record: WaitlistEntry = { ...w, id: generateId("wait"), status: "ממתין", created_date: new Date().toISOString() };
         set((s) => ({ waitlist: [record, ...s.waitlist] }));
@@ -934,7 +951,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 9,
+      version: 10,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
       // records), the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER seed
       // account, the v3 -> v4 AppointmentStatus rename ("ממתין לאישור" ->
@@ -947,14 +964,15 @@ export const useStore = create<Store>()(
       // trimmed, so persisted kupah_arrangements referencing the old literal
       // strings would silently stop matching), the v7 -> v8 addition of two
       // published demo providers (§7.1 pricing-policy examples) plus the demo
-      // patient's insurance profile switching to מכבי / מכבי שלי / מגדל, and
-      // the v8 -> v9 addition of Appointment.price/deposit_amount/
+      // patient's insurance profile switching to מכבי / מכבי שלי / מגדל, the
+      // v8 -> v9 addition of Appointment.price/deposit_amount/
       // deposit_paid_at (cancellation-refund policy) plus renamed seed clinic
-      // names are not backwards compatible with anything persisted under an
-      // earlier version — discard old state on a version bump so the app
-      // reseeds clean instead of silently keeping stale seed/demo/status/
-      // catalog data.
-      migrate: (persistedState, version) => (version < 9 ? ({} as Store) : (persistedState as Store)),
+      // names, and the v9 -> v10 addition of the documents tab (SEED_DOCUMENTS
+      // referencing freshly-generated patient/appointment ids) are not
+      // backwards compatible with anything persisted under an earlier
+      // version — discard old state on a version bump so the app reseeds
+      // clean instead of silently keeping stale seed/demo/status/catalog data.
+      migrate: (persistedState, version) => (version < 10 ? ({} as Store) : (persistedState as Store)),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);
       },
