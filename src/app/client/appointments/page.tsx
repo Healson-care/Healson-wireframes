@@ -169,6 +169,11 @@ function PayDepositDialog({
 }) {
   const [payMethod, setPayMethod] = useState<"card" | "apple" | "google">("card");
   const [paying, setPaying] = useState(false);
+  const [saveCard, setSaveCard] = useState(false);
+
+  const price = appointment?.price ?? 0;
+  const depositAmount = appointment?.deposit_amount ?? Math.round(price * 0.3);
+  const balanceAmount = price - depositAmount;
 
   return (
     <Dialog
@@ -181,6 +186,19 @@ function PayDepositDialog({
           : undefined
       }
     >
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 mb-4">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-semibold text-slate-700">מקדמה לתשלום</span>
+          <span className="text-lg font-bold text-primary">{formatCurrency(depositAmount)}</span>
+        </div>
+        <p className="text-[11px] text-slate-400 mt-1">
+          לשריון התור נדרש תשלום מקדמה עכשיו. היתרה תיגבה במועד התור.
+        </p>
+        <div className="flex items-center justify-between mt-2">
+          <span className="text-[11px] text-slate-400">יתרה לתשלום בתור</span>
+          <span className="text-[11px] text-slate-400">{formatCurrency(balanceAmount)}</span>
+        </div>
+      </div>
       <div className="grid grid-cols-3 gap-2 mb-4">
         <button
           onClick={() => setPayMethod("card")}
@@ -208,6 +226,15 @@ function PayDepositDialog({
           </div>
           <Input placeholder="MM/YY" dir="ltr" defaultValue="08/28" />
           <Input placeholder="CVV" dir="ltr" defaultValue="•••" />
+          <label className="col-span-2 flex items-center gap-2 text-xs text-slate-500 mt-1 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={saveCard}
+              onChange={(e) => setSaveCard(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
+            />
+            שמור את פרטי הכרטיס לתשלומים הבאים (הדגמה)
+          </label>
         </div>
       )}
       <p className="flex items-center gap-1.5 text-[11px] text-slate-400 mb-4">
@@ -226,7 +253,7 @@ function PayDepositDialog({
           }, 1200);
         }}
       >
-        שלם מקדמה ואשר תור
+        שלם {formatCurrency(depositAmount)} ואשר תור
       </Button>
     </Dialog>
   );
