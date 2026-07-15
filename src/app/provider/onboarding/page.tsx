@@ -318,7 +318,7 @@ export default function ProviderOnboardingPage() {
           </Card>
         ) : (
           <div className="mb-5">
-            <OnboardingChecklist items={checklistItems} />
+            <OnboardingChecklist items={checklistItems} ring />
           </div>
         )}
 

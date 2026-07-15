@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Mail, Lock, Phone, User as UserIcon, CheckCircle2, Clock, ShieldCheck, FileText } from "lucide-react";
+import { Mail, Lock, Phone, User as UserIcon, CheckCircle2, Clock, ShieldCheck, FileText, X } from "lucide-react";
 import { Logo } from "@/components/shared/Logo";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
@@ -41,11 +41,17 @@ export default function ProviderApplyPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-primary/5 via-slate-50 to-amber-50 p-4">
+    <div className="relative flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-primary/5 via-slate-50 to-amber-50 p-4">
+      <Link
+        href="/"
+        className="absolute top-4 left-4 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-slate-400 hover:bg-white/60 hover:text-slate-600"
+      >
+        <X className="h-4 w-4" /> <span className="hidden sm:inline">חזרה לדף הבית</span>
+      </Link>
       <div className="mb-6">
         <Logo size={40} className="text-xl" />
       </div>
-      
+
       <div className="grid md:grid-cols-2 gap-6 w-full max-w-4xl">
         {/* Form Section */}
         <div className="w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-lg sm:p-8">

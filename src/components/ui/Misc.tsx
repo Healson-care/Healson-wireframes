@@ -2,6 +2,8 @@ import { ReactNode } from "react";
 import { Loader2, Inbox, TrendingUp, TrendingDown, HelpCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { initials } from "@/lib/utils";
+import { ChartPoint } from "@/components/charts/SimpleCharts";
+import { Sparkline } from "@/components/charts/Sparkline";
 
 /** Flags a spot in the UI where a business decision hasn't been made yet
  * (e.g. pricing governance) so it stays visible to whoever is reviewing the
@@ -91,6 +93,21 @@ export function Avatar({ name, src, className }: { name: string; src?: string; c
   );
 }
 
+const SPARKLINE_COLOR: Record<string, string> = {
+  blue: "#2563eb",
+  info: "#2563eb",
+  amber: "#d97706",
+  warning: "#d97706",
+  green: "#059669",
+  success: "#059669",
+  purple: "#9333ea",
+  indigo: "#4f46e5",
+  rose: "#dc2626",
+  danger: "#dc2626",
+  slate: "#475569",
+  neutral: "#475569",
+};
+
 export function StatCard({
   label,
   value,
@@ -98,6 +115,7 @@ export function StatCard({
   icon,
   tone = "slate",
   trend,
+  sparklineData,
 }: {
   label: string;
   value: ReactNode;
@@ -106,6 +124,8 @@ export function StatCard({
   tone?: "blue" | "amber" | "green" | "purple" | "indigo" | "rose" | "slate" | "success" | "warning" | "danger" | "info" | "neutral";
   /** Percentage change vs. the previous period, e.g. +12 or -8. */
   trend?: number;
+  /** Optional monthly trend points (same shape buildMonthlyData returns) rendered as a mini trend line. */
+  sparklineData?: ChartPoint[];
 }) {
   // Single source of truth: legacy raw-color names alias to the semantic tokens.
   const toneClasses: Record<string, string> = {
@@ -128,22 +148,29 @@ export function StatCard({
         <span className="text-sm font-medium text-slate-600">{label}</span>
         {icon && <span>{icon}</span>}
       </div>
-      <div className="mt-2 flex items-baseline gap-2">
-        <p className="text-2xl font-bold text-slate-900">{value}</p>
-        {trend !== undefined && (
-          <span
-            className={cn(
-              "flex items-center gap-0.5 text-xs font-semibold",
-              trend >= 0 ? "text-success" : "text-danger"
+      <div className="mt-2 flex items-end justify-between gap-2">
+        <div>
+          <div className="flex items-baseline gap-2">
+            <p className="text-2xl font-bold text-slate-900">{value}</p>
+            {trend !== undefined && (
+              <span
+                className={cn(
+                  "flex items-center gap-0.5 text-xs font-semibold",
+                  trend >= 0 ? "text-success" : "text-danger"
+                )}
+              >
+                {trend >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                {trend >= 0 ? "+" : ""}
+                {trend}%
+              </span>
             )}
-          >
-            {trend >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-            {trend >= 0 ? "+" : ""}
-            {trend}%
-          </span>
+          </div>
+          {subtitle && <p className="mt-1 text-xs text-slate-500">{subtitle}</p>}
+        </div>
+        {sparklineData && sparklineData.length > 1 && (
+          <Sparkline data={sparklineData} color={SPARKLINE_COLOR[tone] ?? "#0d7d6f"} />
         )}
       </div>
-      {subtitle && <p className="mt-1 text-xs text-slate-500">{subtitle}</p>}
     </div>
   );
 }
