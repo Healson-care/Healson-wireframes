@@ -68,16 +68,13 @@ export default function LandingPage() {
   const showToast = useStore((s) => s.showToast);
 
   function enterAs(role: Role) {
-    loginAsDemo(role);
-    if (role === "patient" && useStore.getState().pendingLoginVerification) {
-      // Existing patient: loginAsDemo queued the double SMS+email OTP
-      // step-up instead of signing in directly. Send them to /login, which
-      // picks up the pending verification and resumes the OTP screens —
-      // otherwise they'd be bounced from /client back to a blank login form
-      // with no explanation.
-      router.push("/login");
+    if (role === "patient") {
+      // Patient is the one real (non-demo) account type here — send them to
+      // the actual register/login flow instead of an instant demo sign-in.
+      router.push("/client/login");
       return;
     }
+    loginAsDemo(role);
     setTimeout(() => router.push(homeForRole(role)), 50);
   }
 
@@ -93,9 +90,9 @@ export default function LandingPage() {
             <a href="#hospitals" className="hover:text-primary transition-colors">בתי חולים</a>
           </nav>
           <div className="flex items-center gap-2">
-            <Link href={currentUser ? homeForRole(currentUser.role) : "/login"}>
+            <Link href={currentUser ? homeForRole(currentUser.role) : "#entry"}>
               <Button variant={currentUser ? "primary" : "ghost"} size="sm">
-                אזור אישי
+                {currentUser ? "אזור אישי" : "הרשמה והתחברות"}
               </Button>
             </Link>
             {!currentUser && (
@@ -225,7 +222,7 @@ export default function LandingPage() {
         <section id="entry" className="mx-auto max-w-6xl px-4 py-14">
           <div className="text-center mb-8">
             <h2 className="text-2xl sm:text-3xl font-bold text-slate-900">כבר יש לכם תיק ב-HEALSON?</h2>
-            <p className="text-slate-500 mt-2">בחרו את סוג החשבון שלכם לכניסה לאזור האישי — מצב הדגמה, כניסה מיידית</p>
+            <p className="text-slate-500 mt-2">מטופלים עוברים להרשמה או התחברות מלאה. ספקים ומנהלים (צוות פנימי בלבד) נכנסים ישירות במצב הדגמה.</p>
           </div>
           <motion.div
             className="grid sm:grid-cols-3 gap-5"

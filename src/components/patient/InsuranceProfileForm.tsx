@@ -26,9 +26,11 @@ export const EMPTY_INSURANCE_PROFILE: InsuranceProfileValue = {
 export function InsuranceProfileForm({
   value,
   onChange,
+  showAddress = true,
 }: {
   value: InsuranceProfileValue;
   onChange: (value: InsuranceProfileValue) => void;
+  showAddress?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -86,13 +88,17 @@ export function InsuranceProfileForm({
         </div>
       )}
 
-      <Input
-        label="כתובת (אופציונלי)"
-        placeholder="רחוב, מספר, עיר"
-        value={value.address}
-        onChange={(e) => onChange({ ...value, address: e.target.value })}
-      />
-      <p className="text-xs text-slate-400 -mt-2">לצורך שליחת תוצאות בדיקות ומול חברות הביטוח</p>
+      {showAddress && (
+        <>
+          <Input
+            label="כתובת (אופציונלי)"
+            placeholder="רחוב, מספר, עיר"
+            value={value.address}
+            onChange={(e) => onChange({ ...value, address: e.target.value })}
+          />
+          <p className="text-xs text-slate-400 -mt-2">לצורך שליחת תוצאות בדיקות ומול חברות הביטוח</p>
+        </>
+      )}
     </div>
   );
 }
