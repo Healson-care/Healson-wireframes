@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/Card";
+import { ProgressRing } from "@/components/ui/Progress";
 import { cn } from "@/lib/utils";
 import { CheckCircle2, Circle, Rocket, Sparkles } from "lucide-react";
 
@@ -15,13 +16,13 @@ export interface OnboardingChecklistItem {
  * left" summary, with a real percent-complete bar instead of a plain
  * checklist, so the provider always knows exactly how far they are from
  * accepting their first booking. */
-export function OnboardingChecklist({ items }: { items: OnboardingChecklistItem[] }) {
+export function OnboardingChecklist({ items, ring = false }: { items: OnboardingChecklistItem[]; ring?: boolean }) {
   const doneCount = items.filter((i) => i.done).length;
   const percent = items.length > 0 ? Math.round((doneCount / items.length) * 100) : 0;
   const isActive = doneCount === items.length && items.length > 0;
 
   return (
-    <Card className={cn("overflow-hidden", isActive ? "border-success-border" : "border-warning-border")}> 
+    <Card className={cn("overflow-hidden", isActive ? "border-success-border" : "border-warning-border")}>
       <CardContent className="flex flex-col gap-6 pt-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
@@ -39,16 +40,26 @@ export function OnboardingChecklist({ items }: { items: OnboardingChecklistItem[
               </p>
               <p className="text-sm text-slate-500 max-w-2xl">
                 {isActive
-                  ? "הפרופיל שלך עבר את כל השלבים והוא מוכן לקבל הזמנות — נותר רק לפרסם." 
+                  ? "הפרופיל שלך עבר את כל השלבים והוא מוכן לקבל הזמנות — נותר רק לפרסם."
                   : `השלמת ${doneCount} מתוך ${items.length} שלבים. כל שלב קרב אותך לקבלת הזמנות.`}
               </p>
             </div>
           </div>
 
-          <div className="rounded-3xl bg-slate-100 px-4 py-3 text-center">
-            <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">התקדמות אונבורדינג</div>
-            <div className="mt-2 text-3xl font-bold text-slate-900 tabular-nums">{percent}%</div>
-            <div className="text-xs text-slate-500">{doneCount} מתוך {items.length} שלבים הושלמו</div>
+          <div className="flex items-center gap-4">
+            {ring && (
+              <ProgressRing
+                percent={percent}
+                size={72}
+                tone={isActive ? "success" : "primary"}
+                textClassName="text-slate-900"
+              />
+            )}
+            <div className="rounded-3xl bg-slate-100 px-4 py-3 text-center">
+              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">התקדמות אונבורדינג</div>
+              <div className="mt-2 text-3xl font-bold text-slate-900 tabular-nums">{percent}%</div>
+              <div className="text-xs text-slate-500">{doneCount} מתוך {items.length} שלבים הושלמו</div>
+            </div>
           </div>
         </div>
 

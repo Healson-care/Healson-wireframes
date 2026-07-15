@@ -1,18 +1,24 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useStore } from "@/lib/store";
 import { PageHeader, StatCard } from "@/components/ui/Misc";
+import { StatusBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input, Select } from "@/components/ui/Input";
+import { Dialog } from "@/components/ui/Dialog";
 import { DataTable, DataTableColumn } from "@/components/ui/DataTable";
 import { OrderForm, OrderFormValues } from "@/components/admin/OrderForm";
 import { formatCurrency, formatDateHe } from "@/lib/utils";
 import { Order, ORDER_STATUSES, OrderStatus } from "@/types";
 import { Plus, Search, ShoppingCart } from "lucide-react";
 
-export default function OrdersPage() {
+function OrdersPageContent() {
+  const searchParams = useSearchParams();
+  const initialStatus = searchParams.get("status") ?? "all";
+
   const orders = useStore((s) => s.orders);
   const updateOrder = useStore((s) => s.updateOrder);
   const addOrder = useStore((s) => s.addOrder);
@@ -26,8 +32,10 @@ export default function OrdersPage() {
   const showToast = useStore((s) => s.showToast);
 
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("all");
+  const [status, setStatus] = useState(initialStatus);
   const [orderFormOpen, setOrderFormOpen] = useState(false);
+  const [detailOrder, setDetailOrder] = useState<Order | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   function handleOrderSubmit(values: OrderFormValues) {
     let patientId: string | undefined;
@@ -132,6 +140,22 @@ export default function OrdersPage() {
         emptyIcon={<ShoppingCart className="h-10 w-10" />}
         emptyTitle="לא נמצאו הזמנות"
         emptyDescription="נסה לשנות את החיפוש או הסינון"
+        onRowClick={(o) => setDetailOrder(o)}
+        selectable
+        selectedIds={selectedIds}
+        onSelectedIdsChange={setSelectedIds}
+        bulkActions={(ids, clear) => (
+          <Button
+            size="sm"
+            onClick={() => {
+              ids.forEach((id) => updateOrder(id, { status: "מאושר" }));
+              showToast("ההזמנות הנבחרות סומנו כמאושרות", { variant: "success" });
+              clear();
+            }}
+          >
+            סמן כמאושר
+          </Button>
+        )}
         columns={
           [
             {
@@ -164,11 +188,18 @@ export default function OrdersPage() {
               render: (o) => <span className="text-slate-500">{formatDateHe(o.created_date)}</span>,
             },
             {
+              key: "payment",
+              header: "תשלום",
+              render: (o) =>
+                o.payment_status ? <StatusBadge status={o.payment_status} kind="payment" /> : <span className="text-slate-300">—</span>,
+            },
+            {
               key: "status",
               header: "סטטוס",
               render: (o) => (
                 <Select
                   value={o.status}
+                  onClick={(e) => e.stopPropagation()}
                   onChange={(e) => updateOrder(o.id, { status: e.target.value as OrderStatus })}
                   className="h-8 text-xs w-28"
                 >
@@ -193,6 +224,80 @@ export default function OrdersPage() {
         providers={providers}
         catalog={catalog}
       />
+
+      <Dialog open={!!detailOrder} onClose={() => setDetailOrder(null)} title="פרטי הזמנה">
+        {detailOrder && (
+          <div className="flex flex-col gap-3 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500">מטופל</span>
+              <span className="font-medium text-slate-800">{detailOrder.patient_name}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500">ספק</span>
+              <span className="font-medium text-slate-800">{detailOrder.provider_name}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500">שירות</span>
+              <span className="font-medium text-slate-800">{detailOrder.item_name}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500">סטטוס</span>
+              <StatusBadge status={detailOrder.status} kind="order" />
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500">סטטוס תשלום</span>
+              {detailOrder.payment_status ? (
+                <StatusBadge status={detailOrder.payment_status} kind="payment" />
+              ) : (
+                <span className="text-slate-400">—</span>
+              )}
+            </div>
+            <hr className="border-slate-100" />
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500">מחיר סופי</span>
+              <span className="font-semibold text-slate-900">{formatCurrency(detailOrder.final_price)}</span>
+            </div>
+            {detailOrder.deposit_amount !== undefined && (
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">מקדמה</span>
+                <span className="text-slate-700">{formatCurrency(detailOrder.deposit_amount)}</span>
+              </div>
+            )}
+            {detailOrder.balance_amount !== undefined && (
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">יתרה לתשלום</span>
+                <span className="text-slate-700">{formatCurrency(detailOrder.balance_amount)}</span>
+              </div>
+            )}
+            {detailOrder.commission_rate !== undefined && (
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">עמלת פלטפורמה</span>
+                <span className="text-slate-700">
+                  {detailOrder.commission_rate}% · {formatCurrency(detailOrder.commission_amount ?? 0)}
+                </span>
+              </div>
+            )}
+            {detailOrder.provider_payout_amount !== undefined && (
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">תשלום לספק</span>
+                <span className="font-medium text-slate-800">{formatCurrency(detailOrder.provider_payout_amount)}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500">תאריך יצירה</span>
+              <span className="text-slate-700">{formatDateHe(detailOrder.created_date)}</span>
+            </div>
+          </div>
+        )}
+      </Dialog>
     </AppLayout>
+  );
+}
+
+export default function OrdersPage() {
+  return (
+    <Suspense fallback={<AppLayout>{null}</AppLayout>}>
+      <OrdersPageContent />
+    </Suspense>
   );
 }

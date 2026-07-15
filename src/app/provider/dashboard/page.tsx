@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Avatar, EmptyState, OpenDecisionNote, PageHeader, StatCard } from "@/components/ui/Misc";
 import { CardListSkeleton, Skeleton } from "@/components/ui/Skeleton";
+import { ProgressRing } from "@/components/ui/Progress";
 import { PriceListEntry, PriceListSection } from "@/components/provider/PriceListSection";
 import { ServiceCatalogSection } from "@/components/provider/ServiceCatalogSection";
 import { ClinicsSection } from "@/components/provider/ClinicsSection";
@@ -34,6 +35,8 @@ import {
   Star,
   FileBarChart,
   Clock,
+  Bell,
+  ChevronLeft,
 } from "lucide-react";
 import { formatCurrency, formatDateHe, monthOverMonthTrend, buildMonthlyData } from "@/lib/utils";
 import { PROVIDER_STATUS_LABELS } from "@/types";
@@ -96,6 +99,7 @@ export default function ProviderDashboardPage() {
   const revenueTrend = monthOverMonthTrend(completedOrders, (o) => o.created_date, (o) => o.final_price);
   const revenueMonthly = buildMonthlyData(completedOrders, (o) => o.created_date, 6, (o) => o.final_price);
   const appointmentsMonthly = buildMonthlyData(myAppointments, (a) => a.date, 6);
+  const patientsMonthly = buildMonthlyData(myPatients, (p) => p.created_date, 6);
 
   const setupConfig = getProviderSetupConfig(provider.provider_type);
   const catalogDone = isCatalogComplete(provider);
@@ -105,6 +109,53 @@ export default function ProviderDashboardPage() {
   const nextAction = getNextProviderAction(provider);
   const isLive = provider.status === "approved" && provider.is_published;
   const canTogglePublish = provider.status === "approved" && readyToPublish;
+
+  // Single source of truth for both the hero progress ring and the "השלמת הפרופיל"
+  // checklist in the overview tab below — same conditions/order as that list always had.
+  const profileChecklist: { ok: boolean; label: string }[] = [
+    { ok: !!provider.license_number, label: "מספר רישיון" },
+    { ok: !!provider.specialty, label: "תחום התמחות" },
+    ...(setupConfig.showAgreements
+      ? [{ ok: provider.agreements.length > 0, label: "הגדרת הסדרי ביטוח (S/K/B/H)" }]
+      : []),
+    { ok: catalogDone, label: `לפחות פריט אחד ב${setupConfig.catalogLabel}` },
+    ...(setupConfig.locationTypes.length > 0
+      ? [{ ok: locationsDone, label: `לפחות ${setupConfig.locationLabelSingular} אחד/ת` }]
+      : []),
+    ...(setupConfig.showAvailability ? [{ ok: availabilityDone, label: "זמינות שבועית הוגדרה" }] : []),
+    { ok: isVerified, label: "אושר על ידי צוות Healson" },
+    { ok: provider.is_published, label: "פרופיל פורסם" },
+  ];
+  const profileCompletePercent = Math.round(
+    (profileChecklist.filter((i) => i.ok).length / profileChecklist.length) * 100
+  );
+
+  // Real, derived-only task list — no new persisted state. Surfaces the same
+  // nextAction banner as the first task plus a couple of other actionable gaps.
+  const tasks: { id: string; tone: "danger" | "warning" | "info"; label: string; href?: string }[] = [];
+  if (nextAction) {
+    tasks.push({
+      id: "next-action",
+      tone: provider.status === "rejected" ? "danger" : "warning",
+      label: nextAction,
+      href: provider.status === "onboarding" ? "/provider/onboarding" : undefined,
+    });
+  }
+  if (upcomingAppointments.length > 0) {
+    tasks.push({
+      id: "appts",
+      tone: "info",
+      label: `${upcomingAppointments.length} תורים קרובים בימים הקרובים`,
+      href: "/provider/appointments",
+    });
+  }
+  if (setupConfig.showAvailability && !availabilityDone && provider.status === "approved") {
+    tasks.push({
+      id: "availability",
+      tone: "danger",
+      label: "לא הוגדרה זמינות שבועית פעילה — לקוחות לא יכולים לקבוע תור חדש",
+    });
+  }
 
   return (
     <ProviderLayout>
@@ -168,7 +219,7 @@ export default function ProviderDashboardPage() {
               )}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3 text-center">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
             <div className="rounded-xl bg-white/70 px-3 py-2 shadow-sm">
               <p className="text-lg font-bold text-slate-900">{provider.consultation_types.length}</p>
               <p className="text-xs text-slate-500">{setupConfig.catalogLabel}</p>
@@ -177,14 +228,54 @@ export default function ProviderDashboardPage() {
               <p className="text-lg font-bold text-slate-900">{provider.clinic_locations.length}</p>
               <p className="text-xs text-slate-500">{setupConfig.locationLabelPlural}</p>
             </div>
+            <div className="rounded-xl bg-white/70 px-3 py-2 shadow-sm">
+              <p className="text-lg font-bold text-slate-900 tabular-nums">{formatCurrency(completedRevenue)}</p>
+              <p className="text-xs text-slate-500">הכנסה (הושלם)</p>
+            </div>
+            <div className="rounded-xl bg-white/70 px-3 py-2 shadow-sm">
+              <p className="text-lg font-bold text-slate-900 tabular-nums">{myAppointments.length}</p>
+              <p className="text-xs text-slate-500">תורים סה״כ</p>
+            </div>
           </div>
+          <ProgressRing
+            percent={profileCompletePercent}
+            tone={profileCompletePercent === 100 ? "success" : "primary"}
+            label="פרופיל"
+            textClassName="text-slate-900"
+          />
         </div>
       </div>
 
-      {nextAction && (
-        <div className="mb-6 rounded-lg border border-warning-border bg-warning-bg px-4 py-3 text-sm text-warning-text">
-          {nextAction}
-        </div>
+      {tasks.length > 0 && (
+        <Card className="mb-6 border-warning-border bg-warning-bg/30">
+          <CardHeader className="flex items-center gap-2 flex-row">
+            <Bell className="h-4 w-4 text-warning" />
+            <CardTitle>משימות ותזכורות</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            {tasks.map((task) => {
+              const toneClasses =
+                task.tone === "danger"
+                  ? "border-danger-border bg-danger-bg text-danger-text"
+                  : task.tone === "info"
+                  ? "border-info-border bg-info-bg text-info-text"
+                  : "border-warning-border bg-warning-bg text-warning-text";
+              const content = (
+                <div className={`flex items-center gap-3 rounded-xl border px-3.5 py-2.5 text-sm ${toneClasses}`}>
+                  <span className="flex-1">{task.label}</span>
+                  {task.href && <ChevronLeft className="h-4 w-4 shrink-0" />}
+                </div>
+              );
+              return task.href ? (
+                <Link key={task.id} href={task.href} className="transition-opacity hover:opacity-80">
+                  {content}
+                </Link>
+              ) : (
+                <div key={task.id}>{content}</div>
+              );
+            })}
+          </CardContent>
+        </Card>
       )}
 
       <Tabs defaultValue="overview">
@@ -212,6 +303,7 @@ export default function ProviderDashboardPage() {
               icon={<Users className="h-4 w-4" />}
               tone="blue"
               trend={myPatients.length > 0 ? patientsTrend : undefined}
+              sparklineData={patientsMonthly}
             />
             <StatCard
               label="סטטוס אישור Healson"
@@ -225,6 +317,7 @@ export default function ProviderDashboardPage() {
               icon={<CreditCard className="h-4 w-4" />}
               tone="purple"
               trend={completedOrders.length > 0 ? revenueTrend : undefined}
+              sparklineData={revenueMonthly}
             />
           </div>
 
@@ -283,20 +376,9 @@ export default function ProviderDashboardPage() {
                 <CardTitle>השלמת הפרופיל</CardTitle>
               </CardHeader>
               <CardContent className="text-sm text-slate-600 flex flex-col gap-2">
-                <ChecklistItem ok={!!provider.license_number} label="מספר רישיון" />
-                <ChecklistItem ok={!!provider.specialty} label="תחום התמחות" />
-                {setupConfig.showAgreements && (
-                  <ChecklistItem ok={provider.agreements.length > 0} label="הגדרת הסדרי ביטוח (S/K/B/H)" />
-                )}
-                <ChecklistItem ok={catalogDone} label={`לפחות פריט אחד ב${setupConfig.catalogLabel}`} />
-                {setupConfig.locationTypes.length > 0 && (
-                  <ChecklistItem ok={locationsDone} label={`לפחות ${setupConfig.locationLabelSingular} אחד/ת`} />
-                )}
-                {setupConfig.showAvailability && (
-                  <ChecklistItem ok={availabilityDone} label="זמינות שבועית הוגדרה" />
-                )}
-                <ChecklistItem ok={isVerified} label="אושר על ידי צוות Healson" />
-                <ChecklistItem ok={provider.is_published} label="פרופיל פורסם" />
+                {profileChecklist.map((item) => (
+                  <ChecklistItem key={item.label} ok={item.ok} label={item.label} />
+                ))}
               </CardContent>
             </Card>
           </div>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -16,10 +17,12 @@ import {
   Users,
   Wallet,
   Rocket,
+  Lock,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Button } from "@/components/ui/Button";
 import { Logo } from "@/components/shared/Logo";
+import { SecureProviderLoginDialog } from "@/components/shared/SecureProviderLoginDialog";
 import { KUPAH_LOGOS } from "@/lib/medical-tree";
 import { homeForRole } from "@/lib/useRequireRole";
 import { KUPOT, Role } from "@/types";
@@ -69,8 +72,13 @@ export default function LandingPage() {
   const currentUser = useStore((s) => s.currentUser);
   const loginAsDemo = useStore((s) => s.loginAsDemo);
   const showToast = useStore((s) => s.showToast);
+  const [secureLoginOpen, setSecureLoginOpen] = useState(false);
 
   function enterAs(role: Role) {
+    if (role === "provider") {
+      setSecureLoginOpen(true);
+      return;
+    }
     loginAsDemo(role);
     if (role === "patient" && useStore.getState().pendingLoginVerification) {
       // Existing patient: loginAsDemo queued the double SMS+email OTP
@@ -82,6 +90,12 @@ export default function LandingPage() {
       return;
     }
     setTimeout(() => router.push(homeForRole(role)), 50);
+  }
+
+  function completeProviderLogin() {
+    loginAsDemo("provider");
+    setSecureLoginOpen(false);
+    router.push(homeForRole("provider"));
   }
 
   return (
@@ -319,8 +333,13 @@ export default function LandingPage() {
                 }}
                 whileHover={{ y: -6 }}
                 whileTap={{ scale: 0.97 }}
-                className={`group flex flex-col items-start gap-3 rounded-2xl border border-slate-200 bg-white p-6 text-right shadow-sm ring-1 ring-transparent transition-shadow hover:shadow-lg ${card.ring}`}
+                className={`group relative flex flex-col items-start gap-3 rounded-2xl border border-slate-200 bg-white p-6 text-right shadow-sm ring-1 ring-transparent transition-shadow hover:shadow-lg ${card.ring}`}
               >
+                {card.role === "provider" && (
+                  <span className="absolute top-4 left-4 flex items-center gap-1 rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-medium text-white">
+                    <Lock className="h-2.5 w-2.5" /> כניסה מאובטחת
+                  </span>
+                )}
                 <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${card.iconBg} ${card.iconColor}`}>
                   <card.icon className="h-6 w-6" />
                 </div>
@@ -336,6 +355,12 @@ export default function LandingPage() {
           </motion.div>
         </section>
       )}
+
+      <SecureProviderLoginDialog
+        open={secureLoginOpen}
+        onClose={() => setSecureLoginOpen(false)}
+        onComplete={completeProviderLogin}
+      />
 
       <section id="hospitals" className="mx-auto max-w-6xl px-4 pb-16">
         <div className="border-t border-slate-100 pt-10">

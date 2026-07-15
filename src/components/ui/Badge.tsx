@@ -79,6 +79,13 @@ const REFERRAL_TONE: Record<string, Tone> = {
   "שגיאה": "danger",
 };
 
+const PAYMENT_TONE: Record<string, Tone> = {
+  "ממתין": "warning",
+  "מקדמה שולמה": "info",
+  "שולם במלואו": "success",
+  "הוחזר": "neutral",
+};
+
 function toneFor(map: Record<string, Tone>, status: string): Tone {
   return map[status] ?? "neutral";
 }
@@ -89,7 +96,7 @@ export function StatusBadge({
   title,
 }: {
   status: string;
-  kind: "appointment" | "order" | "patient" | "lead" | "referral";
+  kind: "appointment" | "order" | "patient" | "lead" | "referral" | "payment";
   title?: string;
 }) {
   const map =
@@ -101,6 +108,8 @@ export function StatusBadge({
       ? PATIENT_TONE
       : kind === "lead"
       ? LEAD_TONE
+      : kind === "payment"
+      ? PAYMENT_TONE
       : REFERRAL_TONE;
   return (
     <Badge tone={toneFor(map, status)} title={title}>

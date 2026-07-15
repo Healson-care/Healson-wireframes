@@ -29,7 +29,7 @@ import {
   Sparkles,
   Rocket,
   XCircle,
-  LogOut,
+  X,
   Clock,
 } from "lucide-react";
 import { Logo } from "@/components/shared/Logo";
@@ -599,13 +599,17 @@ function RegisterShell({ phase, wide, children }: { phase: Phase; wide?: boolean
           </div>
           <button
             onClick={() => {
+              // Registration isn't complete yet at any point this shell is
+              // shown — clear the partial session so the landing page shows
+              // itself exactly as it does for a fresh visitor, not "stuck
+              // logged in" with its entry sections hidden.
               logout();
-              router.push("/login");
+              router.push("/");
             }}
             className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm text-slate-500 hover:bg-slate-100"
           >
-            <LogOut className="h-4 w-4" />
-            <span className="hidden sm:inline">התנתק</span>
+            <X className="h-4 w-4" />
+            <span className="hidden sm:inline">חזרה לדף הבית</span>
           </button>
         </div>
       </header>
