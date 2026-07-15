@@ -391,6 +391,10 @@ export interface ConsultationType {
   // "imaging" (הדמייה) prep fields.
   requires_contrast?: boolean;
   has_radiation?: boolean;
+  // When set, booking this consultation auto-creates a pending questionnaire
+  // document (see PatientDocument) once the deposit is paid.
+  requires_questionnaire?: boolean;
+  questionnaire_title?: string;
 }
 
 export interface ExamType {

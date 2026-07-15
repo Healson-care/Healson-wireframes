@@ -126,6 +126,8 @@ const provider2: ProviderProfile = {
       ],
       service_type: "consultation",
       linked_clinic_ids: [provider2ClinicId],
+      requires_questionnaire: true,
+      questionnaire_title: "שאלון בריאות כללי",
     },
     {
       id: generateId("ct"),
