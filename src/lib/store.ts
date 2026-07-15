@@ -964,7 +964,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 12,
+      version: 13,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
       // records), the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER seed
       // account, the v3 -> v4 AppointmentStatus rename ("ממתין לאישור" ->
@@ -985,10 +985,15 @@ export const useStore = create<Store>()(
       // waiting on Ops), and the skill-tree/global-catalog expansion on one
       // side; two published demo providers, Appointment.price/deposit
       // fields, and the documents tab on the other. v12 reconciles both
-      // into one combined schema — discard any state persisted under either
-      // branch's numbering so the app reseeds clean instead of silently
-      // keeping stale seed/demo/status/catalog data.
-      migrate: (persistedState, version) => (version < 12 ? ({} as Store) : (persistedState as Store)),
+      // into one combined schema. v12 -> v13 backfills service_type and
+      // linked_clinic_ids onto provider5/provider6's consultation_types —
+      // without those, ProviderDiscovery's per-tab/specialty filtering
+      // (which now reads services straight off each provider instead of a
+      // shared reference catalog) could never surface those two doctors —
+      // discard any state persisted under an earlier version so the app
+      // reseeds clean instead of silently keeping stale seed/demo/status/
+      // catalog data.
+      migrate: (persistedState, version) => (version < 13 ? ({} as Store) : (persistedState as Store)),
       // Uploaded files (photos/PDFs) are stored as base64 data URLs inside
       // this same persisted blob (no real backend — see file.ts). If a
       // single write ever still exceeds the browser's localStorage quota
