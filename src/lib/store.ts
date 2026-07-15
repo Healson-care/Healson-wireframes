@@ -951,7 +951,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 10,
+      version: 11,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
       // records), the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER seed
       // account, the v3 -> v4 AppointmentStatus rename ("ממתין לאישור" ->
@@ -967,12 +967,15 @@ export const useStore = create<Store>()(
       // patient's insurance profile switching to מכבי / מכבי שלי / מגדל, the
       // v8 -> v9 addition of Appointment.price/deposit_amount/
       // deposit_paid_at (cancellation-refund policy) plus renamed seed clinic
-      // names, and the v9 -> v10 addition of the documents tab (SEED_DOCUMENTS
-      // referencing freshly-generated patient/appointment ids) are not
-      // backwards compatible with anything persisted under an earlier
-      // version — discard old state on a version bump so the app reseeds
-      // clean instead of silently keeping stale seed/demo/status/catalog data.
-      migrate: (persistedState, version) => (version < 10 ? ({} as Store) : (persistedState as Store)),
+      // names, the v9 -> v10 addition of the documents tab (SEED_DOCUMENTS
+      // referencing freshly-generated patient/appointment ids), and the
+      // v10 -> v11 addition of ConsultationType.requires_questionnaire (a
+      // provider's already-persisted consultation_types wouldn't otherwise
+      // ever pick up the new flag) are not backwards compatible with
+      // anything persisted under an earlier version — discard old state on
+      // a version bump so the app reseeds clean instead of silently keeping
+      // stale seed/demo/status/catalog data.
+      migrate: (persistedState, version) => (version < 11 ? ({} as Store) : (persistedState as Store)),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);
       },

@@ -121,6 +121,8 @@ const provider2: ProviderProfile = {
         { layer: "B", price: 60 },
         { layer: "H", price: 420 },
       ],
+      requires_questionnaire: true,
+      questionnaire_title: "שאלון בריאות כללי",
     },
     {
       id: generateId("ct"),

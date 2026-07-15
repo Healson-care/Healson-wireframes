@@ -56,6 +56,7 @@ export default function BookPage() {
   const addAppointment = useStore((s) => s.addAppointment);
   const updateAppointment = useStore((s) => s.updateAppointment);
   const addOrder = useStore((s) => s.addOrder);
+  const addDocument = useStore((s) => s.addDocument);
   const showToast = useStore((s) => s.showToast);
   const patient = useCurrentPatient();
 
@@ -99,6 +100,9 @@ export default function BookPage() {
     price: number;
     icsUrl: string;
   } | null>(null);
+  const [pendingQuestionnaire, setPendingQuestionnaire] = useState<{ appointmentId: string; title: string } | null>(
+    null
+  );
 
   const consultation = selectedProvider?.consultation_types[0];
   const resolvedPrice =
@@ -262,6 +266,37 @@ export default function BookPage() {
         commission_amount: commissionAmount,
         provider_payout_amount: price - commissionAmount,
       });
+      // The receipt and (if the service requires one) the pre-visit
+      // questionnaire are created the moment the deposit clears, linked to
+      // this appointment — same as the confirmation email/SMS a real clinic
+      // would send at this point.
+      const patientId = patient?.id ?? currentUser?.id;
+      if (patientId) {
+        addDocument({
+          patient_id: patientId,
+          category: "receipt",
+          title: `קבלה על מקדמה - ${consultation?.name ?? "ייעוץ"}`,
+          uploaded_by: "system",
+          appointment_id: pendingAppointmentId,
+          file: {
+            file_name: "קבלה.pdf",
+            uploaded_at: new Date().toISOString(),
+            data_url: "data:application/pdf;base64,",
+          },
+        });
+        if (consultation?.requires_questionnaire) {
+          const questionnaireTitle = consultation.questionnaire_title ?? "שאלון לפני התור";
+          addDocument({
+            patient_id: patientId,
+            category: "questionnaire",
+            title: questionnaireTitle,
+            uploaded_by: "system",
+            appointment_id: pendingAppointmentId,
+            status: "ממתין למילוי",
+          });
+          setPendingQuestionnaire({ appointmentId: pendingAppointmentId, title: questionnaireTitle });
+        }
+      }
       const icsUrl = buildIcsDataUrl({
         title: `תור ל-${selectedProvider.display_name}`,
         description: consultation?.name,
@@ -587,7 +622,7 @@ export default function BookPage() {
           </motion.div>
         )}
 
-        {step === 6 && confirmation && selectedProvider && selectedSlot && (
+        {step === 6 && confirmation && selectedProvider && selectedSlot && pendingAppointmentId && (
           <motion.div key="step6" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition}>
             <BookingConfirmation
               provider={selectedProvider}
@@ -595,6 +630,8 @@ export default function BookPage() {
               confirmation={confirmation}
               homeHref="/client"
               homeLabel="לאזור האישי שלי"
+              appointmentId={pendingAppointmentId}
+              pendingQuestionnaire={pendingQuestionnaire}
             />
           </motion.div>
         )}

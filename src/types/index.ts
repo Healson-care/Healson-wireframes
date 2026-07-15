@@ -344,6 +344,10 @@ export interface ConsultationType {
   duration_minutes: number;
   prices: PriceByLayer[];
   catalog_item_id?: string; // links back to a CatalogItem chosen from the Skill Tree
+  // When set, booking this consultation auto-creates a pending questionnaire
+  // document (see PatientDocument) once the deposit is paid.
+  requires_questionnaire?: boolean;
+  questionnaire_title?: string;
 }
 
 export interface ExamType {

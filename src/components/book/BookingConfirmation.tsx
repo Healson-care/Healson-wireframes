@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ArrowLeft, Calendar, CheckCircle2, FileText, PartyPopper, Sparkles } from "lucide-react";
+import { AlertCircle, ArrowLeft, Calendar, CheckCircle2, FileText, PartyPopper, Receipt, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useStore } from "@/lib/store";
 import { ProviderProfile } from "@/types";
@@ -42,12 +42,16 @@ export function BookingConfirmation({
   confirmation,
   homeHref,
   homeLabel,
+  appointmentId,
+  pendingQuestionnaire,
 }: {
   provider: ProviderProfile;
   selectedSlot: { date: string; time: string; label: string };
   confirmation: { fileNumber: string; price: number; icsUrl: string };
   homeHref: string;
   homeLabel: string;
+  appointmentId: string;
+  pendingQuestionnaire?: { appointmentId: string; title: string } | null;
 }) {
   const showToast = useStore((s) => s.showToast);
 
@@ -67,6 +71,36 @@ export function BookingConfirmation({
         {provider.title} {provider.display_name} · {selectedSlot.label} בשעה {selectedSlot.time}
       </p>
       <p className="text-xs text-slate-400 mt-1">מספר תיק לקוח #{confirmation.fileNumber}</p>
+
+      <div className="mt-5 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-right">
+        <div className="flex items-center gap-2">
+          <Receipt className="h-5 w-5 shrink-0 text-slate-500" />
+          <div>
+            <p className="text-sm font-semibold text-slate-800">הקבלה על המקדמה מוכנה</p>
+            <p className="text-xs text-slate-500 mt-0.5">זמינה בכל עת בטאב המסמכים שלך</p>
+          </div>
+        </div>
+        <Link href={`/client/documents?appointment=${appointmentId}`}>
+          <Button variant="outline" size="sm">
+            צפייה בקבלה
+          </Button>
+        </Link>
+      </div>
+
+      {pendingQuestionnaire && (
+        <div className="mt-5 flex items-center justify-between gap-3 rounded-xl border border-warning-border bg-warning-bg p-4 text-right">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-5 w-5 shrink-0 text-warning-text" />
+            <div>
+              <p className="text-sm font-semibold text-warning-text">יש למלא שאלון לפני התור</p>
+              <p className="text-xs text-warning-text/80 mt-0.5">{pendingQuestionnaire.title}</p>
+            </div>
+          </div>
+          <Link href={`/client/documents?appointment=${pendingQuestionnaire.appointmentId}`}>
+            <Button size="sm">מלא עכשיו</Button>
+          </Link>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center justify-center gap-2.5 mt-6">
         <a href={confirmation.icsUrl} download="appointment.ics">

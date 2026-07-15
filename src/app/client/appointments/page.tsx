@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/Input";
 import { Popover } from "@/components/ui/Popover";
 import { AppointmentReminderPlan } from "@/components/patient/AppointmentReminderPlan";
 import {
+  AlertCircle,
   ArrowLeft,
   Calendar,
   CalendarRange,
@@ -426,6 +427,9 @@ function ClientAppointmentsPageContent() {
             const isExpanded = !!expandedIds[item.data.id];
             const provider = providers.find((p) => p.id === item.data.provider_id);
             const linkedDocs = item.kind === "appointment" ? documents.filter((d) => d.appointment_id === item.data.id) : [];
+            const pendingQuestionnaires = linkedDocs.filter(
+              (d) => d.category === "questionnaire" && d.status === "ממתין למילוי"
+            );
             return (
             <motion.div key={`${item.kind}-${item.data.id}`} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18, delay: i * 0.03 }}>
               <Card id={`appt-${item.data.id}`} className={cn("p-4", highlightId === item.data.id && "ring-2 ring-primary")}>
@@ -444,23 +448,40 @@ function ClientAppointmentsPageContent() {
                     {linkedDocs.length > 0 && (
                       <Popover
                         trigger={
-                          <span className="flex items-center gap-1 text-xs text-primary hover:underline mt-1">
-                            <FileText className="h-3 w-3" /> מסמכים מקושרים ({linkedDocs.length})
-                          </span>
+                          pendingQuestionnaires.length > 0 ? (
+                            <span className="flex items-center gap-1 text-xs font-medium text-warning-text mt-1">
+                              <AlertCircle className="h-3 w-3" /> יש למלא שאלון ({pendingQuestionnaires.length})
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-xs text-primary hover:underline mt-1">
+                              <FileText className="h-3 w-3" /> מסמכים מקושרים ({linkedDocs.length})
+                            </span>
+                          )
                         }
                       >
                         {(close) => (
                           <div className="flex flex-col gap-2 text-sm">
                             <p className="font-semibold text-slate-900">מסמכים לתור זה</p>
                             <div className="flex flex-col gap-1.5">
-                              {linkedDocs.map((d) => (
-                                <div key={d.id} className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5">
-                                  <span className="text-xs font-medium text-slate-700 truncate">{d.title}</span>
-                                  <span className="shrink-0 text-[10px] text-slate-400">
-                                    {DOCUMENT_CATEGORIES.find((c) => c.id === d.category)?.label}
-                                  </span>
-                                </div>
-                              ))}
+                              {linkedDocs.map((d) => {
+                                const isPending = d.category === "questionnaire" && d.status === "ממתין למילוי";
+                                return (
+                                  <div
+                                    key={d.id}
+                                    className={cn(
+                                      "flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5",
+                                      isPending ? "bg-warning-bg" : "bg-slate-50"
+                                    )}
+                                  >
+                                    <span className={cn("text-xs font-medium truncate", isPending ? "text-warning-text" : "text-slate-700")}>
+                                      {d.title}
+                                    </span>
+                                    <span className={cn("shrink-0 text-[10px]", isPending ? "text-warning-text" : "text-slate-400")}>
+                                      {isPending ? "ממתין למילוי" : DOCUMENT_CATEGORIES.find((c) => c.id === d.category)?.label}
+                                    </span>
+                                  </div>
+                                );
+                              })}
                             </div>
                             <Button
                               size="sm"
