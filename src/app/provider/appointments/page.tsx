@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import { ProviderLayout } from "@/components/layouts/ProviderLayout";
 import { useStore } from "@/lib/store";
@@ -11,7 +12,7 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog, Dialog } from "@/components/ui/Dialog";
 import { Input, Textarea } from "@/components/ui/Input";
-import { Check, ChevronLeft, ChevronRight, Pencil, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, FolderOpen, Pencil, X } from "lucide-react";
 
 function isoDate(d: Date) {
   return d.toISOString().slice(0, 10);
@@ -116,6 +117,13 @@ export default function ProviderAppointmentsPage() {
                         >
                           סמן כבוצע
                         </Button>
+                      )}
+                      {a.created_by_id && (
+                        <Link href={`/provider/patients/${a.created_by_id}`}>
+                          <Button size="sm" variant="outline">
+                            <FolderOpen className="h-3.5 w-3.5" /> פתח תיק מטופל
+                          </Button>
+                        </Link>
                       )}
                       <Button size="sm" variant="outline" onClick={() => openEdit(a.id)}>
                         <Pencil className="h-3.5 w-3.5" /> עריכה

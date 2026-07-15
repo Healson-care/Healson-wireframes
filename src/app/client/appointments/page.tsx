@@ -159,44 +159,34 @@ function StatusLegend() {
   );
 }
 
-function PayDepositDialog({
-  appointment,
-  onClose,
-  onPaid,
+function PaymentMethodFields({
+  payMethod,
+  onPayMethodChange,
+  saveCard,
+  onSaveCardChange,
 }: {
-  appointment: Appointment | null;
-  onClose: () => void;
-  onPaid: (id: string) => void;
+  payMethod: "card" | "apple" | "google";
+  onPayMethodChange: (method: "card" | "apple" | "google") => void;
+  saveCard: boolean;
+  onSaveCardChange: (checked: boolean) => void;
 }) {
-  const [payMethod, setPayMethod] = useState<"card" | "apple" | "google">("card");
-  const [paying, setPaying] = useState(false);
-
   return (
-    <Dialog
-      open={!!appointment}
-      onClose={onClose}
-      title="תשלום מקדמה"
-      description={
-        appointment
-          ? `${appointment.service_name} · ${appointment.provider_name} · ${formatAppointmentDate(appointment.date)} ${appointment.time}`
-          : undefined
-      }
-    >
+    <>
       <div className="grid grid-cols-3 gap-2 mb-4">
         <button
-          onClick={() => setPayMethod("card")}
+          onClick={() => onPayMethodChange("card")}
           className={`flex flex-col items-center gap-1 rounded-xl border p-3 text-xs font-medium ${payMethod === "card" ? "border-primary bg-primary/5 text-primary" : "border-slate-200 text-slate-500"}`}
         >
           <CreditCard className="h-4 w-4" /> כרטיס אשראי
         </button>
         <button
-          onClick={() => setPayMethod("apple")}
+          onClick={() => onPayMethodChange("apple")}
           className={`flex flex-col items-center gap-1 rounded-xl border p-3 text-xs font-medium ${payMethod === "apple" ? "border-primary bg-primary/5 text-primary" : "border-slate-200 text-slate-500"}`}
         >
           <Smartphone className="h-4 w-4" /> Apple Pay
         </button>
         <button
-          onClick={() => setPayMethod("google")}
+          onClick={() => onPayMethodChange("google")}
           className={`flex flex-col items-center gap-1 rounded-xl border p-3 text-xs font-medium ${payMethod === "google" ? "border-primary bg-primary/5 text-primary" : "border-slate-200 text-slate-500"}`}
         >
           <Smartphone className="h-4 w-4" /> Google Pay
@@ -209,11 +199,71 @@ function PayDepositDialog({
           </div>
           <Input placeholder="MM/YY" dir="ltr" defaultValue="08/28" />
           <Input placeholder="CVV" dir="ltr" defaultValue="•••" />
+          <label className="col-span-2 flex items-center gap-2 text-xs text-slate-500 mt-1 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={saveCard}
+              onChange={(e) => onSaveCardChange(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
+            />
+            שמור את פרטי הכרטיס לתשלומים הבאים (הדגמה)
+          </label>
         </div>
       )}
       <p className="flex items-center gap-1.5 text-[11px] text-slate-400 mb-4">
         <ShieldCheck className="h-3.5 w-3.5" /> תשלום מאובטח בתקן PCI DSS · מצב הדגמה, לא מתבצע חיוב אמיתי
       </p>
+    </>
+  );
+}
+
+function PayDepositDialog({
+  appointment,
+  onClose,
+  onPaid,
+}: {
+  appointment: Appointment | null;
+  onClose: () => void;
+  onPaid: (id: string) => void;
+}) {
+  const [payMethod, setPayMethod] = useState<"card" | "apple" | "google">("card");
+  const [paying, setPaying] = useState(false);
+  const [saveCard, setSaveCard] = useState(false);
+
+  const price = appointment?.price ?? 0;
+  const depositAmount = appointment?.deposit_amount ?? Math.round(price * 0.3);
+  const balanceAmount = price - depositAmount;
+
+  return (
+    <Dialog
+      open={!!appointment}
+      onClose={onClose}
+      title="תשלום מקדמה"
+      description={
+        appointment
+          ? `${appointment.service_name} · ${appointment.provider_name} · ${formatAppointmentDate(appointment.date)} ${appointment.time}`
+          : undefined
+      }
+    >
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 mb-4">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-semibold text-slate-700">מקדמה לתשלום</span>
+          <span className="text-lg font-bold text-primary">{formatCurrency(depositAmount)}</span>
+        </div>
+        <p className="text-[11px] text-slate-400 mt-1">
+          לשריון התור נדרש תשלום מקדמה עכשיו. היתרה תיגבה במועד התור.
+        </p>
+        <div className="flex items-center justify-between mt-2">
+          <span className="text-[11px] text-slate-400">יתרה לתשלום בתור</span>
+          <span className="text-[11px] text-slate-400">{formatCurrency(balanceAmount)}</span>
+        </div>
+      </div>
+      <PaymentMethodFields
+        payMethod={payMethod}
+        onPayMethodChange={setPayMethod}
+        saveCard={saveCard}
+        onSaveCardChange={setSaveCard}
+      />
       <Button
         size="lg"
         className="w-full"
@@ -227,7 +277,69 @@ function PayDepositDialog({
           }, 1200);
         }}
       >
-        שלם מקדמה ואשר תור
+        שלם {formatCurrency(depositAmount)} ואשר תור
+      </Button>
+    </Dialog>
+  );
+}
+
+function PayBalanceDialog({
+  appointment,
+  onClose,
+  onPaid,
+}: {
+  appointment: Appointment | null;
+  onClose: () => void;
+  onPaid: (id: string) => void;
+}) {
+  const [payMethod, setPayMethod] = useState<"card" | "apple" | "google">("card");
+  const [paying, setPaying] = useState(false);
+  const [saveCard, setSaveCard] = useState(false);
+
+  const price = appointment?.price ?? 0;
+  const depositAmount = appointment?.deposit_amount ?? Math.round(price * 0.3);
+  const balanceAmount = price - depositAmount;
+
+  return (
+    <Dialog
+      open={!!appointment}
+      onClose={onClose}
+      title="תשלום יתרה"
+      description={
+        appointment
+          ? `${appointment.service_name} · ${appointment.provider_name} · ${formatAppointmentDate(appointment.date)} ${appointment.time}`
+          : undefined
+      }
+    >
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 mb-4">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-semibold text-slate-700">יתרה לתשלום</span>
+          <span className="text-lg font-bold text-primary">{formatCurrency(balanceAmount)}</span>
+        </div>
+        <p className="text-[11px] text-slate-400 mt-1">
+          זהו התשלום האחרון להשלמת התור — המקדמה כבר שולמה קודם.
+        </p>
+      </div>
+      <PaymentMethodFields
+        payMethod={payMethod}
+        onPayMethodChange={setPayMethod}
+        saveCard={saveCard}
+        onSaveCardChange={setSaveCard}
+      />
+      <Button
+        size="lg"
+        className="w-full"
+        loading={paying}
+        onClick={() => {
+          if (!appointment) return;
+          setPaying(true);
+          setTimeout(() => {
+            onPaid(appointment.id);
+            setPaying(false);
+          }, 1200);
+        }}
+      >
+        שלם {formatCurrency(balanceAmount)}
       </Button>
     </Dialog>
   );
@@ -276,12 +388,14 @@ function ClientAppointmentsPageContent() {
   const providers = useStore((s) => s.providers);
   const documents = useStore((s) => s.documents);
   const updateAppointment = useStore((s) => s.updateAppointment);
+  const addDocument = useStore((s) => s.addDocument);
   const showToast = useStore((s) => s.showToast);
   const currentUser = useStore((s) => s.currentUser);
   const patient = useCurrentPatient();
 
   const [cancelAppointment, setCancelAppointment] = useState<Appointment | null>(null);
   const [payDepositAppointment, setPayDepositAppointment] = useState<Appointment | null>(null);
+  const [payBalanceAppointment, setPayBalanceAppointment] = useState<Appointment | null>(null);
 
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [dateFrom, setDateFrom] = useState("");
@@ -530,13 +644,7 @@ function ClientAppointmentsPageContent() {
                         unpaid — see the note on AppointmentStatus in types/index.ts
                         and README.md. */}
                     {item.data.status === "מאושר" && (
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          updateAppointment(item.data.id, { status: "שולם במלואו" });
-                          showToast("היתרה שולמה במלואה", { variant: "success" });
-                        }}
-                      >
+                      <Button size="sm" onClick={() => setPayBalanceAppointment(item.data)}>
                         שלם יתרה
                       </Button>
                     )}
@@ -681,6 +789,31 @@ function ClientAppointmentsPageContent() {
           updateAppointment(id, { status: "מאושר", deposit_paid_at: new Date().toISOString() });
           showToast("התשלום התקבל, התור אושר", { variant: "success" });
           setPayDepositAppointment(null);
+        }}
+      />
+
+      <PayBalanceDialog
+        appointment={payBalanceAppointment}
+        onClose={() => setPayBalanceAppointment(null)}
+        onPaid={(id) => {
+          updateAppointment(id, { status: "שולם במלואו" });
+          const patientId = patient?.id ?? currentUser?.id;
+          if (patientId && payBalanceAppointment) {
+            addDocument({
+              patient_id: patientId,
+              category: "receipt",
+              title: `קבלה על יתרה - ${payBalanceAppointment.service_name}`,
+              uploaded_by: "system",
+              appointment_id: id,
+              file: {
+                file_name: "קבלה.pdf",
+                uploaded_at: new Date().toISOString(),
+                data_url: "data:application/pdf;base64,",
+              },
+            });
+          }
+          showToast("היתרה שולמה במלואה", { variant: "success" });
+          setPayBalanceAppointment(null);
         }}
       />
     </ClientLayout>

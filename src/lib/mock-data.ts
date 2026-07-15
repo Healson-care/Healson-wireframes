@@ -15,6 +15,7 @@ import {
   PatientDocument,
   ProviderProfile,
   User,
+  VisitRecord,
 } from "@/types";
 import { generateId, isoDateDaysFromNow, isoTimestampHoursFromNow } from "./utils";
 import { SEED_SKILL_DOMAINS, SEED_SKILL_SUBDOMAINS } from "./medical-tree";
@@ -82,6 +83,8 @@ export const SEED_USERS: User[] = [
   DEMO_ADMIN_USER_2,
 ];
 
+const provider2ClinicId = generateId("clinic");
+
 const provider2: ProviderProfile = {
   id: "prov_2",
   user_id: undefined,
@@ -121,6 +124,8 @@ const provider2: ProviderProfile = {
         { layer: "B", price: 60 },
         { layer: "H", price: 420 },
       ],
+      service_type: "consultation",
+      linked_clinic_ids: [provider2ClinicId],
       requires_questionnaire: true,
       questionnaire_title: "שאלון בריאות כללי",
     },
@@ -133,24 +138,29 @@ const provider2: ProviderProfile = {
         { layer: "B", price: 90 },
         { layer: "H", price: 650 },
       ],
+      service_type: "test",
+      linked_clinic_ids: [provider2ClinicId],
     },
-  ],
-  exam_types: [
+    // Unified into the single services list (no more separate "בדיקות"
+    // tab/section) — see B2/B3 in the services-merge fix.
     {
-      id: generateId("et"),
+      id: generateId("ct"),
       name: "אקו לב",
-      lab_code: "ECHO-01",
+      duration_minutes: 30,
       prices: [
         { layer: "K", price: 260 },
         { layer: "B", price: 120 },
         { layer: "H", price: 800 },
       ],
+      service_type: "imaging",
+      linked_clinic_ids: [provider2ClinicId],
     },
   ],
+  exam_types: [],
   clinic_locations: [
     {
-      id: generateId("clinic"),
-      name: "הדסה עין כרם",
+      id: provider2ClinicId,
+      name: "מרפאת הלב תל אביב",
       address: "רחוב איבן גבירול 50",
       city: "תל אביב",
       phone: "03-5551234",
@@ -177,6 +187,8 @@ const provider2: ProviderProfile = {
     },
   ],
 };
+
+const provider1ClinicId = generateId("clinic");
 
 const provider1: ProviderProfile = {
   id: "prov_1",
@@ -217,6 +229,8 @@ const provider1: ProviderProfile = {
         { layer: "K", price: 120 },
         { layer: "H", price: 450 },
       ],
+      service_type: "consultation",
+      linked_clinic_ids: [provider1ClinicId],
     },
     {
       id: generateId("ct"),
@@ -227,23 +241,28 @@ const provider1: ProviderProfile = {
         { layer: "K", price: 100 },
         { layer: "H", price: 390 },
       ],
+      service_type: "consultation",
+      linked_clinic_ids: [provider1ClinicId],
     },
-  ],
-  exam_types: [
+    // Unified into the single services list (no more separate "בדיקות"
+    // tab/section) — see B2/B3 in the services-merge fix.
     {
-      id: generateId("et"),
+      id: generateId("ct"),
       name: "בדיקת MRI לברך",
-      lab_code: "MRI-KNEE",
+      duration_minutes: 45,
       prices: [
         { layer: "K", price: 350 },
         { layer: "H", price: 1200 },
       ],
+      service_type: "imaging",
+      linked_clinic_ids: [provider1ClinicId],
     },
   ],
+  exam_types: [],
   clinic_locations: [
     {
-      id: generateId("clinic"),
-      name: "שערי צדק",
+      id: provider1ClinicId,
+      name: "מרפאת אורתופדיה רמת גן",
       address: "ביאליק 12",
       city: "רמת גן",
       phone: "03-6661234",
@@ -284,6 +303,7 @@ const provider3: ProviderProfile = {
   },
   is_published: false,
   status: "pending_review",
+  application_submitted_at: isoDateDaysFromNow(-40),
   created_date: isoDateDaysFromNow(-40),
   agreements: [],
   consultation_types: [],
@@ -307,9 +327,13 @@ const provider4: ProviderProfile = {
   },
   is_published: false,
   status: "onboarding",
+  application_submitted_at: isoDateDaysFromNow(-10),
   license_verified_at: isoDateDaysFromNow(-9),
   agreement_signed_at: isoDateDaysFromNow(-1),
-  onboarding_ready_at: isoDateDaysFromNow(-1),
+  // Deliberately NOT onboarding_ready_at: this provider has signed the
+  // agreement and added a service, but has no clinic_locations yet — a ready
+  // seed to demo the "add a calendar before you can link a service" flag
+  // without needing any extra hand-authored data.
   created_date: isoDateDaysFromNow(-10),
   agreements: [{ id: generateId("agr"), provider_id: "prov_4", layer: "H" }],
   consultation_types: [
@@ -318,6 +342,7 @@ const provider4: ProviderProfile = {
       name: "ייעוץ עור כללי",
       duration_minutes: 20,
       prices: [{ layer: "H", price: 350 }],
+      service_type: "consultation",
     },
   ],
   exam_types: [],
@@ -442,22 +467,16 @@ const provider6: ProviderProfile = {
 export const SEED_PROVIDERS: ProviderProfile[] = [provider1, provider2, provider3, provider4, provider5, provider6];
 
 // ---------------------------------------------------------------------------
-// Catalog items — derived from the skill taxonomy, 2 items per sub-domain.
+// Catalog items — derived from the skill taxonomy, 3 items per sub-domain.
+// `provider_id` is left undefined (global reference catalog, per §5.3 —
+// any provider whose specialty matches the domain can pick these items) —
+// only a handful of items below are pinned to a specific demo provider, to
+// keep demonstrating that a custom/provider-only catalog item is possible.
 // ---------------------------------------------------------------------------
 function buildCatalog(): CatalogItem[] {
   const items: CatalogItem[] = [];
   let tavarCode = 100000;
   for (const domain of SEED_SKILL_DOMAINS) {
-    const providerId =
-      domain.slug === "orthopedics"
-        ? provider1.id
-        : domain.slug === "cardiology"
-        ? provider2.id
-        : domain.slug === "gastro"
-        ? provider5.id
-        : domain.slug === "ophthalmology"
-        ? provider6.id
-        : provider3.id;
     const subdomains = SEED_SKILL_SUBDOMAINS.filter((s) => s.domain_id === domain.id);
 
     for (const sub of subdomains) {
@@ -471,7 +490,6 @@ function buildCatalog(): CatalogItem[] {
         base_price: 350 + Math.round(Math.random() * 150),
         typical_duration_min: 30,
         requires_referral: false,
-        provider_id: providerId,
         is_active: true,
       });
 
@@ -485,7 +503,6 @@ function buildCatalog(): CatalogItem[] {
         base_price: 900 + Math.round(Math.random() * 400),
         typical_duration_min: 45,
         requires_referral: true,
-        provider_id: providerId,
         is_active: true,
       });
 
@@ -499,11 +516,42 @@ function buildCatalog(): CatalogItem[] {
         base_price: 100 + Math.round(Math.random() * 150),
         typical_duration_min: 20,
         requires_referral: false,
-        provider_id: providerId,
         is_active: true,
       });
     }
   }
+
+  // A few provider-pinned custom items (orthopedics/cardiology), demonstrating
+  // the admin catalog's optional "ספק (אופציונלי)" field for a one-off item
+  // that only that specific provider offers, on top of the global reference
+  // catalog above.
+  items.push({
+    id: generateId("cat"),
+    tavar_code: String(tavarCode++),
+    name_he: "ייעוץ אורתופדי VIP - " + provider1.display_name,
+    skill_domain_id: "dom_ortho",
+    skill_subdomain_id: "sub_ortho_knee",
+    service_type: "consultation",
+    base_price: 600,
+    typical_duration_min: 45,
+    requires_referral: false,
+    provider_id: provider1.id,
+    is_active: true,
+  });
+  items.push({
+    id: generateId("cat"),
+    tavar_code: String(tavarCode++),
+    name_he: "בדיקת מאמץ מתקדמת - " + provider2.display_name,
+    skill_domain_id: "dom_cardio",
+    skill_subdomain_id: "sub_cardio_general",
+    service_type: "diagnostics",
+    base_price: 1200,
+    typical_duration_min: 60,
+    requires_referral: true,
+    provider_id: provider2.id,
+    is_active: true,
+  });
+
   return items;
 }
 
@@ -772,6 +820,60 @@ export const SEED_LAB_REFERRALS: LabReferral[] = Array.from({ length: 10 }).map(
     };
   }
 );
+
+// ---------------------------------------------------------------------------
+// Visit records — a provider's own clinical notes on a patient. Deliberately
+// includes one record from provider2 against the same patient (SEED_PATIENTS[0],
+// the demo patient) as provider1's records, so the provider-scoped patient
+// chart (/provider/patients/[id]) has something real to hide: logging in as
+// provider1 must never surface provider2's note on that same patient.
+// ---------------------------------------------------------------------------
+export const SEED_VISIT_RECORDS: VisitRecord[] = [
+  {
+    id: generateId("visit"),
+    provider_id: provider1.id,
+    provider_name: provider1.display_name,
+    patient_id: SEED_PATIENTS[0].id,
+    visit_date: isoDateDaysFromNow(-5).slice(0, 10),
+    summary: "ביקור מעקב לאחר טיפול שמרני בברך ימין. נפיחות ירדה משמעותית, טווח תנועה משתפר. ממשיכים בפיזיותרפיה.",
+    instructions: "להימנע ממאמץ פיזי משמעותי (ריצה, קפיצות) למשך 10 ימים נוספים. להמשיך תרגילי חיזוק פעמיים ביום.",
+    provider_documents: [
+      { file_name: "סיכום-ביקור-14.03.pdf", uploaded_at: isoDateDaysFromNow(-5), data_url: "data:application/pdf;base64," },
+    ],
+    created_date: isoDateDaysFromNow(-5),
+  },
+  {
+    id: generateId("visit"),
+    provider_id: provider1.id,
+    provider_name: provider1.display_name,
+    patient_id: SEED_PATIENTS[3 % SEED_PATIENTS.length].id,
+    visit_date: isoDateDaysFromNow(-20).slice(0, 10),
+    summary: "בדיקת ברך ראשונית — חשד לקרע במיניסקוס. הופנה לבדיקת MRI לצורך אבחון מדויק.",
+    instructions: "להימנע מעליה/ירידה במדרגות ככל האפשר עד לקבלת תוצאות ה-MRI.",
+    created_date: isoDateDaysFromNow(-20),
+  },
+  {
+    id: generateId("visit"),
+    provider_id: provider1.id,
+    provider_name: provider1.display_name,
+    patient_id: SEED_PATIENTS[6 % SEED_PATIENTS.length].id,
+    visit_date: isoDateDaysFromNow(-2).slice(0, 10),
+    summary: "חוות דעת שנייה בעניין המלצה לניתוח ארתרוסקופי — ההמלצה הקודמת אושרה, המטופל הופנה לתיאום ניתוח.",
+    created_date: isoDateDaysFromNow(-2),
+  },
+  // Provider2's own note on the same patient as provider1's first record
+  // above — proves the chart's "only your own history" restriction is real.
+  {
+    id: generateId("visit"),
+    provider_id: provider2.id,
+    provider_name: provider2.display_name,
+    patient_id: SEED_PATIENTS[0].id,
+    visit_date: isoDateDaysFromNow(-12).slice(0, 10),
+    summary: "בדיקה קרדיולוגית שגרתית — א.ק.ג תקין, לחץ דם תקין. אין ממצאים חריגים.",
+    instructions: "מעקב שגרתי בעוד שנה, אלא אם כן יופיעו תסמינים.",
+    created_date: isoDateDaysFromNow(-12),
+  },
+];
 
 // ---------------------------------------------------------------------------
 // Documents — the patient-facing "מסמכים" tab.

@@ -8,13 +8,20 @@ import { Input, Select } from "@/components/ui/Input";
 import { EmptyState } from "@/components/ui/Misc";
 import { Badge } from "@/components/ui/Badge";
 import { generateId } from "@/lib/utils";
-import { Clinic, DayKey, LocationType, LOCATION_TYPE_LABELS } from "@/types";
-import { DAY_LABELS } from "@/lib/medical-tree";
+import { Clinic, LocationType, LOCATION_TYPE_LABELS } from "@/types";
 import { Plus, Pencil, Trash2, Star, MapPin } from "lucide-react";
 
-const DAYS: DayKey[] = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
-
 const PHYSICAL_LOCATION_TYPES: LocationType[] = ["clinic", "store"];
+
+const EMPTY_HOURS: Clinic["hours"] = {
+  sunday: null,
+  monday: null,
+  tuesday: null,
+  wednesday: null,
+  thursday: null,
+  friday: null,
+  saturday: null,
+};
 
 export function ClinicsSection({
   clinics,
@@ -35,23 +42,11 @@ export function ClinicsSection({
   const [form, setForm] = useState({ name: "", address: "", city: "", phone: "" });
   const [locationType, setLocationType] = useState<LocationType>(allowedLocationTypes[0] ?? "clinic");
   const isPhysical = PHYSICAL_LOCATION_TYPES.includes(locationType);
-  const [hours, setHours] = useState<Record<DayKey, { open: boolean; start: string; end: string }>>(
-    DAYS.reduce(
-      (acc, d) => ({ ...acc, [d]: { open: d !== "friday" && d !== "saturday", start: "09:00", end: "17:00" } }),
-      {} as Record<DayKey, { open: boolean; start: string; end: string }>
-    )
-  );
 
   function openCreate() {
     setEditingId(null);
     setForm({ name: "", address: "", city: "", phone: "" });
     setLocationType(allowedLocationTypes[0] ?? "clinic");
-    setHours(
-      DAYS.reduce(
-        (acc, d) => ({ ...acc, [d]: { open: d !== "friday" && d !== "saturday", start: "09:00", end: "17:00" } }),
-        {} as Record<DayKey, { open: boolean; start: string; end: string }>
-      )
-    );
     setOpen(true);
   }
 
@@ -59,21 +54,10 @@ export function ClinicsSection({
     setEditingId(clinic.id);
     setForm({ name: clinic.name, address: clinic.address, city: clinic.city, phone: clinic.phone });
     setLocationType(clinic.location_type ?? allowedLocationTypes[0] ?? "clinic");
-    setHours(
-      DAYS.reduce((acc, d) => {
-        const h = clinic.hours[d];
-        return { ...acc, [d]: { open: !!h, start: h?.[0] ?? "09:00", end: h?.[1] ?? "17:00" } };
-      }, {} as Record<DayKey, { open: boolean; start: string; end: string }>)
-    );
     setOpen(true);
   }
 
   function handleSave() {
-    const hoursRecord = DAYS.reduce((acc, d) => {
-      acc[d] = hours[d].open ? [hours[d].start, hours[d].end] : null;
-      return acc;
-    }, {} as Clinic["hours"]);
-
     const newClinic: Clinic = {
       id: editingId ?? generateId("clinic"),
       name: form.name,
@@ -81,7 +65,7 @@ export function ClinicsSection({
       city: form.city,
       phone: form.phone,
       is_primary: editingId ? clinics.find((c) => c.id === editingId)?.is_primary ?? false : clinics.length === 0,
-      hours: hoursRecord,
+      hours: editingId ? clinics.find((c) => c.id === editingId)?.hours ?? EMPTY_HOURS : EMPTY_HOURS,
       location_type: locationType,
     };
 
@@ -134,13 +118,6 @@ export function ClinicsSection({
                   </button>
                 </div>
               </div>
-              <div className="mt-3 flex flex-wrap gap-1 text-[11px]">
-                {DAYS.map((d) => (
-                  <span key={d} className="rounded bg-slate-50 px-1.5 py-0.5 text-slate-500">
-                    {DAY_LABELS[d]}: {c.hours[d] ? `${c.hours[d]![0]}-${c.hours[d]![1]}` : "סגור"}
-                  </span>
-                ))}
-              </div>
               {!c.is_primary && (
                 <button
                   onClick={() => setPrimary(c.id)}
@@ -186,39 +163,9 @@ export function ClinicsSection({
               עבור {LOCATION_TYPE_LABELS[locationType].toLowerCase()} אין צורך בכתובת פיזית — ניתן להשלים אזורי שירות בפרטי הפרופיל.
             </p>
           )}
-          <p className="text-sm font-medium text-slate-700 mt-2">שעות פעילות</p>
-          <div className="flex flex-col gap-2">
-            {DAYS.map((d) => (
-              <div key={d} className="flex items-center gap-2">
-                <label className="flex items-center gap-1.5 w-20 text-sm text-slate-600">
-                  <input
-                    type="checkbox"
-                    checked={hours[d].open}
-                    onChange={(e) => setHours({ ...hours, [d]: { ...hours[d], open: e.target.checked } })}
-                    className="h-4 w-4 rounded border-slate-300 accent-primary"
-                  />
-                  {DAY_LABELS[d]}
-                </label>
-                {hours[d].open && (
-                  <>
-                    <input
-                      type="time"
-                      value={hours[d].start}
-                      onChange={(e) => setHours({ ...hours, [d]: { ...hours[d], start: e.target.value } })}
-                      className="h-8 rounded-md border border-slate-300 px-2 text-sm"
-                    />
-                    <span className="text-slate-400">—</span>
-                    <input
-                      type="time"
-                      value={hours[d].end}
-                      onChange={(e) => setHours({ ...hours, [d]: { ...hours[d], end: e.target.value } })}
-                      className="h-8 rounded-md border border-slate-300 px-2 text-sm"
-                    />
-                  </>
-                )}
-              </div>
-            ))}
-          </div>
+          <p className="text-xs text-slate-500">
+            את שעות הפעילות אפשר להגדיר בשלב הבא, בלשונית &quot;זמינות&quot;.
+          </p>
           <Button onClick={handleSave}>שמור {locationLabelSingular}</Button>
         </div>
       </Dialog>

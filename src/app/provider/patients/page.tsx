@@ -1,17 +1,20 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ProviderLayout } from "@/components/layouts/ProviderLayout";
 import { useStore } from "@/lib/store";
 import { useCurrentProvider } from "@/lib/useCurrentPatient";
 import { PageHeader, Avatar } from "@/components/ui/Misc";
 import { StatusBadge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { DataTable, DataTableColumn } from "@/components/ui/DataTable";
 import { Patient } from "@/types";
-import { Search, Users } from "lucide-react";
+import { Search, Users, FolderOpen } from "lucide-react";
 
 export default function ProviderPatientsPage() {
+  const router = useRouter();
   const provider = useCurrentProvider();
   const patients = useStore((s) => s.patients);
   const appointments = useStore((s) => s.appointments);
@@ -53,6 +56,12 @@ export default function ProviderPatientsPage() {
         rowKey={(p) => p.id}
         emptyIcon={<Users className="h-10 w-10" />}
         emptyTitle="אין מטופלים מתאימים"
+        onRowClick={(p) => router.push(`/provider/patients/${p.id}`)}
+        rowActions={(p) => (
+          <Button variant="outline" size="sm" onClick={() => router.push(`/provider/patients/${p.id}`)}>
+            <FolderOpen className="h-3.5 w-3.5" /> פתח תיק
+          </Button>
+        )}
         columns={
           [
             {
