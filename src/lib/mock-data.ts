@@ -352,6 +352,8 @@ const provider4: ProviderProfile = {
 // other than the demo patient's own (§7.1) — no arrangement price here, but
 // since the provider still declares those layers, the patient can claim the
 // visit back from their own מכבי-שלי / מגדל cover after paying in full.
+const provider5ClinicId = generateId("clinic");
+
 const provider5: ProviderProfile = {
   id: "prov_5",
   display_name: "ד\"ר עדי רון",
@@ -385,12 +387,14 @@ const provider5: ProviderProfile = {
         { layer: "B", price: 70 },
         { layer: "H", price: 480 },
       ],
+      service_type: "consultation",
+      linked_clinic_ids: [provider5ClinicId],
     },
   ],
   exam_types: [],
   clinic_locations: [
     {
-      id: generateId("clinic"),
+      id: provider5ClinicId,
       name: "מרפאת עיכול חיפה",
       address: "הנמל 22",
       city: "חיפה",
@@ -413,6 +417,8 @@ const provider5: ProviderProfile = {
 // Published private-pay-only provider (§7.1) — no S/K/B agreement declared
 // at all, so no patient sees an arrangement or a reimbursement note here,
 // regardless of what insurance they hold.
+const provider6ClinicId = generateId("clinic");
+
 const provider6: ProviderProfile = {
   id: "prov_6",
   display_name: "ד\"ר יובל שרון",
@@ -437,12 +443,14 @@ const provider6: ProviderProfile = {
       name: "ייעוץ רפואת עיניים",
       duration_minutes: 20,
       prices: [{ layer: "H", price: 390 }],
+      service_type: "consultation",
+      linked_clinic_ids: [provider6ClinicId],
     },
   ],
   exam_types: [],
   clinic_locations: [
     {
-      id: generateId("clinic"),
+      id: provider6ClinicId,
       name: "מרפאת עיניים הרצליה",
       address: "סוקולוב 10",
       city: "הרצליה",

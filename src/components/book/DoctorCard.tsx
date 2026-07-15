@@ -1,12 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
 import { motion } from "framer-motion";
 import { Star, MapPin } from "lucide-react";
 import { Avatar } from "@/components/ui/Misc";
 import { resolvePriceBreakdown } from "@/lib/pricing";
 import { InsurancePriceBlock } from "@/components/book/InsurancePriceBlock";
-import { useStore } from "@/lib/store";
 import { yearsSince } from "@/lib/utils";
 import { Patient, ProviderProfile } from "@/types";
 
@@ -19,24 +17,17 @@ export function DoctorCard({
   patient?: Patient | null;
   onSelect: () => void;
 }) {
-  const catalog = useStore((s) => s.catalog);
-  const skillSubdomains = useStore((s) => s.skillSubdomains);
-
   const primaryClinic = provider.clinic_locations.find((c) => c.is_primary) ?? provider.clinic_locations[0];
   const consultation = provider.consultation_types[0];
   const breakdown = consultation ? resolvePriceBreakdown(consultation.prices, provider.agreements, patient) : null;
   const experienceYears = yearsSince(provider.license_issue_date);
 
-  // Sub-domains this doctor is discoverable under (§5 skill taxonomy) —
-  // derived from their own consultation-type catalog items, not free text.
-  const subdomainNames = useMemo(() => {
-    const ids = new Set(
-      catalog
-        .filter((c) => c.provider_id === provider.id && c.service_type === "consultation" && c.is_active)
-        .map((c) => c.skill_subdomain_id)
-    );
-    return skillSubdomains.filter((sd) => ids.has(sd.id)).map((sd) => sd.name_he);
-  }, [catalog, skillSubdomains, provider.id]);
+  // Services this doctor offers, shown as tags — pulled directly from their
+  // own consultation_types (the provider owns their services now, there's no
+  // shared reference-catalog link to derive taxonomy tags from anymore).
+  const serviceNames = provider.consultation_types
+    .filter((ct) => ct.service_type === "consultation")
+    .map((ct) => ct.name);
 
   return (
     <motion.button
@@ -66,9 +57,9 @@ export function DoctorCard({
           {provider.specialty}
           {experienceYears != null && <span className="text-slate-400 font-normal"> · {experienceYears} שנות ניסיון</span>}
         </p>
-        {subdomainNames.length > 0 && (
+        {serviceNames.length > 0 && (
           <div className="mt-1.5 flex flex-wrap gap-1">
-            {subdomainNames.map((name) => (
+            {serviceNames.map((name) => (
               <span key={name} className="rounded-full bg-primary/5 px-2 py-0.5 text-[10px] font-medium text-primary">
                 {name}
               </span>

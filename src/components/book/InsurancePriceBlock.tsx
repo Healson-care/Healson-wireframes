@@ -33,6 +33,9 @@ export function InsurancePriceBlock({ breakdown }: { breakdown: PriceBreakdown }
         <span className="flex items-center gap-1 rounded-full bg-info-bg px-2 py-0.5 text-[11px] font-medium text-info-text">
           <ReceiptText className="h-3 w-3 shrink-0" /> זכאי/ת להחזר {listSources(breakdown.reimbursementSources)}
         </span>
+        <span className="flex items-center gap-1 text-[11px] text-slate-400">
+          <Info className="h-3 w-3 shrink-0" /> הרופא/ה לא בהסדר — משלמים את המחיר המלא ומגישים תביעת החזר בנפרד
+        </span>
       </div>
     );
   }
