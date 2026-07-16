@@ -268,6 +268,8 @@ export interface Patient {
   email?: string;
   phone?: string;
   id_number?: string;
+  id_document_type?: "id" | "passport";
+  id_document_photo?: UploadedFile;
   date_of_birth?: string;
   address?: string;
   parent_name?: string;

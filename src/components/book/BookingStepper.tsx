@@ -3,7 +3,7 @@
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const STEPS = ["בחירת רופא", "פרטים אישיים", "הסכמות", "פרופיל ביטוחי", "בחירת תור", "תשלום מקדמה", "אישור"];
+const STEPS = ["בחירת רופא", "בחירת תור", "תשלום מקדמה", "אישור"];
 
 export function BookingStepper({ step }: { step: number }) {
   return (
