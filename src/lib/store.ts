@@ -128,12 +128,16 @@ interface AuthState {
   loginAsDemo: (role: Role, patientVariant?: "new" | "existing") => void;
   completePatientRegistration: (
     userId: string,
-    data: { full_name: string; phone?: string; id_number: string; date_of_birth: string } & InsuranceProfileInput,
+    data: {
+      full_name: string;
+      phone?: string;
+      id_number: string;
+      id_document_type?: "id" | "passport";
+      id_document_photo?: UploadedFile;
+      date_of_birth: string;
+      parent_name?: string;
+    } & InsuranceProfileInput,
     consents: RegistrationConsents
-  ) => Patient;
-  quickRegisterPatient: (
-    data: { full_name: string; phone: string; email: string; id_number: string; date_of_birth: string } & Partial<InsuranceProfileInput>,
-    consents?: RegistrationConsents
   ) => Patient;
 }
 
@@ -527,7 +531,10 @@ export const useStore = create<Store>()(
           email: user?.email,
           phone: data.phone,
           id_number: data.id_number,
+          id_document_type: data.id_document_type,
+          id_document_photo: data.id_document_photo,
           date_of_birth: data.date_of_birth,
+          parent_name: data.parent_name,
           address: data.address,
           kupah: data.kupah,
           k_level: data.k_level,
@@ -540,64 +547,6 @@ export const useStore = create<Store>()(
         (Object.keys(consents) as ConsentType[]).forEach((type) => {
           if (consents[type]) get().grantConsent(patient.id, type, CONSENT_DOCUMENT_VERSION);
         });
-        return patient;
-      },
-
-      quickRegisterPatient: (data, consents) => {
-        const existingPatient = get().patients.find(
-          (p) => p.email && p.email.toLowerCase() === data.email.toLowerCase()
-        );
-        if (existingPatient) {
-          const existingUser = get().users.find((u) => u.id === existingPatient.user_id);
-          if (existingUser) set({ currentUser: existingUser });
-          if (data.kupah) {
-            get().updatePatient(existingPatient.id, {
-              id_number: data.id_number,
-              date_of_birth: data.date_of_birth,
-              kupah: data.kupah,
-              k_level: data.k_level,
-              has_b_insurance: data.has_b_insurance,
-              b_insurance_company: data.b_insurance_company,
-              b_policy_number: data.b_policy_number,
-              address: data.address,
-            });
-          }
-          if (consents) {
-            (Object.keys(consents) as ConsentType[]).forEach((type) => {
-              if (consents[type]) get().grantConsent(existingPatient.id, type, CONSENT_DOCUMENT_VERSION);
-            });
-          }
-          return existingPatient;
-        }
-        const newUser: User = {
-          id: generateId("user"),
-          email: data.email,
-          full_name: data.full_name,
-          role: "patient",
-          phone: data.phone,
-          created_date: new Date().toISOString(),
-        };
-        set((s) => ({ users: [...s.users, newUser], currentUser: newUser }));
-        const patient = get().addPatient({
-          full_name: data.full_name,
-          email: data.email,
-          phone: data.phone,
-          id_number: data.id_number,
-          date_of_birth: data.date_of_birth,
-          kupah: data.kupah ?? "כללית",
-          k_level: data.k_level,
-          has_b_insurance: data.has_b_insurance,
-          b_insurance_company: data.b_insurance_company,
-          b_policy_number: data.b_policy_number,
-          address: data.address,
-          status: "פעיל",
-          user_id: newUser.id,
-        });
-        if (consents) {
-          (Object.keys(consents) as ConsentType[]).forEach((type) => {
-            if (consents[type]) get().grantConsent(patient.id, type, CONSENT_DOCUMENT_VERSION);
-          });
-        }
         return patient;
       },
 
