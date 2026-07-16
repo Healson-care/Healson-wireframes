@@ -206,7 +206,6 @@ interface EntitiesState {
 
   addAppointment: (a: Omit<Appointment, "id">) => Appointment;
   updateAppointment: (id: string, data: Partial<Appointment>) => void;
-  deleteAppointment: (id: string) => void;
 
   addOrder: (o: Omit<Order, "id" | "created_date">) => Order;
   updateOrder: (id: string, data: Partial<Order>) => void;
@@ -764,8 +763,6 @@ export const useStore = create<Store>()(
         set((s) => ({
           appointments: s.appointments.map((a) => (a.id === id ? { ...a, ...data } : a)),
         })),
-      deleteAppointment: (id) =>
-        set((s) => ({ appointments: s.appointments.filter((a) => a.id !== id) })),
 
       addOrder: (o) => {
         const record: Order = { ...o, id: generateId("ord"), created_date: new Date().toISOString() };

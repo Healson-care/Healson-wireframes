@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useStore } from "@/lib/store";
 import { PageHeader, Avatar, StatCard } from "@/components/ui/Misc";
@@ -14,7 +15,7 @@ import { PatientForm, PatientFormValues } from "@/components/admin/PatientForm";
 import { LeadForm, LeadFormValues } from "@/components/admin/LeadForm";
 import { KUPOT, LEAD_STATUSES, PATIENT_STATUSES, Patient, Lead } from "@/types";
 import { cn } from "@/lib/utils";
-import { Plus, Search, Users, X, Pencil, Trash2, ArrowLeftRight } from "lucide-react";
+import { Plus, Search, Users, X, Pencil, Trash2, ArrowLeftRight, FolderOpen } from "lucide-react";
 
 export default function CrmPage() {
   const patients = useStore((s) => s.patients);
@@ -97,6 +98,7 @@ function PatientsTab({
   deletePatient: ReturnType<typeof useStore.getState>["deletePatient"];
   showToast: ReturnType<typeof useStore.getState>["showToast"];
 }) {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [kupahFilter, setKupahFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
@@ -135,11 +137,18 @@ function PatientsTab({
   }
 
   function handleSubmit(values: PatientFormValues) {
+    const patch = {
+      ...values,
+      k_level: values.k_level || undefined,
+      b_insurance_company: values.has_b_insurance ? values.b_insurance_company : undefined,
+      b_policy_number: values.has_b_insurance ? values.b_policy_number : undefined,
+      address: values.address || undefined,
+    };
     if (editPatient) {
-      updatePatient(editPatient.id, values);
+      updatePatient(editPatient.id, patch);
       showToast("פרטי המטופל עודכנו", { variant: "success" });
     } else {
-      addPatient(values);
+      addPatient(patch);
       showToast("המטופל נוסף בהצלחה", { variant: "success" });
     }
     setFormOpen(false);
@@ -253,6 +262,13 @@ function PatientsTab({
         rowActions={(p) => (
           <>
             <button
+              onClick={() => router.push(`/crm/${p.id}`)}
+              className="p-1.5 rounded-md hover:bg-slate-100 text-slate-500"
+              title="תיק מטופל"
+            >
+              <FolderOpen className="h-3.5 w-3.5" />
+            </button>
+            <button
               onClick={() => {
                 setEditPatient(p);
                 setFormOpen(true);
@@ -279,8 +295,15 @@ function PatientsTab({
                 email: editPatient.email ?? "",
                 phone: editPatient.phone ?? "",
                 id_number: editPatient.id_number ?? "",
+                id_document_type: editPatient.id_document_type ?? "id",
+                date_of_birth: editPatient.date_of_birth ?? "",
                 parent_name: editPatient.parent_name ?? "",
                 kupah: editPatient.kupah,
+                k_level: editPatient.k_level ?? "",
+                has_b_insurance: editPatient.has_b_insurance ?? false,
+                b_insurance_company: editPatient.b_insurance_company ?? "",
+                b_policy_number: editPatient.b_policy_number ?? "",
+                address: editPatient.address ?? "",
                 status: editPatient.status,
               }
             : undefined

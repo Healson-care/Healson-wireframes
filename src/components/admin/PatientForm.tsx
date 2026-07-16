@@ -4,15 +4,23 @@ import { useState } from "react";
 import { Dialog } from "@/components/ui/Dialog";
 import { Input, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
-import { KUPOT, PATIENT_STATUSES, Patient } from "@/types";
+import { InsuranceProfileForm, InsuranceProfileValue } from "@/components/patient/InsuranceProfileForm";
+import { KLevel, PATIENT_STATUSES, Patient } from "@/types";
 
 export interface PatientFormValues {
   full_name: string;
   email: string;
   phone: string;
   id_number: string;
+  id_document_type: "id" | "passport";
+  date_of_birth: string;
   parent_name: string;
   kupah: Patient["kupah"];
+  k_level: KLevel | "";
+  has_b_insurance: boolean;
+  b_insurance_company: string;
+  b_policy_number: string;
+  address: string;
   status: Patient["status"];
 }
 
@@ -21,8 +29,15 @@ const EMPTY: PatientFormValues = {
   email: "",
   phone: "",
   id_number: "",
+  id_document_type: "id",
+  date_of_birth: "",
   parent_name: "",
   kupah: "כללית",
+  k_level: "",
+  has_b_insurance: false,
+  b_insurance_company: "",
+  b_policy_number: "",
+  address: "",
   status: "פעיל",
 };
 
@@ -47,6 +62,15 @@ export function PatientForm({
     setWasOpen(false);
   }
 
+  const insuranceValue: InsuranceProfileValue = {
+    kupah: form.kupah,
+    k_level: form.k_level,
+    has_b_insurance: form.has_b_insurance,
+    b_insurance_company: form.b_insurance_company,
+    b_policy_number: form.b_policy_number,
+    address: form.address,
+  };
+
   return (
     <Dialog open={open} onClose={onClose} title={initial ? "עריכת מטופל" : "מטופל חדש"}>
       <form
@@ -57,17 +81,37 @@ export function PatientForm({
         className="flex flex-col gap-3"
       >
         <Input label="שם מלא" required value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
-        <Input label="טלפון" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+        <Input label="טלפון" required value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
         <Input label="אימייל" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-        <Input label="תעודת זהות" value={form.id_number} onChange={(e) => setForm({ ...form, id_number: e.target.value })} />
+
+        <div className="grid grid-cols-2 gap-3">
+          <Select
+            label="סוג מסמך מזהה"
+            value={form.id_document_type}
+            onChange={(e) => setForm({ ...form, id_document_type: e.target.value as "id" | "passport" })}
+          >
+            <option value="id">תעודת זהות</option>
+            <option value="passport">דרכון</option>
+          </Select>
+          <Input
+            label={form.id_document_type === "id" ? "מספר ת.ז" : "מספר דרכון"}
+            required
+            value={form.id_number}
+            onChange={(e) => setForm({ ...form, id_number: e.target.value })}
+          />
+        </div>
+
+        <Input
+          type="date"
+          label="תאריך לידה"
+          required
+          value={form.date_of_birth}
+          onChange={(e) => setForm({ ...form, date_of_birth: e.target.value })}
+        />
         <Input label="שם הורה (קטין)" value={form.parent_name} onChange={(e) => setForm({ ...form, parent_name: e.target.value })} />
-        <Select label="קופת חולים" value={form.kupah} onChange={(e) => setForm({ ...form, kupah: e.target.value as Patient["kupah"] })}>
-          {KUPOT.map((k) => (
-            <option key={k} value={k}>
-              {k}
-            </option>
-          ))}
-        </Select>
+
+        <InsuranceProfileForm value={insuranceValue} onChange={(v) => setForm({ ...form, ...v })} />
+
         <Select label="סטטוס" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as Patient["status"] })}>
           {PATIENT_STATUSES.map((s) => (
             <option key={s} value={s}>

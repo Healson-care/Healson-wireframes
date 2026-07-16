@@ -283,6 +283,7 @@ export interface Patient {
   created_date: string;
   user_id?: string;
   processing_restricted?: boolean; // §11.2 / ADM-08 — blocks new data processing (bookings/orders) when true
+  notes?: string; // internal staff notes — never shown to the patient
 }
 
 export interface Lead {
