@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
@@ -8,6 +8,7 @@ import { ArrowRight, LogOut } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useCurrentPatient } from "@/lib/useCurrentPatient";
 import { resolveProviderPrice } from "@/lib/pricing";
+import { BOOK_RESUME_PROVIDER_KEY, POST_REGISTER_REDIRECT_KEY } from "@/lib/constants";
 import { Logo } from "@/components/shared/Logo";
 import { ConfirmDialog } from "@/components/ui/Dialog";
 import { BookingStepper } from "@/components/book/BookingStepper";
@@ -73,12 +74,34 @@ export default function BookPage() {
 
   function handleSelectProvider(p: ProviderProfile) {
     if (!patient) {
+      sessionStorage.setItem(BOOK_RESUME_PROVIDER_KEY, p.id);
       setShowAuthRequired(true);
       return;
     }
     setSelectedProvider(p);
     setStep(1);
   }
+
+  // Resume straight at the slot picker for whichever provider the visitor
+  // had clicked on right before getting blocked by the auth-required
+  // popup, instead of dropping them back at the provider list once they
+  // return here freshly logged in/registered.
+  useEffect(() => {
+    if (!patient) return;
+    const resumeProviderId = sessionStorage.getItem(BOOK_RESUME_PROVIDER_KEY);
+    if (!resumeProviderId) return;
+    sessionStorage.removeItem(BOOK_RESUME_PROVIDER_KEY);
+    const resumeProvider = providers.find((p) => p.id === resumeProviderId);
+    // Syncing from sessionStorage (external, only known once patient/
+    // hydration resolves) — not a derived-state anti-pattern.
+    /* eslint-disable react-hooks/set-state-in-effect */
+    if (resumeProvider) {
+      setSelectedProvider(resumeProvider);
+      setStep(1);
+    }
+    /* eslint-enable react-hooks/set-state-in-effect */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patient]);
 
   // Only ever invoked from the slot button's onClick — safe to read the clock here.
   // Creating the appointment here (not at payment time) is deliberate: from the
@@ -229,7 +252,11 @@ export default function BookPage() {
                 <LogOut className="h-3.5 w-3.5" /> התנתק
               </button>
             ) : (
-              <Link href="/client/login" className="text-sm font-medium text-primary hover:underline">
+              <Link
+                href="/client/login"
+                onClick={() => sessionStorage.setItem(POST_REGISTER_REDIRECT_KEY, "/book")}
+                className="text-sm font-medium text-primary hover:underline"
+              >
                 התחברות או הרשמה
               </Link>
             )}
@@ -317,7 +344,10 @@ export default function BookPage() {
       <ConfirmDialog
         open={showAuthRequired}
         onClose={() => setShowAuthRequired(false)}
-        onConfirm={() => router.push("/client/login")}
+        onConfirm={() => {
+          sessionStorage.setItem(POST_REGISTER_REDIRECT_KEY, "/book");
+          router.push("/client/login");
+        }}
         title="נדרשת הרשמה או התחברות"
         description="לא ניתן לראות זמינות ללא התחברות או הרשמה"
         confirmLabel="המשך להתחברות/הרשמה"

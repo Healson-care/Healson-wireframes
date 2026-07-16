@@ -309,7 +309,38 @@ export const useStore = create<Store>()(
           set({ currentUser: existing });
           return { ok: true };
         }
-        // Unknown email -> mock-create a new patient account on the fly.
+        // No User account yet — but a Patient record with this email may
+        // already exist (e.g. added by staff, never logged in online
+        // before). Treat that the same as an existing patient — link a
+        // User to it and require the double OTP — instead of silently
+        // spinning up a second, blank lead account for the same person.
+        const matchingPatient = get().patients.find(
+          (p) => p.email && p.email.toLowerCase() === email.toLowerCase()
+        );
+        if (matchingPatient) {
+          const linkedUser: User = {
+            id: generateId("user"),
+            email,
+            full_name: matchingPatient.full_name,
+            role: "patient",
+            phone: matchingPatient.phone,
+            created_date: new Date().toISOString(),
+          };
+          set((s) => ({ users: [...s.users, linkedUser] }));
+          if (!matchingPatient.user_id) {
+            get().updatePatient(matchingPatient.id, { user_id: linkedUser.id });
+          }
+          set({
+            pendingLoginVerification: {
+              userId: linkedUser.id,
+              smsOtp: "123456",
+              emailOtp: "654321",
+              smsVerified: false,
+            },
+          });
+          return { ok: true, requiresOtp: true };
+        }
+        // Truly unknown email -> mock-create a new patient account on the fly.
         const newUser: User = {
           id: generateId("user"),
           email,

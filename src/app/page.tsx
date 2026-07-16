@@ -16,6 +16,7 @@ import {
   Users,
   Wallet,
   Rocket,
+  LogOut,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Button } from "@/components/ui/Button";
@@ -68,6 +69,7 @@ export default function LandingPage() {
   const router = useRouter();
   const currentUser = useStore((s) => s.currentUser);
   const loginAsDemo = useStore((s) => s.loginAsDemo);
+  const logout = useStore((s) => s.logout);
   const showToast = useStore((s) => s.showToast);
 
   function enterAs(role: Role) {
@@ -98,7 +100,18 @@ export default function LandingPage() {
                 {currentUser ? "אזור אישי" : "הרשמה והתחברות"}
               </Button>
             </Link>
-            {!currentUser && (
+            {currentUser ? (
+              <button
+                type="button"
+                onClick={() => {
+                  logout();
+                  router.push(currentUser.role === "patient" ? "/client/login" : "/login");
+                }}
+                className="flex items-center gap-1 text-sm text-slate-500 hover:text-primary"
+              >
+                <LogOut className="h-3.5 w-3.5" /> התנתק
+              </button>
+            ) : (
               <Link href="/book">
                 <Button size="sm">קביעת תור</Button>
               </Link>

@@ -24,7 +24,11 @@ export function useRequireRole(role: Role) {
   useEffect(() => {
     if (!hasHydrated) return;
     if (!currentUser) {
-      router.replace("/login");
+      // Patients have their own login/register page; this also wins the
+      // race against a manual "התנתק" button that tries to navigate
+      // elsewhere right after calling logout() — this effect fires from
+      // the currentUser change and would otherwise clobber that navigation.
+      router.replace(role === "patient" ? "/client/login" : "/login");
     } else if (currentUser.role !== role) {
       router.replace(HOME_BY_ROLE[currentUser.role]);
     }

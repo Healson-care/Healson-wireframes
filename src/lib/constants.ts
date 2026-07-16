@@ -2,6 +2,12 @@
 // they were on (e.g. the booking flow) once they finish /register.
 export const POST_REGISTER_REDIRECT_KEY = "healson_post_register_redirect";
 
+// sessionStorage key holding the provider id a visitor had clicked on in
+// /book right before getting blocked by the auth-required popup — lets
+// /book resume straight at that provider's slot picker after they finish
+// registering/logging in, instead of restarting from the provider list.
+export const BOOK_RESUME_PROVIDER_KEY = "healson_book_resume_provider";
+
 // Maps a clinic's city to its broader geographic region, so provider search
 // can filter by region instead of by individual city/branch.
 export const REGION_BY_CITY: Record<string, string> = {

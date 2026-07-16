@@ -13,6 +13,7 @@ import { isValidIsraeliId } from "@/lib/utils";
 import { fileToDataUrl } from "@/lib/file";
 import { homeForRole } from "@/lib/useRequireRole";
 import { cn } from "@/lib/utils";
+import { POST_REGISTER_REDIRECT_KEY } from "@/lib/constants";
 import { UploadedFile } from "@/types";
 import {
   ConsentCheckboxes,
@@ -144,6 +145,15 @@ export default function ClientLoginPage() {
     }
   }
 
+  // If something (e.g. /book, blocked mid-flow behind the auth-required
+  // popup) stashed a return path before sending the user here, resume there
+  // once they finish — otherwise fall back to the normal post-auth home.
+  function goAfterAuth(fallback: string) {
+    const redirectTo = sessionStorage.getItem(POST_REGISTER_REDIRECT_KEY);
+    sessionStorage.removeItem(POST_REGISTER_REDIRECT_KEY);
+    router.push(redirectTo || fallback);
+  }
+
   function handleCredentialsSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -231,7 +241,7 @@ export default function ClientLoginPage() {
       consents
     );
     showToast("ההרשמה הושלמה", { description: "ברוכים הבאים ל-HEALSON", variant: "success" });
-    router.push("/client");
+    goAfterAuth("/client");
   }
 
   function handleExistingSubmit(e: React.FormEvent) {
@@ -252,7 +262,7 @@ export default function ClientLoginPage() {
         return;
       }
       const user = useStore.getState().currentUser;
-      router.push(user ? homeForRole(user.role) : "/login");
+      goAfterAuth(user ? homeForRole(user.role) : "/login");
     }, 300);
   }
 
@@ -294,7 +304,7 @@ export default function ClientLoginPage() {
           return;
         }
         const user = useStore.getState().currentUser;
-        router.push(user ? homeForRole(user.role) : "/login");
+        goAfterAuth(user ? homeForRole(user.role) : "/login");
       }
     }, 300);
   }
