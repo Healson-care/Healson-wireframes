@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>מסע הספק ב-HEALSON — מפת תהליך להנהלה</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#f8fafc; --fg:#0f172a;
+    --primary:#0d7d6f; --primary-dark:#095a50; --accent:#c8973a;
+    --success:#059669; --success-bg:#ecfdf5; --success-border:#a7f3d0; --success-text:#047857;
+    --warning:#d97706; --warning-bg:#fffbeb; --warning-border:#fde68a; --warning-text:#b45309;
+    --danger:#dc2626; --danger-bg:#fef2f2; --danger-border:#fecaca; --danger-text:#b91c1c;
+    --info:#2563eb; --info-bg:#eff6ff; --info-border:#bfdbfe; --info-text:#1d4ed8;
+    --accent-bg:#fdf6e8; --accent-border:#f0ddae; --accent-text:#92702a;
+    --neutral-bg:#f1f5f9; --neutral-border:#e2e8f0; --neutral-text:#475569;
+    --shadow-md: 0 4px 12px -2px rgb(15 23 42 / 0.08), 0 2px 4px -2px rgb(15 23 42 / 0.04);
+    --shadow-lg: 0 20px 45px -12px rgb(15 23 42 / 0.22), 0 6px 14px -6px rgb(15 23 42 / 0.08);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:'Rubik', Arial, sans-serif;
+    background:
+      radial-gradient(1200px 600px at 85% -10%, rgba(13,125,111,0.10), transparent 60%),
+      radial-gradient(900px 500px at -10% 20%, rgba(200,151,58,0.10), transparent 55%),
+      var(--bg);
+    color:var(--fg);
+    line-height:1.55;
+  }
+  .wrap{max-width:1180px; margin:0 auto; padding:0 28px 80px;}
+
+  /* ---------- Hero ---------- */
+  .hero{
+    position:relative; overflow:hidden;
+    background:linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 55%, #0f9a89 100%);
+    color:#fff; padding:64px 40px 56px; margin-bottom:8px;
+  }
+  .hero::before{
+    content:""; position:absolute; inset:0;
+    background-image: radial-gradient(circle at 20% 30%, rgba(255,255,255,0.14) 0, transparent 40%),
+                       radial-gradient(circle at 80% 70%, rgba(200,151,58,0.28) 0, transparent 45%);
+  }
+  .hero-inner{position:relative; max-width:1180px; margin:0 auto;}
+  .eyebrow{
+    display:inline-flex; align-items:center; gap:8px;
+    background:rgba(255,255,255,0.14); border:1px solid rgba(255,255,255,0.3);
+    padding:6px 16px; border-radius:999px; font-size:13px; font-weight:600; letter-spacing:.3px;
+    backdrop-filter:blur(4px);
+  }
+  .hero h1{font-size:42px; font-weight:800; margin:20px 0 10px; letter-spacing:-0.5px;}
+  .hero p.sub{font-size:17px; max-width:760px; color:rgba(255,255,255,0.88); font-weight:400; margin:0;}
+  .hero-stats{display:flex; gap:14px; margin-top:32px; flex-wrap:wrap;}
+  .hero-stat{
+    background:rgba(255,255,255,0.10); border:1px solid rgba(255,255,255,0.22);
+    border-radius:14px; padding:14px 20px; min-width:150px; backdrop-filter:blur(6px);
+  }
+  .hero-stat b{display:block; font-size:22px; font-weight:800;}
+  .hero-stat span{font-size:12.5px; color:rgba(255,255,255,0.78);}
+
+  /* ---------- Legend ---------- */
+  .legend{
+    display:flex; gap:10px; flex-wrap:wrap; margin:-28px auto 48px; position:relative; z-index:2;
+    max-width:1180px; padding:0 28px;
+  }
+  .legend-card{
+    background:#fff; border:1px solid var(--neutral-border); border-radius:16px;
+    box-shadow:var(--shadow-lg); padding:16px 22px; flex:1; min-width:230px;
+    display:flex; align-items:center; gap:12px;
+  }
+  .legend-dot{width:12px; height:12px; border-radius:50%; flex:0 0 auto;}
+  .legend-card b{display:block; font-size:14px;}
+  .legend-card span{font-size:12.5px; color:var(--neutral-text);}
+
+  /* ---------- Section headers ---------- */
+  .section-title{
+    display:flex; align-items:center; gap:14px; margin:64px 0 8px;
+  }
+  .section-title .num{
+    width:38px; height:38px; border-radius:11px; background:var(--primary); color:#fff;
+    display:flex; align-items:center; justify-content:center; font-weight:800; font-size:16px;
+    box-shadow:var(--shadow-md);
+  }
+  .section-title h2{font-size:24px; font-weight:800; margin:0;}
+  .section-lead{color:var(--neutral-text); font-size:14.5px; margin:0 0 26px 52px; max-width:820px;}
+
+  /* ---------- Timeline ---------- */
+  .timeline{position:relative; padding-right:26px;}
+  .timeline::before{
+    content:""; position:absolute; right:12px; top:8px; bottom:8px; width:3px;
+    background:linear-gradient(180deg, var(--primary), var(--accent) 60%, var(--neutral-border));
+    border-radius:3px;
+  }
+  .stage{position:relative; margin-bottom:36px;}
+  .stage::before{
+    content:""; position:absolute; right:-26px; top:6px; width:22px; height:22px; border-radius:50%;
+    background:#fff; border:4px solid var(--primary); z-index:2;
+  }
+  .stage.milestone::before{border-color:var(--accent);}
+  .stage-card{
+    background:#fff; border:1px solid var(--neutral-border); border-radius:18px;
+    box-shadow:var(--shadow-md); padding:26px 28px; transition:transform .15s ease, box-shadow .15s ease;
+  }
+  .stage-card:hover{transform:translateY(-2px); box-shadow:var(--shadow-lg);}
+  .stage-head{display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap;}
+  .stage-head-left{display:flex; align-items:center; gap:14px;}
+  .stage-icon{
+    width:52px; height:52px; border-radius:14px; display:flex; align-items:center; justify-content:center;
+    font-size:26px; flex:0 0 auto;
+    background:var(--accent-bg); border:1px solid var(--accent-border);
+  }
+  .stage-title{font-size:19px; font-weight:800; margin:0 0 3px;}
+  .stage-sub{font-size:13px; color:var(--neutral-text); margin:0;}
+  .status-chip{
+    font-size:12px; font-weight:700; padding:6px 13px; border-radius:999px; white-space:nowrap;
+    border:1px solid; display:inline-flex; align-items:center; gap:6px;
+  }
+  .chip-warning{background:var(--warning-bg); color:var(--warning-text); border-color:var(--warning-border);}
+  .chip-info{background:var(--info-bg); color:var(--info-text); border-color:var(--info-border);}
+  .chip-success{background:var(--success-bg); color:var(--success-text); border-color:var(--success-border);}
+  .chip-danger{background:var(--danger-bg); color:var(--danger-text); border-color:var(--danger-border);}
+  .chip-neutral{background:var(--neutral-bg); color:var(--neutral-text); border-color:var(--neutral-border);}
+  .chip-accent{background:var(--accent-bg); color:var(--accent-text); border-color:var(--accent-border);}
+
+  .cols{display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-top:20px;}
+  @media (max-width: 760px){ .cols{grid-template-columns:1fr;} }
+  .col-box{background:var(--neutral-bg); border:1px solid var(--neutral-border); border-radius:13px; padding:16px 18px;}
+  .col-box.provider{background:#f4fbfa; border-color:#cfeae6;}
+  .col-box.healson{background:var(--accent-bg); border-color:var(--accent-border);}
+  .col-box h4{margin:0 0 10px; font-size:13px; font-weight:700; display:flex; align-items:center; gap:7px;}
+  .col-box ul{margin:0; padding-right:18px; font-size:13.5px;}
+  .col-box li{margin-bottom:6px;}
+  .col-box li:last-child{margin-bottom:0;}
+
+  .route-tag{
+    display:inline-flex; align-items:center; gap:6px; font-family:'Consolas', monospace; font-size:12px;
+    background:#0f172a; color:#e2e8f0; padding:4px 10px; border-radius:7px; margin-top:14px;
+  }
+
+  /* ---------- Open question callouts ---------- */
+  .decision{
+    margin-top:20px; border-radius:14px; border:1.5px dashed var(--danger-border);
+    background:repeating-linear-gradient(135deg, var(--danger-bg), var(--danger-bg) 10px, #fff 10px, #fff 20px);
+    padding:16px 20px; position:relative;
+  }
+  .decision-badge{
+    position:absolute; top:-13px; right:18px; background:var(--danger); color:#fff;
+    font-size:11.5px; font-weight:800; padding:4px 12px; border-radius:999px; box-shadow:var(--shadow-md);
+    display:flex; align-items:center; gap:5px;
+  }
+  .decision h4{margin:6px 0 8px; font-size:14.5px; color:var(--danger-text); font-weight:800;}
+  .decision p{margin:0; font-size:13.5px; color:#7f1d1d;}
+  .decision .options{margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;}
+  .opt-pill{
+    background:#fff; border:1px solid var(--danger-border); color:var(--danger-text);
+    font-size:12px; font-weight:600; padding:5px 12px; border-radius:999px;
+  }
+
+  /* ---------- Connector arrow between phases ---------- */
+  .phase-arrow{
+    display:flex; align-items:center; justify-content:center; margin:26px 0; color:var(--neutral-text);
+    gap:8px; font-size:13px; font-weight:600;
+  }
+  .phase-arrow .line{flex:1; height:1px; background:var(--neutral-border);}
+
+  /* ---------- Post-publish grid ---------- */
+  .grid4{display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-top:22px;}
+  @media (max-width: 980px){ .grid4{grid-template-columns:repeat(2,1fr);} }
+  @media (max-width: 560px){ .grid4{grid-template-columns:1fr;} }
+  .feat-card{
+    background:#fff; border:1px solid var(--neutral-border); border-radius:16px; padding:20px 18px;
+    box-shadow:var(--shadow-md); text-align:center; transition:transform .15s ease;
+  }
+  .feat-card:hover{transform:translateY(-3px);}
+  .feat-icon{font-size:30px; margin-bottom:10px;}
+  .feat-card h5{margin:0 0 6px; font-size:14.5px; font-weight:700;}
+  .feat-card p{margin:0; font-size:12.5px; color:var(--neutral-text);}
+
+  /* ---------- State machine strip ---------- */
+  .states{display:flex; align-items:center; gap:0; margin:26px 0 10px; flex-wrap:wrap;}
+  .state-box{
+    background:#fff; border:2px solid var(--neutral-border); border-radius:12px;
+    padding:10px 16px; font-size:12.5px; font-weight:700; text-align:center; min-width:120px;
+  }
+  .state-box.active{border-color:var(--primary); color:var(--primary-dark); background:#f0faf8;}
+  .state-arrow{padding:0 10px; color:var(--neutral-text); font-size:18px;}
+  .state-offramp{
+    font-size:11.5px; color:var(--danger-text); background:var(--danger-bg); border:1px solid var(--danger-border);
+    border-radius:999px; padding:4px 10px; margin-inline-start:8px;
+  }
+
+  footer{margin-top:70px; padding:26px 0; border-top:1px solid var(--neutral-border); color:var(--neutral-text); font-size:12.5px; text-align:center;}
+
+  @media print{
+    .hero{padding:32px 20px;}
+    .stage-card, .feat-card, .legend-card{box-shadow:none;}
+  }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-inner">
+    <span class="eyebrow">🗺️ מסמך תהליך — לצוות ההנהלה</span>
+    <h1>מסע הספק ב-HEALSON</h1>
+    <p class="sub">מפת דרכים מלאה: מהרגע שספק שירות רפואי לוחץ "הצטרפות" ועד היום-יום שלו בפלטפורמה — כולל מה הוא רואה, מה הילסון עושה מאחורי הקלעים, ואילו החלטות עסקיות עדיין פתוחות.</p>
+    <div class="hero-stats">
+      <div class="hero-stat"><b>4</b><span>שלבי הצטרפות עד "בשידור חי"</span></div>
+      <div class="hero-stat"><b>5</b><span>סטטוסים במנוע המצבים</span></div>
+      <div class="hero-stat"><b>2</b><span>החלטות עסקיות פתוחות ⚠️</span></div>
+      <div class="hero-stat"><b>6+</b><span>יכולות ניהול לאחר פרסום</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="legend">
+  <div class="legend-card"><span class="legend-dot" style="background:var(--warning)"></span><div><b>ממתין לבדיקה</b><span>הבקשה בבדיקת הילסון</span></div></div>
+  <div class="legend-card"><span class="legend-dot" style="background:var(--info)"></span><div><b>באונבורדינג</b><span>הספק משלים הסכם + מחירון</span></div></div>
+  <div class="legend-card"><span class="legend-dot" style="background:var(--success)"></span><div><b>מאושר ומפורסם</b><span>גלוי לחיפוש והזמנות</span></div></div>
+  <div class="legend-card"><span class="legend-dot" style="background:var(--danger)"></span><div><b>נדחה / מושהה</b><span>חסום מכניסה למערכת</span></div></div>
+</div>
+
+<div class="wrap">
+
+  <!-- ================= PHASE A: APPLICATION ================= -->
+  <div class="section-title"><span class="num">1</span><h2>הרשמה — טופס בקשת הצטרפות</h2></div>
+  <p class="section-lead">כל מי שרוצה להצטרף כספק בהילסון (רופא/ה, מטפל/ת, בית מרקחת, מעבדה ועוד) ממלא טופס פומבי ללא צורך בהתחברות מראש.</p>
+
+  <div class="timeline">
+    <div class="stage">
+      <div class="stage-card">
+        <div class="stage-head">
+          <div class="stage-head-left">
+            <div class="stage-icon">📝</div>
+            <div>
+              <p class="stage-title">בחירת סוג ספק + מילוי פרטים</p>
+              <p class="stage-sub">רופא/ה עצמאי, מטפל/ת, ארגון, חנות, בית מרקחת, מעבדה ועוד — כל סוג עם שדות משלו</p>
+            </div>
+          </div>
+          <span class="status-chip chip-neutral">🌐 ציבורי, ללא התחברות</span>
+        </div>
+        <div class="cols">
+          <div class="col-box provider">
+            <h4>👤 מה הספק רואה / עושה</h4>
+            <ul>
+              <li>בוחר קטגוריה (רופא/ה, מטפל/ת, ארגון...)</li>
+              <li>עבור רופא/ה — בוחר גם תת-סוג: <b>רופא/ה רגיל/ה</b> מול <b>רופא/ה מנתח/ת</b> (מסמכים נוספים: אישור בורד, ביטוח אחריות מקצועית, זכויות ניתוח בבית חולים)</li>
+              <li>ממלא פרטים אישיים ומקצועיים: מספר רישיון, התמחות, קורות חיים, הסדרי קופות</li>
+              <li>מעלה מסמכים (רישיון, קורות חיים רפואיים)</li>
+              <li>מאמת מספר טלפון בקוד OTP</li>
+            </ul>
+          </div>
+          <div class="col-box healson">
+            <h4>🏢 מה קורה אצל הילסון</h4>
+            <ul>
+              <li>נוצר רשומת ספק (Provider) חדשה בסטטוס <b>"ממתין לבדיקת רישיון"</b></li>
+              <li>עדיין <b>אין</b> חשבון פעיל / התחברות לספק</li>
+              <li>הבקשה נכנסת לתור הבדיקה של הצוות</li>
+            </ul>
+          </div>
+        </div>
+        <span class="route-tag">📍 /apply</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="phase-arrow"><span class="line"></span>הבקשה נשלחת לבדיקת הילסון<span class="line"></span></div>
+
+  <!-- ================= PHASE B: REVIEW ================= -->
+  <div class="section-title"><span class="num">2</span><h2>בדיקה ואישור — צוות התפעול של הילסון</h2></div>
+  <p class="section-lead">לפני שהספק מקבל גישה כלשהי למערכת, צוות הילסון מוודא שהרישיון וההסמכות תקפים.</p>
+
+  <div class="timeline">
+    <div class="stage milestone">
+      <div class="stage-card">
+        <div class="stage-head">
+          <div class="stage-head-left">
+            <div class="stage-icon">🔍</div>
+            <div>
+              <p class="stage-title">בדיקת רישיון ומסמכים</p>
+              <p class="stage-sub">תור הבדיקה של הילסון — "פרטים" בכל בקשה</p>
+            </div>
+          </div>
+          <span class="status-chip chip-warning">⏳ ממתין לבדיקת רישיון</span>
+        </div>
+        <div class="cols">
+          <div class="col-box healson">
+            <h4>🏢 מה הילסון עושה</h4>
+            <ul>
+              <li>סוקר את מסמכי הרישיון וההסמכה שהועלו</li>
+              <li><b>מאשר</b> ← הספק עובר ל"באונבורדינג", מקבל סיסמה זמנית לכניסה ראשונה</li>
+              <li><b>דוחה</b> ← הספק חסום, מקבל סיבת דחייה</li>
+            </ul>
+          </div>
+          <div class="col-box provider">
+            <h4>👤 מה הספק חווה</h4>
+            <ul>
+              <li>אין גישה למערכת בשלב הזה — ממתין בלבד</li>
+              <li>עם האישור, מקבל פרטי כניסה (סיסמה זמנית) לתחילת האונבורדינג</li>
+            </ul>
+          </div>
+        </div>
+        <span class="route-tag">📍 /providers (תור בדיקה, אדמין)</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="phase-arrow"><span class="line"></span>הרישיון אושר — הספק נכנס למערכת בפעם הראשונה<span class="line"></span></div>
+
+  <!-- ================= PHASE C: ONBOARDING ================= -->
+  <div class="section-title"><span class="num">3</span><h2>הצטרפות (Onboarding) — הסכם ומחירון</h2></div>
+  <p class="section-lead">מרגע האישור ועד ה"מוכן לפרסום" — הספק נעול לאשף מצומצם של 3 שלבים בלבד; שאר התפריט (מטופלים, יומן, הפניות) חסום עד שהוא מסיים.</p>
+
+  <div class="timeline">
+    <div class="stage">
+      <div class="stage-card">
+        <div class="stage-head">
+          <div class="stage-head-left">
+            <div class="stage-icon">✍️</div>
+            <div>
+              <p class="stage-title">חתימה על הסכם התקשרות</p>
+              <p class="stage-sub">כולל תנאי העמלה שהספק משלם להילסון</p>
+            </div>
+          </div>
+          <span class="status-chip chip-info">🟦 באונבורדינג</span>
+        </div>
+        <div class="cols">
+          <div class="col-box provider">
+            <h4>👤 מה הספק עושה</h4>
+            <ul>
+              <li>קורא את הסכם ההתקשרות עם הילסון</li>
+              <li>חותם דיגיטלית (מייצר חותמת זמן)</li>
+            </ul>
+          </div>
+          <div class="col-box healson">
+            <h4>🏢 מה הילסון מגדירה</h4>
+            <ul>
+              <li>שיעור העמלה (%) שהילסון גובה מהספק על כל הזמנה — כברירת מחדל כלל-מערכתית, וניתנת לדריסה פר-ספק או פר-סוג שירות</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="decision">
+          <span class="decision-badge">⚠️ החלטה עסקית פתוחה</span>
+          <h4>מי קובע את מחירי השירותים של הספק — הספק, או שזה חלק מההסכם?</h4>
+          <p>כיום במערכת: הספק מזין בעצמו את מחירי השירותים שלו (בשלב הבא, "מחירון"), ואילו <b>שיעור העמלה</b> להילסון נקבע בנפרד ע"י הילסון (לא כחלק מטקסט ההסכם החתום). יש להחליט: האם המחיר הסופי ללקוח חייב להיות בטווח שמאושר ע"י הילסון / מוכתב בהסכם, או שנשאר לשיקול דעת הספק בלבד?</p>
+          <div class="options">
+            <span class="opt-pill">אופציה א׳: הספק חופשי לתמחר</span>
+            <span class="opt-pill">אופציה ב׳: טווח מחירים מאושר בהסכם</span>
+            <span class="opt-pill">אופציה ג׳: מחיר קבוע ע"י הילסון לכל שירות</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div class="stage-card">
+        <div class="stage-head">
+          <div class="stage-head-left">
+            <div class="stage-icon">💰</div>
+            <div>
+              <p class="stage-title">הזנת שירותים + מחירון</p>
+              <p class="stage-sub">קטלוג השירותים שהספק מציע, ומחיר לכל שכבת ביטוח (סל/שב"ן/פרטי)</p>
+            </div>
+          </div>
+          <span class="status-chip chip-info">🟦 באונבורדינג</span>
+        </div>
+        <div class="cols">
+          <div class="col-box provider">
+            <h4>👤 מה הספק עושה</h4>
+            <ul>
+              <li>בוחר שירותים מתוך "עץ המיומנויות" של הילסון (תחום → תת-תחום → פריט)</li>
+              <li>קובע מחיר לכל שכבת ביטוח: סל קופה, שב"ן, ביטוח פרטי, פרטי מלא</li>
+              <li>מוסיף סניפים/מיקומי מתן שירות ושעות פעילות</li>
+            </ul>
+          </div>
+          <div class="col-box healson">
+            <h4>🏢 מה הילסון רואה</h4>
+            <ul>
+              <li>מעקב התקדמות בזמן אמת בתור הבדיקה (/providers)</li>
+              <li>ברגע שיש הסכם חתום + לפחות שירות אחד → המערכת מסמנת אוטומטית "מוכן לבדיקת Go-Live"</li>
+            </ul>
+          </div>
+        </div>
+        <span class="route-tag">📍 /provider/onboarding</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="phase-arrow"><span class="line"></span>הסכם + מחירון הושלמו — "מוכן לפרסום"<span class="line"></span></div>
+
+  <!-- ================= PHASE D: GO LIVE ================= -->
+  <div class="section-title"><span class="num">4</span><h2>פרסום — Go-Live</h2></div>
+  <p class="section-lead">השלב שבו הספק הופך גלוי לחיפוש ולהזמנות בפועל על ידי מטופלים.</p>
+
+  <div class="timeline">
+    <div class="stage milestone">
+      <div class="stage-card">
+        <div class="stage-head">
+          <div class="stage-head-left">
+            <div class="stage-icon">🚀</div>
+            <div>
+              <p class="stage-title">אישור סופי ופרסום הפרופיל</p>
+              <p class="stage-sub">הרגע שבו הספק "עולה לאוויר"</p>
+            </div>
+          </div>
+          <span class="status-chip chip-success">✅ מאושר + מפורסם</span>
+        </div>
+        <div class="cols">
+          <div class="col-box healson">
+            <h4>🏢 מה הילסון עושה (כיום במערכת)</h4>
+            <ul>
+              <li>סוקרת את פרופיל הספק המלא (מסמכים, הסכם חתום, מחירון)</li>
+              <li><b>מאשרת</b> ← הספק עובר ל"מאושר" והופך גלוי מיידית בחיפוש</li>
+              <li><b>מחזירה לתיקון</b> ← הספק חוזר לאונבורדינג עם הערות</li>
+              <li><b>דוחה</b> ← נסגר סופית</li>
+            </ul>
+          </div>
+          <div class="col-box provider">
+            <h4>👤 מה הספק חווה</h4>
+            <ul>
+              <li>נכנס לניהול המלא — כל התפריט נפתח (יומן, מטופלים, הפניות...)</li>
+              <li>הפרופיל שלו גלוי כעת לחיפוש ולהזמנת תור מצד מטופלים</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="decision">
+          <span class="decision-badge">⚠️ החלטה עסקית פתוחה</span>
+          <h4>מי מבצע בפועל את הפרסום — הילסון או הספק?</h4>
+          <p>כיום במערכת: רק צוות הילסון (אדמין) מבצע את פעולת "אישור Go-Live" שהופכת את הספק לגלוי — לספק עצמו אין כפתור "פרסם אותי". יש להחליט: האם זו תישאר בקרת איכות ידנית של הילסון על כל ספק חדש (Gatekeeping), או שברגע שהמחירון וההסכם הושלמו — הספק יכול ללחוץ "פרסם" בעצמו ללא אישור נוסף?</p>
+          <div class="options">
+            <span class="opt-pill">אופציה א׳: אישור ידני של הילסון לכל ספק (מצב נוכחי)</span>
+            <span class="opt-pill">אופציה ב׳: פרסום עצמי מיידי לספק</span>
+            <span class="opt-pill">אופציה ג׳: פרסום עצמי + ביקורת מדגמית בדיעבד</span>
+          </div>
+        </div>
+        <span class="route-tag">📍 /providers → דיאלוג "פרטים"</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= STATE MACHINE STRIP ================= -->
+  <div class="section-title" style="margin-top:56px;"><span class="num">⚙</span><h2>מנוע המצבים המלא (למפתחים / ל-QA)</h2></div>
+  <p class="section-lead">כל 5 הסטטוסים האפשריים של ספק במערכת, וההסתעפויות האפשריות מכל שלב.</p>
+  <div class="states">
+    <div class="state-box active">ממתין לבדיקת רישיון</div>
+    <span class="state-arrow">←</span>
+    <div class="state-box">באונבורדינג</div>
+    <span class="state-arrow">←</span>
+    <div class="state-box">מאושר + מפורסם</div>
+  </div>
+  <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:4px;">
+    <span class="state-offramp">↳ נדחה — אפשרי מכל שלב</span>
+    <span class="state-offramp">↳ מושהה — אפשרי רק מ"מאושר" (ואפשר להחזיר ל"מאושר")</span>
+  </div>
+
+  <!-- ================= PHASE E: DAY TO DAY ================= -->
+  <div class="section-title" style="margin-top:64px;"><span class="num">5</span><h2>ניהול שוטף — לאחר הפרסום</h2></div>
+  <p class="section-lead">מכאן הספק פעיל לגמרי ומנהל את העסק שלו בתוך הילסון, יום-יום.</p>
+
+  <div class="grid4">
+    <div class="feat-card"><div class="feat-icon">📅</div><h5>יומן ותורים</h5><p>ניהול הזמנות נכנסות, אישור/ביטול</p></div>
+    <div class="feat-card"><div class="feat-icon">🕒</div><h5>זמינות</h5><p>שעות פעילות, ימים חסומים וחופשות</p></div>
+    <div class="feat-card"><div class="feat-icon">🧾</div><h5>שירותים ומחירון</h5><p>עדכון קטלוג ומחירים בכל עת</p></div>
+    <div class="feat-card"><div class="feat-icon">🧑‍🤝‍🧑</div><h5>מטופלים</h5><p>תיק מטופל, היסטוריית טיפולים</p></div>
+    <div class="feat-card"><div class="feat-icon">🔬</div><h5>הפניות ותוצאות בדיקות</h5><p>שליחת הפניה למעבדה, קבלת תוצאות</p></div>
+    <div class="feat-card"><div class="feat-icon">📦</div><h5>הזמנות ותשלומים</h5><p>מעקב סטטוס תשלום, עמלת הילסון, תשלום לספק</p></div>
+    <div class="feat-card"><div class="feat-icon">📊</div><h5>דוחות וביצועים</h5><p>הכנסות, מגמות, שיעורי המרה</p></div>
+    <div class="feat-card"><div class="feat-icon">🏢</div><h5>סניפים וצוות</h5><p>ניהול מספר מיקומי מתן שירות</p></div>
+  </div>
+
+</div>
+
+<footer>מסמך תהליך פנימי — HEALSON &nbsp;•&nbsp; משקף את התנהגות המערכת בפועל (state machine ב-store.ts) נכון ל-2026-07-12 &nbsp;•&nbsp; שני הריבועים המקווקוים 🔴 מסמנים החלטות עסקיות שטרם התקבלו</footer>
+
+</body>
+</html>

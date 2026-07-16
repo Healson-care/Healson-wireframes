@@ -27,13 +27,28 @@ export const LAYER_LABELS: Record<InsuranceLayer, string> = {
 // shared generic tier list — e.g. מאוחדת sells "מאוחדת עדיף"/"מאוחדת שיא",
 // כללית sells "כללית זהב"/"כללית מושלם"/"כללית פלטינום".
 export const K_LEVELS_BY_KUPAH = {
-  "כללית": ["כללית זהב", "כללית מושלם", "כללית פלטינום"],
-  "מכבי": ["מכבי כסף", "מכבי שלי","מכבי בסיס"],
-  "מאוחדת": ["מאוחדת עדיף", "מאוחדת שיא","מאוחדת בסיס "],
-  "לאומית": ["לאומית כסף", "לאומית זהב"," לאומית בסיס"],
+  "כללית": ["כללית בסיס", "כללית מושלם", "כללית פלטינום"],
+  "מכבי": ["מכבי בסיס", "מכבי שלי", "מכבי כסף"],
+  "מאוחדת": ["מאוחדת בסיס", "מאוחדת עדיף", "מאוחדת שיא"],
+  "לאומית": ["לאומית בסיס", "לאומית זהב"],
 } as const satisfies Record<Kupah, readonly string[]>;
 
 export type KLevel = (typeof K_LEVELS_BY_KUPAH)[Kupah][number];
+
+// Private health-insurance carriers (§B layer) a provider may hold a
+// billing arrangement with — a provider can have more than one.
+export const PRIVATE_INSURANCE_COMPANIES = [
+  "הראל",
+  "כלל",
+  "מגדל",
+  "הפניקס",
+  "מנורה מבטחים",
+  "איילון",
+  "AIG",
+  "שירביט",
+] as const;
+
+export type PrivateInsuranceCompany = (typeof PRIVATE_INSURANCE_COMPANIES)[number];
 
 // A provider's declared K-layer arrangement with a specific Kupah, at a
 // given supplemental-plan level — collected at application time (§apply
@@ -139,7 +154,16 @@ export interface User {
   phone?: string;
   avatar_url?: string;
   created_date: string;
+  admin_title?: AdminTitle; // only meaningful when role === "admin"
 }
+
+// Admin staff sub-role (§8.4 ADM-07) — superadmins are seeded from the team;
+// support reps are addable by an existing admin via the admin staff panel.
+export type AdminTitle = "superadmin" | "support_rep";
+export const ADMIN_TITLE_LABELS: Record<AdminTitle, string> = {
+  superadmin: "מנהל-על",
+  support_rep: "נציג שירות",
+};
 
 // ---------------------------------------------------------------------------
 // Skill taxonomy (§5) — Domain → Sub-domain → Catalog item. Admin-editable.
@@ -258,6 +282,7 @@ export interface Patient {
   assigned_provider?: string; // ProviderProfile id
   created_date: string;
   user_id?: string;
+  processing_restricted?: boolean; // §11.2 / ADM-08 — blocks new data processing (bookings/orders) when true
 }
 
 export interface Lead {
@@ -284,6 +309,17 @@ export type DayKey =
 
 export type ClinicHours = Record<DayKey, [string, string] | null>;
 
+// A provider location's kind — drives which fields are required and how
+// its weekly hours should be read (e.g. "home_visit" hours are when the
+// provider travels to patients, not when a physical site is staffed).
+export type LocationType = "clinic" | "home_visit" | "store" | "virtual";
+export const LOCATION_TYPE_LABELS: Record<LocationType, string> = {
+  clinic: "מרפאה",
+  home_visit: "ביקורי בית",
+  store: "חנות",
+  virtual: "מוקד / מרחוק",
+};
+
 export interface Clinic {
   id: string;
   name: string;
@@ -292,13 +328,75 @@ export interface Clinic {
   phone: string;
   is_primary: boolean;
   hours: ClinicHours;
+  location_type?: LocationType;
 }
+
+// A date the provider has closed (vacation/holiday/etc) on top of their
+// recurring weekly hours — the real slot generator (src/lib/scheduling.ts)
+// treats these days as fully closed regardless of what the weekly hours say.
+export interface BlockedDate {
+  id: string;
+  date: string; // yyyy-MM-dd
+  reason?: string;
+}
+
+// Service type a provider picks when adding a service to their own catalog
+// (distinct from the admin-managed master-catalog ServiceType above — this
+// is the provider-facing 7-category classification requested for provider
+// onboarding, e.g. "ייעוץ" vs "טיפול" vs "ניתוח").
+export type ProviderServiceType = "consultation" | "treatment" | "surgery" | "procedure" | "imaging" | "test" | "product";
+export const PROVIDER_SERVICE_TYPES: ProviderServiceType[] = [
+  "consultation",
+  "treatment",
+  "surgery",
+  "procedure",
+  "imaging",
+  "test",
+  "product",
+];
+export const PROVIDER_SERVICE_TYPE_LABELS: Record<ProviderServiceType, string> = {
+  consultation: "ייעוץ",
+  treatment: "טיפול",
+  surgery: "ניתוח",
+  procedure: "פעולה",
+  imaging: "הדמייה",
+  test: "בדיקה",
+  product: "מוצר",
+};
+
+export type AnesthesiaType = "local" | "sedation" | "general";
+export const ANESTHESIA_TYPES: AnesthesiaType[] = ["local", "sedation", "general"];
+export const ANESTHESIA_TYPE_LABELS: Record<AnesthesiaType, string> = {
+  local: "מקומית",
+  sedation: "הרדמה מקומית + הרגעה",
+  general: "כללית",
+};
 
 export interface ConsultationType {
   id: string;
   name: string;
   duration_minutes: number;
   prices: PriceByLayer[];
+  catalog_item_id?: string; // links back to a CatalogItem chosen from the Skill Tree
+  service_type?: ProviderServiceType;
+  linked_clinic_ids?: string[]; // Clinic ("calendar") ids this service can be booked against
+  // Requires a referral/pre-authorization from the patient's kupah before
+  // booking — relevant across every service_type, so kept ungated.
+  requires_referral?: boolean;
+  // "test" (בדיקה) prep fields.
+  requires_fasting?: boolean;
+  sample_type?: string;
+  // "surgery" (ניתוח) prep/logistics fields.
+  anesthesia_type?: AnesthesiaType;
+  recovery_days?: number;
+  requires_hospital?: boolean;
+  // "imaging" (הדמייה) prep fields.
+  requires_contrast?: boolean;
+  has_radiation?: boolean;
+  // When set, booking this consultation auto-creates a pending questionnaire
+  // document (see PatientDocument) once the deposit is paid.
+  requires_questionnaire?: boolean;
+  questionnaire_title?: string;
 }
 
 export interface ExamType {
@@ -306,6 +404,8 @@ export interface ExamType {
   name: string;
   lab_code: string;
   prices: PriceByLayer[];
+  service_type?: ProviderServiceType;
+  linked_clinic_ids?: string[];
 }
 
 export interface ReferralFormField {
@@ -432,6 +532,7 @@ export interface ProviderProfile {
   license_issue_date?: string;
   license_expiry_date?: string;
   image_url?: string;
+  coordination_notes?: string; // free-text notes to the Healson ops team, not shown to patients
   is_published: boolean;
   status: ProviderStatus;
   phone_verified_at?: string;
@@ -448,8 +549,18 @@ export interface ProviderProfile {
   location_count?: number;
   member_provider_types?: ProviderType[]; // organization only — which provider types operate under it
   license_verified_at?: string;
+  // Set once the provider clicks "שלח לבדיקת Healson" on /apply, after
+  // registering + logging in and filling out their profile — this is the
+  // boundary between "still completing registration" (provider keeps editing
+  // on /apply) and "submitted, awaiting Ops review" (admin queue picks it up).
+  application_submitted_at?: string;
   agreement_signed_at?: string;
   onboarding_ready_at?: string;
+  // Provider-initiated Go-Live request (§apply flow, stage 4) — the provider
+  // clicks "פרסם" once onboarding_ready_at is set; this only queues the
+  // request. Healson must still call approveProviderGoLive to actually flip
+  // status to "approved" / is_published — see requestProviderGoLive in store.ts.
+  go_live_requested_at?: string;
   rejection_reason?: string;
   commission_rate?: number; // percent Healson takes on this provider's orders
   agreements: ProviderAgreement[];
@@ -457,6 +568,7 @@ export interface ProviderProfile {
   exam_types: ExamType[];
   clinic_locations: Clinic[];
   referral_forms: ReferralFormTemplate[];
+  blocked_dates?: BlockedDate[];
   created_date: string;
 }
 
@@ -495,6 +607,11 @@ export interface Appointment {
   time: string; // HH:mm
   duration_minutes: number;
   status: AppointmentStatus;
+  price?: number; // total consultation price, resolved at booking time
+  deposit_amount?: number; // 30% of price, charged to hold the slot
+  // ISO timestamp of the deposit charge — starts the 48h cancellation/refund
+  // window (see CANCELLATION_WINDOW_HOURS in client/appointments/page.tsx).
+  deposit_paid_at?: string;
   kupah?: Kupah;
   notes?: string;
   created_by_id?: string; // patient id
@@ -553,6 +670,56 @@ export interface LabReferral {
   notes?: string;
   results?: string;
   result_files?: UploadedFile[];
+}
+
+// A provider's own note on a specific patient — visit summary, clinical
+// instructions and any documents they attach. Scoped to the provider who
+// wrote it: a provider's patient-chart view only ever queries records where
+// provider_id matches their own id, so a patient's history with a different
+// provider never surfaces here (see /provider/patients/[id]).
+export interface VisitRecord {
+  id: string;
+  provider_id: string;
+  provider_name: string;
+  patient_id: string;
+  appointment_id?: string;
+  visit_date: string; // yyyy-MM-dd
+  summary: string;
+  instructions?: string;
+  provider_documents?: UploadedFile[];
+  created_date: string;
+}
+
+// Patient-facing "documents" tab. Lab results (LabReferral, above) are shown
+// in the same tab but keep living in their own array — the documents page
+// adapts them into this shape for display instead of duplicating the data.
+export type DocumentCategory =
+  | "referral_personal"
+  | "receipt"
+  | "visit_summary"
+  | "questionnaire"
+  | "lab_result";
+
+export const DOCUMENT_CATEGORIES: { id: DocumentCategory; label: string }[] = [
+  { id: "referral_personal", label: "הפניות וטפסים אישיים" },
+  { id: "receipt", label: "קבלות וחשבוניות" },
+  { id: "visit_summary", label: "סיכומי ביקור וטפסי רופא" },
+  { id: "questionnaire", label: "שאלונים" },
+  { id: "lab_result", label: "תוצאות מעבדה" },
+];
+
+export type DocumentStatus = "ממתין למילוי" | "זמין";
+
+export interface PatientDocument {
+  id: string;
+  patient_id: string;
+  category: DocumentCategory;
+  title: string;
+  uploaded_by: "patient" | "provider" | "system";
+  appointment_id?: string;
+  status?: DocumentStatus;
+  created_date: string;
+  file?: UploadedFile;
 }
 
 export interface Branch {

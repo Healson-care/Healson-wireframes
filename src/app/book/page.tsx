@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
@@ -32,11 +32,13 @@ const stepTransition = { duration: 0.25, ease: "easeOut" as const };
 export default function BookPage() {
   const router = useRouter();
   const providers = useStore((s) => s.providers);
+  const appointments = useStore((s) => s.appointments);
   const currentUser = useStore((s) => s.currentUser);
   const logout = useStore((s) => s.logout);
   const addAppointment = useStore((s) => s.addAppointment);
   const updateAppointment = useStore((s) => s.updateAppointment);
   const addOrder = useStore((s) => s.addOrder);
+  const addDocument = useStore((s) => s.addDocument);
   const showToast = useStore((s) => s.showToast);
   const patient = useCurrentPatient();
 
@@ -49,7 +51,12 @@ export default function BookPage() {
 
   const [selectedProvider, setSelectedProvider] = useState<ProviderProfile | null>(null);
 
-  const [days] = useState<DaySlots[]>(() => buildDays());
+  // Slot availability is computed from the selected provider's real
+  // schedule plus existing appointments once a provider is chosen.
+  const days: DaySlots[] = useMemo(
+    () => (selectedProvider ? buildDays(selectedProvider, appointments) : []),
+    [selectedProvider, appointments]
+  );
   const [activeDayIdx, setActiveDayIdx] = useState(0);
   const [selectedSlot, setSelectedSlot] = useState<{ date: string; time: string; label: string } | null>(null);
   const [holdExpiresAt, setHoldExpiresAt] = useState<number | null>(null);
@@ -64,6 +71,9 @@ export default function BookPage() {
     price: number;
     icsUrl: string;
   } | null>(null);
+  const [pendingQuestionnaire, setPendingQuestionnaire] = useState<{ appointmentId: string; title: string } | null>(
+    null
+  );
 
   const consultation = selectedProvider?.consultation_types[0];
   const resolvedPrice =
@@ -85,6 +95,10 @@ export default function BookPage() {
   // even if they never complete payment.
   function selectSlot(date: string, time: string, label: string) {
     if (!selectedProvider || !patient) return;
+    if (patient.processing_restricted) {
+      showToast("לא ניתן להמשיך", { description: "עיבוד הנתונים של מטופל זה חסום. פנה לתמיכה.", variant: "destructive" });
+      return;
+    }
     const appointment = addAppointment({
       client_name: patient.full_name,
       client_phone: patient.phone ?? "",
@@ -95,8 +109,11 @@ export default function BookPage() {
       time,
       duration_minutes: consultation?.duration_minutes ?? 30,
       status: "ממתין לתשלום מקדמה",
+     price,
+      deposit_amount: Math.round(price * 0.3),
       kupah: patient.kupah,
       notes: "",
+      created_by_id: patient?.id ?? currentUser?.id,
     });
     setPendingAppointmentId(appointment.id);
     setSelectedSlot({ date, time, label });
@@ -126,17 +143,22 @@ export default function BookPage() {
 
   function handlePay() {
     if (!selectedProvider || !selectedSlot || !pendingAppointmentId || !patient) return;
+    if (patient.processing_restricted) {
+      showToast("לא ניתן להמשיך", { description: "עיבוד הנתונים של מטופל זה חסום. פנה לתמיכה.", variant: "destructive" });
+      return;
+    }
     setPaying(true);
     setTimeout(() => {
       const commissionRate = selectedProvider.commission_rate ?? 15;
       const commissionAmount = Math.round((price * commissionRate) / 100);
       // Payment success is the moment the pending hold becomes a confirmed
-      // appointment.
-      updateAppointment(pendingAppointmentId, { status: "מאושר" });
+  // appointment.
+      updateAppointment(pendingAppointmentId, { status: "מאושר", deposit_paid_at: new Date().toISOString() });
       addOrder({
         item_name: consultation?.name ?? "ייעוץ",
         provider_id: selectedProvider.id,
         provider_name: selectedProvider.display_name,
+        created_by_id: patient?.id ?? currentUser?.id,
         patient_name: patient.full_name,
         final_price: price,
         status: "מאושר",
@@ -147,6 +169,37 @@ export default function BookPage() {
         commission_amount: commissionAmount,
         provider_payout_amount: price - commissionAmount,
       });
+      // The receipt and (if the service requires one) the pre-visit
+      // questionnaire are created the moment the deposit clears, linked to
+      // this appointment — same as the confirmation email/SMS a real clinic
+      // would send at this point.
+      const patientId = patient?.id ?? currentUser?.id;
+      if (patientId) {
+        addDocument({
+          patient_id: patientId,
+          category: "receipt",
+          title: `קבלה על מקדמה - ${consultation?.name ?? "ייעוץ"}`,
+          uploaded_by: "system",
+          appointment_id: pendingAppointmentId,
+          file: {
+            file_name: "קבלה.pdf",
+            uploaded_at: new Date().toISOString(),
+            data_url: "data:application/pdf;base64,",
+          },
+        });
+        if (consultation?.requires_questionnaire) {
+          const questionnaireTitle = consultation.questionnaire_title ?? "שאלון לפני התור";
+          addDocument({
+            patient_id: patientId,
+            category: "questionnaire",
+            title: questionnaireTitle,
+            uploaded_by: "system",
+            appointment_id: pendingAppointmentId,
+            status: "ממתין למילוי",
+          });
+          setPendingQuestionnaire({ appointmentId: pendingAppointmentId, title: questionnaireTitle });
+        }
+      }
       const icsUrl = buildIcsDataUrl({
         title: `תור ל-${selectedProvider.display_name}`,
         description: consultation?.name,
@@ -245,8 +298,7 @@ export default function BookPage() {
             />
           </motion.div>
         )}
-
-        {step === 3 && confirmation && selectedProvider && selectedSlot && (
+        {step === 3 && confirmation && selectedProvider && selectedSlot && pendingAppointmentId && (
           <motion.div key="step3" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition}>
             <BookingConfirmation
               provider={selectedProvider}
@@ -254,6 +306,8 @@ export default function BookPage() {
               confirmation={confirmation}
               homeHref="/client"
               homeLabel="לאזור האישי שלי"
+              appointmentId={pendingAppointmentId}
+              pendingQuestionnaire={pendingQuestionnaire}
             />
           </motion.div>
         )}
@@ -264,8 +318,11 @@ export default function BookPage() {
         provider={selectedProvider}
         slot={waitlistSlot}
         onClose={() => setWaitlistSlot(null)}
+
+
         clientName={patient?.full_name || "מטופל"}
         clientPhone={patient?.phone}
+        createdById={patient?.id ?? currentUser?.id}
       />
 
       <ConfirmDialog

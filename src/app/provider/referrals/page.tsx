@@ -72,18 +72,23 @@ export default function ProviderReferralsPage() {
   async function handleUploadResults() {
     if (!uploadFor) return;
     setUploading(true);
-    const newFile = resultFile
-      ? { file_name: resultFile.name, uploaded_at: new Date().toISOString(), data_url: await fileToDataUrl(resultFile) }
-      : null;
-    updateLabReferral(uploadFor.id, {
-      results: resultsText,
-      result_files: newFile ? [...(uploadFor.result_files ?? []), newFile] : uploadFor.result_files,
-      status: "הושלם",
-      completed_date: new Date().toISOString(),
-    });
-    setUploading(false);
-    setUploadFor(null);
-    showToast("תוצאות הבדיקה הועלו למטופל", { variant: "success" });
+    try {
+      const newFile = resultFile
+        ? { file_name: resultFile.name, uploaded_at: new Date().toISOString(), data_url: await fileToDataUrl(resultFile) }
+        : null;
+      updateLabReferral(uploadFor.id, {
+        results: resultsText,
+        result_files: newFile ? [...(uploadFor.result_files ?? []), newFile] : uploadFor.result_files,
+        status: "הושלם",
+        completed_date: new Date().toISOString(),
+      });
+      setUploadFor(null);
+      showToast("תוצאות הבדיקה הועלו למטופל", { variant: "success" });
+    } catch (err) {
+      showToast("שגיאה בהעלאת הקובץ", { description: err instanceof Error ? err.message : undefined, variant: "destructive" });
+    } finally {
+      setUploading(false);
+    }
   }
 
   return (
@@ -170,6 +175,7 @@ export default function ProviderReferralsPage() {
           {uploadFor?.result_files && uploadFor.result_files.length > 0 && (
             <p className="text-xs text-slate-400">קבצים קיימים: {uploadFor.result_files.map((f) => f.file_name).join(", ")}</p>
           )}
+          <p className="text-xs text-slate-400">הקובץ יהיה גלוי למטופל בלבד — ספקים אחרים ואדמין ללא הרשאה מפורשת לא יוכלו לצפות בו.</p>
           <Button onClick={handleUploadResults} loading={uploading}>
             שמור ושלח למטופל
           </Button>

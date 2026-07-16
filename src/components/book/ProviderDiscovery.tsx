@@ -11,9 +11,18 @@ import { getRegionForCity } from "@/lib/constants";
 import { nextAvailableInDays } from "@/lib/scheduling";
 import { resolveProviderPrice } from "@/lib/pricing";
 import { useStore } from "@/lib/store";
-import { Patient, ProviderProfile } from "@/types";
+import { Patient, ProviderProfile, ProviderServiceType } from "@/types";
 
 type ServiceTab = "consultation" | "diagnostics" | "extra";
+
+// Each search tab covers a group of the provider's own consultation_types
+// (service_type), which is where each provider's real services now live —
+// there's no shared reference-catalog link to a provider anymore.
+const SERVICE_TAB_TYPES: Record<ServiceTab, ProviderServiceType[]> = {
+  consultation: ["consultation"],
+  diagnostics: ["test", "imaging", "procedure"],
+  extra: ["treatment", "surgery", "product"],
+};
 
 const SERVICE_TABS: { id: ServiceTab; label: string }[] = [
   { id: "consultation", label: "ייעוץ וחוות דעת" },
@@ -47,82 +56,53 @@ export function ProviderDiscovery({
   description?: string;
   onSelect: (provider: ProviderProfile) => void;
 }) {
-  const catalog = useStore((s) => s.catalog);
-  const skillDomains = useStore((s) => s.skillDomains);
-  const skillSubdomains = useStore((s) => s.skillSubdomains);
   const showToast = useStore((s) => s.showToast);
 
   const [activeTab, setActiveTab] = useState<ServiceTab>("consultation");
   const [query, setQuery] = useState("");
-  const [domainId, setDomainId] = useState("");
-  const [subdomainId, setSubdomainId] = useState("");
+  const [specialty, setSpecialty] = useState("");
   const [region, setRegion] = useState("");
   const [availability, setAvailability] = useState("");
   const [priceRange, setPriceRange] = useState("");
   const [referralCode, setReferralCode] = useState("");
   const [referralFile, setReferralFile] = useState<File | null>(null);
-  const [searched, setSearched] = useState(false);
+  // Results are visible immediately (§7.1 pricing demo) — filters narrow the
+  // list live rather than gating whether it's shown at all.
+  const [searched, setSearched] = useState(true);
 
   function changeTab(tab: ServiceTab) {
     setActiveTab(tab);
-    setSearched(false);
-  }
-
-  function updateDomain(value: string) {
-    setDomainId(value);
-    setSubdomainId("");
+    setSpecialty("");
   }
 
   const publishedProviders = useMemo(() => providers.filter((p) => p.is_published), [providers]);
 
+  // Providers who offer at least one active service matching the active tab
+  // — each provider now owns their own services directly (consultation_types
+  // + service_type), rather than being linked from a shared reference catalog.
+  const tabProviders = useMemo(() => {
+    const types = SERVICE_TAB_TYPES[activeTab];
+    return publishedProviders.filter((p) =>
+      p.consultation_types.some((ct) => ct.service_type && types.includes(ct.service_type))
+    );
+  }, [publishedProviders, activeTab]);
+
+  const specialtyOptions = useMemo(() => {
+    return Array.from(new Set(tabProviders.map((p) => p.specialty).filter(Boolean))).sort();
+  }, [tabProviders]);
+
   const regions = useMemo(() => {
     const set = new Set<string>();
-    publishedProviders.forEach((p) => p.clinic_locations.forEach((c) => set.add(getRegionForCity(c.city))));
+    tabProviders.forEach((p) => p.clinic_locations.forEach((c) => set.add(getRegionForCity(c.city))));
     return Array.from(set);
-  }, [publishedProviders]);
-
-  // Skill hierarchy (§5): domain/sub-domain options only ever come from the
-  // ייעוץ tab's own catalog items (consultation service_type).
-  const domainOptions = useMemo(() => {
-    const usedIds = new Set(
-      catalog.filter((c) => c.is_active && c.provider_id && c.service_type === "consultation").map((c) => c.skill_domain_id)
-    );
-    return skillDomains.filter((d) => usedIds.has(d.id));
-  }, [catalog, skillDomains]);
-
-  const subdomainOptions = useMemo(() => {
-    if (!domainId) return [];
-    const usedIds = new Set(
-      catalog
-        .filter((c) => c.is_active && c.provider_id && c.service_type === "consultation" && c.skill_domain_id === domainId)
-        .map((c) => c.skill_subdomain_id)
-    );
-    return skillSubdomains.filter((sd) => sd.domain_id === domainId && usedIds.has(sd.id));
-  }, [catalog, skillSubdomains, domainId]);
-
-  // Providers who offer at least one active catalog item matching the active
-  // tab's service type — narrowed further by domain/sub-domain on the ייעוץ tab.
-  const serviceProviderIds = useMemo(() => {
-    return new Set(
-      catalog
-        .filter((c) => {
-          if (!c.is_active || !c.provider_id || c.service_type !== activeTab) return false;
-          if (activeTab === "consultation") {
-            if (domainId && c.skill_domain_id !== domainId) return false;
-            if (subdomainId && c.skill_subdomain_id !== subdomainId) return false;
-          }
-          return true;
-        })
-        .map((c) => c.provider_id)
-    );
-  }, [catalog, activeTab, domainId, subdomainId]);
+  }, [tabProviders]);
 
   const filteredProviders = useMemo(() => {
     const availabilityMax = AVAILABILITY_OPTIONS.find((a) => a.value === availability)?.maxDays ?? Infinity;
     const range = PRICE_RANGES.find((r) => r.value === priceRange);
 
-    return publishedProviders.filter((p) => {
-      if (!serviceProviderIds.has(p.id)) return false;
+    return tabProviders.filter((p) => {
+      if (specialty && p.specialty !== specialty) return false;
       if (query && !`${p.display_name} ${p.specialty}`.includes(query)) return false;
 
       if (activeTab === "consultation") {
@@ -138,9 +118,9 @@ export function ProviderDiscovery({
       }
       return true;
     });
-  }, [publishedProviders, serviceProviderIds, query, activeTab, region, availability, priceRange, patient]);
+  }, [tabProviders, specialty, query, activeTab, region, availability, priceRange, patient]);
 
-  const canSearch = activeTab !== "consultation" || !!domainId;
+  const canSearch = activeTab !== "consultation" || !!specialty;
 
   return (
     <div>
@@ -167,20 +147,12 @@ export function ProviderDiscovery({
         </TabsList>
 
         <TabsContent value="consultation">
-          <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-2.5 mb-2">
-            <Select value={domainId} onChange={(e) => updateDomain(e.target.value)}>
-              <option value="">תחום רפואי — בחרו תחום</option>
-              {domainOptions.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.emoji} {d.name_he}
-                </option>
-              ))}
-            </Select>
-            <Select value={subdomainId} onChange={(e) => setSubdomainId(e.target.value)} disabled={!domainId}>
-              <option value="">כל תתי-התחומים</option>
-              {subdomainOptions.map((sd) => (
-                <option key={sd.id} value={sd.id}>
-                  {sd.name_he}
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2.5 mb-2">
+            <Select value={specialty} onChange={(e) => setSpecialty(e.target.value)}>
+              <option value="">התמחות — בחרו תחום</option>
+              {specialtyOptions.map((s) => (
+                <option key={s} value={s}>
+                  {s}
                 </option>
               ))}
             </Select>
@@ -207,7 +179,7 @@ export function ProviderDiscovery({
               ))}
             </Select>
           </div>
-          {!domainId && <p className="text-xs text-amber-600 mb-3">בחרו תחום רפואי כדי לחפש רופאים</p>}
+          {!specialty && <p className="text-xs text-amber-600 mb-3">בחרו התמחות כדי לחפש רופאים</p>}
         </TabsContent>
 
         <TabsContent value="diagnostics">

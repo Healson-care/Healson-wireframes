@@ -205,7 +205,10 @@ function PatientsTab({
                 <div className="flex items-center gap-3">
                   <Avatar name={p.full_name} />
                   <div>
-                    <p className="font-medium text-slate-900">{p.full_name}</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="font-medium text-slate-900">{p.full_name}</p>
+                      {p.processing_restricted && <Badge tone="red">עיבוד מוגבל</Badge>}
+                    </div>
                     <p className="text-xs text-slate-400">{p.id_number}</p>
                   </div>
                 </div>

@@ -8,16 +8,19 @@ import {
   Users,
   CalendarDays,
   FileText,
-  FlaskConical,
+  ShoppingCart,
   UserRound,
   LogOut,
   Home,
+  ChevronDown,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/shared/Logo";
 import { DashboardSkeleton } from "@/components/ui/Skeleton";
 import { CommandPalette } from "@/components/ui/CommandPalette";
+import { DropdownMenu, DropdownMenuItem } from "@/components/ui/DropdownMenu";
+import { Avatar } from "@/components/ui/Misc";
 import { useRequireRole } from "@/lib/useRequireRole";
 import { useCurrentProvider } from "@/lib/useCurrentPatient";
 
@@ -25,8 +28,8 @@ const NAV_ITEMS = [
   { href: "/provider/dashboard", label: "ראשי", icon: LayoutDashboard },
   { href: "/provider/patients", label: "מטופלים", icon: Users },
   { href: "/provider/appointments", label: "תורים", icon: CalendarDays },
+  { href: "/provider/orders", label: "הזמנות", icon: ShoppingCart },
   { href: "/provider/referrals", label: "הפניות", icon: FileText },
-  { href: "/provider/lab", label: "מעבדה", icon: FlaskConical },
   { href: "/provider/profile", label: "פרופיל", icon: UserRound },
 ];
 
@@ -42,12 +45,18 @@ export function ProviderLayout({ children }: { children: ReactNode }) {
   // Providers mid-onboarding get a limited-scope wizard only (INV-SCOPE-GATE-01)
   // — no calendar, patients, referrals, or lab access until Go-Live.
   const isOnboarding = ready && provider?.status === "onboarding";
+  // A freshly-registered provider (PROV-REGISTRATION) already has a session
+  // before Ops has verified their license — send them to the portal
+  // registration wizard, which resumes wherever they left off (still filling
+  // the form, or waiting for review) instead of showing the full provider nav.
+  const isPendingReview = ready && provider?.status === "pending_review";
 
   useEffect(() => {
     if (isOnboarding) router.replace("/provider/onboarding");
-  }, [isOnboarding, router]);
+    else if (isPendingReview) router.replace("/provider/register");
+  }, [isOnboarding, isPendingReview, router]);
 
-  if (!ready || !user || isOnboarding) {
+  if (!ready || !user || isOnboarding || isPendingReview) {
     return <DashboardSkeleton />;
   }
 
@@ -79,16 +88,27 @@ export function ProviderLayout({ children }: { children: ReactNode }) {
             <Link href="/" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" title="דף הבית">
               <Home className="h-4 w-4" />
             </Link>
-            <button
-              onClick={() => {
-                logout();
-                router.push("/login");
-              }}
-              className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm text-slate-500 hover:bg-slate-100"
+            <DropdownMenu
+              trigger={
+                <span className="flex items-center gap-1.5 rounded-lg px-1.5 py-1 hover:bg-slate-100">
+                  <Avatar name={provider?.display_name || user?.full_name || ""} src={provider?.image_url} className="h-8 w-8 text-xs" />
+                  <span className="hidden sm:inline text-sm font-medium text-slate-700">{provider?.display_name || user?.full_name}</span>
+                  <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+                </span>
+              }
             >
-              <LogOut className="h-4 w-4" />
-              <span className="hidden sm:inline">התנתק</span>
-            </button>
+              <DropdownMenuItem href="/provider/profile">
+                <UserRound className="h-4 w-4" /> הפרופיל שלי
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  logout();
+                  router.push("/login");
+                }}
+              >
+                <LogOut className="h-4 w-4" /> התנתק
+              </DropdownMenuItem>
+            </DropdownMenu>
           </div>
         </div>
       </header>

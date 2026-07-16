@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import Link from "next/link";
 import { ProviderLayout } from "@/components/layouts/ProviderLayout";
 import { useStore } from "@/lib/store";
@@ -8,19 +8,21 @@ import { useCurrentProvider } from "@/lib/useCurrentPatient";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/Tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { Input, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
-import { Avatar, EmptyState, PageHeader, StatCard } from "@/components/ui/Misc";
+import { Avatar, EmptyState, OpenDecisionNote, PageHeader, StatCard } from "@/components/ui/Misc";
 import { CardListSkeleton, Skeleton } from "@/components/ui/Skeleton";
 import { PriceListEntry, PriceListSection } from "@/components/provider/PriceListSection";
+import { ServiceCatalogSection } from "@/components/provider/ServiceCatalogSection";
 import { ClinicsSection } from "@/components/provider/ClinicsSection";
+import { AvailabilitySection } from "@/components/provider/AvailabilitySection";
 import { ReferralFormsSection } from "@/components/provider/ReferralFormsSection";
 import { AgreementsSection } from "@/components/provider/AgreementsSection";
+import { BlockedDatesSection } from "@/components/provider/BlockedDatesSection";
+import { MonthlyReportSection } from "@/components/provider/MonthlyReportSection";
+import { BarChartSimple, LineChartSimple } from "@/components/charts/SimpleCharts";
 import {
   LayoutDashboard,
-  Shield,
   Stethoscope,
-  FlaskConical,
   MapPin,
   FileText,
   CalendarDays,
@@ -29,12 +31,20 @@ import {
   CheckCircle2,
   BadgeCheck,
   Handshake,
+  Star,
+  FileBarChart,
+  Clock,
 } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
-import { DAY_LABELS } from "@/lib/medical-tree";
+import { formatCurrency, formatDateHe, monthOverMonthTrend, buildMonthlyData } from "@/lib/utils";
 import { PROVIDER_STATUS_LABELS } from "@/types";
-
-const LANGUAGE_OPTIONS = ["עברית", "ערבית", "רוסית", "אנגלית"];
+import {
+  getNextProviderAction,
+  getProviderSetupConfig,
+  isSetupReadyToPublish,
+  isCatalogComplete,
+  isLocationsComplete,
+  isAvailabilityComplete,
+} from "@/lib/provider-setup";
 
 export default function ProviderDashboardPage() {
   const currentUser = useStore((s) => s.currentUser);
@@ -42,6 +52,7 @@ export default function ProviderDashboardPage() {
   const upsertProviderProfile = useStore((s) => s.upsertProviderProfile);
   const orders = useStore((s) => s.orders);
   const patients = useStore((s) => s.patients);
+  const appointments = useStore((s) => s.appointments);
   const showToast = useStore((s) => s.showToast);
 
   // Create an empty profile automatically the first time a provider logs in.
@@ -53,32 +64,6 @@ export default function ProviderDashboardPage() {
       });
     }
   }, [currentUser, provider, upsertProviderProfile]);
-
-  const [licenseForm, setLicenseForm] = useState({
-    display_name: "",
-    title: "",
-    specialty: "",
-    license_number: "",
-    license_issuer: "",
-    license_issue_date: "",
-    license_expiry_date: "",
-  });
-  const [languages, setLanguages] = useState<string[]>([]);
-
-  const [licenseLoadedFor, setLicenseLoadedFor] = useState<string | null>(null);
-  if (provider && provider.id !== licenseLoadedFor) {
-    setLicenseLoadedFor(provider.id);
-    setLicenseForm({
-      display_name: provider.display_name ?? "",
-      title: provider.title ?? "",
-      specialty: provider.specialty ?? "",
-      license_number: provider.license_number ?? "",
-      license_issuer: provider.license_issuer ?? "",
-      license_issue_date: provider.license_issue_date ?? "",
-      license_expiry_date: provider.license_expiry_date ?? "",
-    });
-    setLanguages(provider.languages ?? []);
-  }
 
   if (!provider || !currentUser) {
     return (
@@ -100,15 +85,26 @@ export default function ProviderDashboardPage() {
   const commissionPaid = completedOrders.reduce((sum, o) => sum + (o.commission_amount ?? 0), 0);
   const netPayout = completedOrders.reduce((sum, o) => sum + (o.provider_payout_amount ?? o.final_price), 0);
 
-  function saveLicense(e: React.FormEvent) {
-    e.preventDefault();
-    upsertProviderProfile(currentUser!.id, { ...licenseForm, languages });
-    showToast("פרטי הרישיון נשמרו בהצלחה", { variant: "success" });
-  }
+  const myAppointments = appointments.filter((a) => a.provider_id === provider.id);
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const upcomingAppointments = myAppointments
+    .filter((a) => a.status !== "בוטל" && a.date >= todayStr)
+    .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))
+    .slice(0, 5);
 
-  function toggleLanguage(lang: string) {
-    setLanguages((prev) => (prev.includes(lang) ? prev.filter((l) => l !== lang) : [...prev, lang]));
-  }
+  const patientsTrend = monthOverMonthTrend(myPatients, (p) => p.created_date);
+  const revenueTrend = monthOverMonthTrend(completedOrders, (o) => o.created_date, (o) => o.final_price);
+  const revenueMonthly = buildMonthlyData(completedOrders, (o) => o.created_date, 6, (o) => o.final_price);
+  const appointmentsMonthly = buildMonthlyData(myAppointments, (a) => a.date, 6);
+
+  const setupConfig = getProviderSetupConfig(provider.provider_type);
+  const catalogDone = isCatalogComplete(provider);
+  const locationsDone = isLocationsComplete(provider);
+  const availabilityDone = isAvailabilityComplete(provider);
+  const readyToPublish = isSetupReadyToPublish(provider);
+  const nextAction = getNextProviderAction(provider);
+  const isLive = provider.status === "approved" && provider.is_published;
+  const canTogglePublish = provider.status === "approved" && readyToPublish;
 
   return (
     <ProviderLayout>
@@ -116,26 +112,34 @@ export default function ProviderDashboardPage() {
         title="לוח הבקרה שלי"
         description="ניהול הפרופיל המקצועי, שירותים ופעילות שוטפת"
         actions={
-          <Button
-            variant={provider.is_published ? "outline" : "primary"}
-            onClick={() => {
-              upsertProviderProfile(currentUser!.id, { is_published: !provider.is_published });
-              showToast(provider.is_published ? "הפרופיל הוסר מהפרסום" : "הפרופיל פורסם בהצלחה", {
-                variant: "success",
-              });
-            }}
-          >
-            {provider.is_published ? "בטל פרסום" : "פרסם פרופיל"}
-          </Button>
+          provider.status === "approved" ? (
+            <Button
+              variant={isLive ? "outline" : "primary"}
+              disabled={!canTogglePublish}
+              title={!canTogglePublish ? "יש להשלים קטלוג, מיקומים וזמינות לפני הפרסום" : undefined}
+              onClick={() => {
+                upsertProviderProfile(currentUser!.id, { is_published: !provider.is_published });
+                showToast(provider.is_published ? "הפרופיל הוסר מהפרסום" : "הפרופיל פורסם בהצלחה", {
+                  variant: "success",
+                });
+              }}
+            >
+              {isLive ? "בטל פרסום" : "פרסם פרופיל"}
+            </Button>
+          ) : undefined
         }
       />
 
-      <Card className="mb-6">
-        <CardContent className="flex flex-wrap items-center gap-4">
-          <Avatar name={provider.display_name || currentUser.full_name} className="h-14 w-14 text-lg" />
-          <div className="flex-1">
+      <div className="relative mb-6 overflow-hidden rounded-2xl border border-neutral-border bg-gradient-to-l from-white via-white to-accent-bg/40 p-5 sm:p-6 shadow-sm">
+        <div className="flex flex-wrap items-center gap-5">
+          <Avatar
+            name={provider.display_name || currentUser.full_name}
+            src={provider.image_url}
+            className="h-16 w-16 text-xl ring-4 ring-white shadow-md"
+          />
+          <div className="flex-1 min-w-[220px]">
             <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="font-semibold text-slate-900">
+              <h2 className="text-lg font-bold text-slate-900">
                 {provider.title} {provider.display_name}
               </h2>
               {provider.status === "approved" ? (
@@ -152,44 +156,63 @@ export default function ProviderDashboardPage() {
               {provider.is_published && <Badge tone="blue">פעיל</Badge>}
             </div>
             <p className="text-sm text-amber-700 font-medium mt-0.5">{provider.specialty || "—"}</p>
-            {provider.license_number && (
-              <p className="text-xs text-slate-400 font-mono mt-0.5">{provider.license_number}</p>
-            )}
+            <div className="flex flex-wrap items-center gap-3 mt-1">
+              {provider.license_number && (
+                <p className="text-xs text-slate-400 font-mono">{provider.license_number}</p>
+              )}
+              {!!provider.rating && (
+                <span className="flex items-center gap-1 text-xs font-medium text-amber-700">
+                  <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                  {provider.rating.toFixed(1)} ({provider.review_count ?? 0} ביקורות)
+                </span>
+              )}
+            </div>
           </div>
-          <div className="grid grid-cols-3 gap-3 text-center">
-            <div>
+          <div className="grid grid-cols-2 gap-3 text-center">
+            <div className="rounded-xl bg-white/70 px-3 py-2 shadow-sm">
               <p className="text-lg font-bold text-slate-900">{provider.consultation_types.length}</p>
-              <p className="text-xs text-slate-500">ייעוצים</p>
+              <p className="text-xs text-slate-500">{setupConfig.catalogLabel}</p>
             </div>
-            <div>
+            <div className="rounded-xl bg-white/70 px-3 py-2 shadow-sm">
               <p className="text-lg font-bold text-slate-900">{provider.clinic_locations.length}</p>
-              <p className="text-xs text-slate-500">מרפאות</p>
-            </div>
-            <div>
-              <p className="text-lg font-bold text-slate-900">{provider.exam_types.length}</p>
-              <p className="text-xs text-slate-500">בדיקות</p>
+              <p className="text-xs text-slate-500">{setupConfig.locationLabelPlural}</p>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
+
+      {nextAction && (
+        <div className="mb-6 rounded-lg border border-warning-border bg-warning-bg px-4 py-3 text-sm text-warning-text">
+          {nextAction}
+        </div>
+      )}
 
       <Tabs defaultValue="overview">
         <TabsList className="mb-4 flex-wrap">
           <TabsTrigger value="overview" icon={<LayoutDashboard className="h-3.5 w-3.5" />}>סקירה</TabsTrigger>
-          <TabsTrigger value="license" icon={<Shield className="h-3.5 w-3.5" />}>רישיון</TabsTrigger>
-          <TabsTrigger value="agreements" icon={<Handshake className="h-3.5 w-3.5" />}>הסדרים</TabsTrigger>
-          <TabsTrigger value="consultations" icon={<Stethoscope className="h-3.5 w-3.5" />}>ייעוצים</TabsTrigger>
-          <TabsTrigger value="exams" icon={<FlaskConical className="h-3.5 w-3.5" />}>בדיקות</TabsTrigger>
-          <TabsTrigger value="clinics" icon={<MapPin className="h-3.5 w-3.5" />}>מרפאות</TabsTrigger>
+          {setupConfig.showAgreements && (
+            <TabsTrigger value="agreements" icon={<Handshake className="h-3.5 w-3.5" />}>הסדרים</TabsTrigger>
+          )}
+          <TabsTrigger value="consultations" icon={<Stethoscope className="h-3.5 w-3.5" />}>{setupConfig.catalogLabel}</TabsTrigger>
+          <TabsTrigger value="clinics" icon={<MapPin className="h-3.5 w-3.5" />}>{setupConfig.locationLabelPlural}</TabsTrigger>
           <TabsTrigger value="forms" icon={<FileText className="h-3.5 w-3.5" />}>תבניות הפניה</TabsTrigger>
-          <TabsTrigger value="schedule" icon={<CalendarDays className="h-3.5 w-3.5" />}>זמינות</TabsTrigger>
+          {setupConfig.showAvailability && (
+            <TabsTrigger value="schedule" icon={<CalendarDays className="h-3.5 w-3.5" />}>זמינות</TabsTrigger>
+          )}
           <TabsTrigger value="payments" icon={<CreditCard className="h-3.5 w-3.5" />}>תשלומים</TabsTrigger>
+          <TabsTrigger value="reports" icon={<FileBarChart className="h-3.5 w-3.5" />}>דוחות</TabsTrigger>
           <TabsTrigger value="crm" icon={<Users className="h-3.5 w-3.5" />}>CRM</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
           <div className="grid sm:grid-cols-3 gap-3 mb-4">
-            <StatCard label="מטופלים" value={myPatients.length} icon={<Users className="h-4 w-4" />} tone="blue" />
+            <StatCard
+              label="מטופלים"
+              value={myPatients.length}
+              icon={<Users className="h-4 w-4" />}
+              tone="blue"
+              trend={myPatients.length > 0 ? patientsTrend : undefined}
+            />
             <StatCard
               label="סטטוס אישור Healson"
               value={PROVIDER_STATUS_LABELS[provider.status]}
@@ -201,135 +224,136 @@ export default function ProviderDashboardPage() {
               value={formatCurrency(completedRevenue)}
               icon={<CreditCard className="h-4 w-4" />}
               tone="purple"
+              trend={completedOrders.length > 0 ? revenueTrend : undefined}
             />
           </div>
-          <Card>
-            <CardHeader>
-              <CardTitle>השלמת הפרופיל</CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm text-slate-600 flex flex-col gap-2">
-              <ChecklistItem ok={!!provider.license_number} label="מספר רישיון" />
-              <ChecklistItem ok={!!provider.specialty} label="תחום התמחות" />
-              <ChecklistItem ok={provider.agreements.length > 0} label="הגדרת הסדרי ביטוח (S/K/B/H)" />
-              <ChecklistItem ok={provider.consultation_types.length > 0} label="לפחות סוג ייעוץ אחד" />
-              <ChecklistItem ok={provider.clinic_locations.length > 0} label="לפחות מרפאה אחת" />
-              <ChecklistItem ok={isVerified} label="אושר על ידי צוות Healson" />
-              <ChecklistItem ok={provider.is_published} label="פרופיל פורסם" />
-            </CardContent>
-          </Card>
-        </TabsContent>
 
-        <TabsContent value="license">
-          <Card>
-            <CardHeader>
-              <CardTitle>פרטי רישיון</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={saveLicense} className="grid sm:grid-cols-2 gap-3">
-                <Select
-                  label="תואר"
-                  value={licenseForm.title}
-                  onChange={(e) => setLicenseForm({ ...licenseForm, title: e.target.value })}
-                >
-                  <option value="">בחר</option>
-                  <option value='ד"ר'>{'ד"ר'}</option>
-                  <option value="פרופ'">{"פרופ'"}</option>
-                  <option value="מר/גב'">{"מר/גב'"}</option>
-                </Select>
-                <Input
-                  label="שם תצוגה"
-                  value={licenseForm.display_name}
-                  onChange={(e) => setLicenseForm({ ...licenseForm, display_name: e.target.value })}
-                  required
-                />
-                <Input
-                  label="תחום התמחות"
-                  value={licenseForm.specialty}
-                  onChange={(e) => setLicenseForm({ ...licenseForm, specialty: e.target.value })}
-                  required
-                />
-                <Input
-                  label="מספר רישיון"
-                  value={licenseForm.license_number}
-                  onChange={(e) => setLicenseForm({ ...licenseForm, license_number: e.target.value })}
-                  required
-                />
-                <Input
-                  label="גוף מנפיק"
-                  value={licenseForm.license_issuer}
-                  onChange={(e) => setLicenseForm({ ...licenseForm, license_issuer: e.target.value })}
-                />
-                <Input
-                  label="תאריך הנפקת רישיון"
-                  type="date"
-                  value={licenseForm.license_issue_date}
-                  onChange={(e) => setLicenseForm({ ...licenseForm, license_issue_date: e.target.value })}
-                />
-                <Input
-                  label="תאריך תפוגת רישיון"
-                  type="date"
-                  value={licenseForm.license_expiry_date}
-                  onChange={(e) => setLicenseForm({ ...licenseForm, license_expiry_date: e.target.value })}
-                />
-                <div className="sm:col-span-2">
-                  <p className="text-sm font-medium text-slate-700 mb-2">שפות</p>
-                  <div className="flex flex-wrap gap-2">
-                    {LANGUAGE_OPTIONS.map((lang) => (
-                      <button
-                        key={lang}
-                        type="button"
-                        onClick={() => toggleLanguage(lang)}
-                        className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                          languages.includes(lang) ? "bg-primary text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                        }`}
-                      >
-                        {lang}
-                      </button>
+          <div className="grid sm:grid-cols-2 gap-3 mb-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>מגמת הכנסות</CardTitle>
+                <p className="text-xs text-slate-500">6 חודשים אחרונים</p>
+              </CardHeader>
+              <CardContent>
+                <LineChartSimple data={revenueMonthly} />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>תורים לפי חודש</CardTitle>
+                <p className="text-xs text-slate-500">6 חודשים אחרונים</p>
+              </CardHeader>
+              <CardContent>
+                <BarChartSimple data={appointmentsMonthly} color="#c8973a" />
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-1.5">
+                  <Clock className="h-4 w-4 text-slate-400" /> תורים קרובים
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {upcomingAppointments.length === 0 ? (
+                  <EmptyState title="אין תורים קרובים" />
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {upcomingAppointments.map((a) => (
+                      <div key={a.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm">
+                        <div>
+                          <p className="font-medium text-slate-800">{a.client_name}</p>
+                          <p className="text-xs text-slate-500">{a.service_name}</p>
+                        </div>
+                        <div className="text-left">
+                          <p className="font-medium text-slate-800">{formatDateHe(a.date)}</p>
+                          <p className="text-xs text-slate-500">{a.time}</p>
+                        </div>
+                      </div>
                     ))}
                   </div>
-                </div>
-                <Button type="submit" className="sm:col-span-2 self-start mt-2">
-                  שמור פרטי רישיון
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>השלמת הפרופיל</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-slate-600 flex flex-col gap-2">
+                <ChecklistItem ok={!!provider.license_number} label="מספר רישיון" />
+                <ChecklistItem ok={!!provider.specialty} label="תחום התמחות" />
+                {setupConfig.showAgreements && (
+                  <ChecklistItem ok={provider.agreements.length > 0} label="הגדרת הסדרי ביטוח (S/K/B/H)" />
+                )}
+                <ChecklistItem ok={catalogDone} label={`לפחות פריט אחד ב${setupConfig.catalogLabel}`} />
+                {setupConfig.locationTypes.length > 0 && (
+                  <ChecklistItem ok={locationsDone} label={`לפחות ${setupConfig.locationLabelSingular} אחד/ת`} />
+                )}
+                {setupConfig.showAvailability && (
+                  <ChecklistItem ok={availabilityDone} label="זמינות שבועית הוגדרה" />
+                )}
+                <ChecklistItem ok={isVerified} label="אושר על ידי צוות Healson" />
+                <ChecklistItem ok={provider.is_published} label="פרופיל פורסם" />
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
-        <TabsContent value="agreements">
-          <AgreementsSection
-            providerId={provider.id}
-            agreements={provider.agreements}
-            onChange={(agreements) => upsertProviderProfile(currentUser!.id, { agreements })}
-          />
-        </TabsContent>
+        {setupConfig.showAgreements && (
+          <TabsContent value="agreements">
+            <AgreementsSection
+              providerId={provider.id}
+              agreements={provider.agreements}
+              onChange={(agreements) => upsertProviderProfile(currentUser!.id, { agreements })}
+              kupahArrangements={provider.kupah_arrangements ?? []}
+              onKupahArrangementsChange={(kupah_arrangements) =>
+                upsertProviderProfile(currentUser!.id, { kupah_arrangements })
+              }
+              privateInsuranceCompanies={provider.private_insurance_companies ?? []}
+              onPrivateInsuranceCompaniesChange={(private_insurance_companies) =>
+                upsertProviderProfile(currentUser!.id, { private_insurance_companies })
+              }
+            />
+          </TabsContent>
+        )}
 
         <TabsContent value="consultations">
-          <PriceListSection
-            items={provider.consultation_types as unknown as PriceListEntry[]}
-            onChange={(items) => upsertProviderProfile(currentUser!.id, { consultation_types: items as unknown as typeof provider.consultation_types })}
-            extraFieldKey="duration_minutes"
-            extraFieldLabel="משך (דקות)"
-            extraFieldType="number"
-            itemLabel="ייעוץ"
-          />
-        </TabsContent>
-
-        <TabsContent value="exams">
-          <PriceListSection
-            items={provider.exam_types as unknown as PriceListEntry[]}
-            onChange={(items) => upsertProviderProfile(currentUser!.id, { exam_types: items as unknown as typeof provider.exam_types })}
-            extraFieldKey="lab_code"
-            extraFieldLabel="קוד מעבדה"
-            extraFieldType="text"
-            itemLabel="בדיקה"
-          />
+          <OpenDecisionNote>
+            <b>טרם הוחלט:</b> מדיניות תמחור סופית עדיין לא נקבעה ע&quot;י הנהלת Healson — כרגע אתם קובעים בעצמכם את
+            המחיר לכל שכבת ביטוח (S/K/B/H).
+          </OpenDecisionNote>
+          {setupConfig.useSkillTreeCatalog ? (
+            <ServiceCatalogSection
+              items={provider.consultation_types}
+              onChange={(items) => upsertProviderProfile(currentUser!.id, { consultation_types: items })}
+              providerId={provider.id}
+              itemLabel={setupConfig.catalogItemLabel}
+              clinics={provider.clinic_locations}
+              providerSpecialty={provider.specialty}
+            />
+          ) : (
+            <PriceListSection
+              items={provider.consultation_types as unknown as PriceListEntry[]}
+              onChange={(items) => upsertProviderProfile(currentUser!.id, { consultation_types: items as unknown as typeof provider.consultation_types })}
+              extraFieldKey={setupConfig.catalogExtraFieldKey}
+              extraFieldLabel={setupConfig.catalogExtraFieldLabel}
+              extraFieldType={setupConfig.catalogExtraFieldType}
+              itemLabel={setupConfig.catalogItemLabel}
+              clinics={provider.clinic_locations}
+            />
+          )}
         </TabsContent>
 
         <TabsContent value="clinics">
           <ClinicsSection
             clinics={provider.clinic_locations}
             onChange={(clinics) => upsertProviderProfile(currentUser!.id, { clinic_locations: clinics })}
+            allowedLocationTypes={setupConfig.locationTypes}
+            locationLabelSingular={setupConfig.locationLabelSingular}
+            locationLabelPlural={setupConfig.locationLabelPlural}
           />
         </TabsContent>
 
@@ -340,32 +364,23 @@ export default function ProviderDashboardPage() {
           />
         </TabsContent>
 
+        {setupConfig.showAvailability && (
         <TabsContent value="schedule">
-          <Card>
-            <CardHeader>
-              <CardTitle>זמינות שבועית</CardTitle>
-              <p className="text-sm text-slate-500">מבוסס על שעות הפעילות של המרפאה הראשית</p>
-            </CardHeader>
-            <CardContent>
-              {provider.clinic_locations.length === 0 ? (
-                <EmptyState title="הגדר מרפאה כדי לראות זמינות" />
-              ) : (
-                <div className="grid sm:grid-cols-2 gap-2">
-                  {Object.entries(provider.clinic_locations.find((c) => c.is_primary)?.hours ?? {}).map(
-                    ([day, range]) => (
-                      <div key={day} className="flex justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm">
-                        <span className="text-slate-600">{DAY_LABELS[day]}</span>
-                        <span className="font-medium text-slate-800">
-                          {range ? `${range[0]} - ${range[1]}` : "סגור"}
-                        </span>
-                      </div>
-                    )
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <AvailabilitySection
+            clinics={provider.clinic_locations}
+            onChange={(clinics) => upsertProviderProfile(currentUser!.id, { clinic_locations: clinics })}
+            locationLabelSingular={setupConfig.locationLabelSingular}
+            locationLabelPlural={setupConfig.locationLabelPlural}
+          />
+
+          <div className="mt-4">
+            <BlockedDatesSection
+              blockedDates={provider.blocked_dates ?? []}
+              onChange={(blocked_dates) => upsertProviderProfile(currentUser!.id, { blocked_dates })}
+            />
+          </div>
         </TabsContent>
+        )}
 
         <TabsContent value="payments">
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
@@ -374,6 +389,14 @@ export default function ProviderDashboardPage() {
             <StatCard label="תשלום נטו לספק" value={formatCurrency(netPayout)} tone="purple" />
             <StatCard label="עסקאות שהושלמו" value={completedOrders.length} tone="blue" />
           </div>
+          <Card className="mb-4">
+            <CardHeader>
+              <CardTitle>הכנסה חודשית</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <BarChartSimple data={revenueMonthly} />
+            </CardContent>
+          </Card>
           <Card>
             <CardHeader>
               <CardTitle>עסקאות אחרונות</CardTitle>
@@ -401,6 +424,10 @@ export default function ProviderDashboardPage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="reports">
+          <MonthlyReportSection orders={myOrders} providerName={provider.display_name} />
         </TabsContent>
 
         <TabsContent value="crm">

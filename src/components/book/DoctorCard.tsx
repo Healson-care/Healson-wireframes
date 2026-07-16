@@ -1,11 +1,12 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Star, MapPin, Languages } from "lucide-react";
+import { Star, MapPin } from "lucide-react";
 import { Avatar } from "@/components/ui/Misc";
-import { formatCurrency } from "@/lib/utils";
-import { resolveProviderPrice } from "@/lib/pricing";
-import { LAYER_LABELS, Patient, ProviderProfile } from "@/types";
+import { resolvePriceBreakdown } from "@/lib/pricing";
+import { InsurancePriceBlock } from "@/components/book/InsurancePriceBlock";
+import { yearsSince } from "@/lib/utils";
+import { Patient, ProviderProfile } from "@/types";
 
 export function DoctorCard({
   provider,
@@ -18,7 +19,16 @@ export function DoctorCard({
 }) {
   const primaryClinic = provider.clinic_locations.find((c) => c.is_primary) ?? provider.clinic_locations[0];
   const consultation = provider.consultation_types[0];
-  const resolvedPrice = consultation ? resolveProviderPrice(consultation.prices, provider.agreements, patient) : null;
+  const breakdown = consultation ? resolvePriceBreakdown(consultation.prices, provider.agreements, patient) : null;
+  const experienceYears = yearsSince(provider.license_issue_date);
+
+  // Services this doctor offers, shown as tags — pulled directly from their
+  // own consultation_types (the provider owns their services now, there's no
+  // shared reference-catalog link to derive taxonomy tags from anymore).
+  const serviceNames = provider.consultation_types
+    .filter((ct) => ct.service_type === "consultation")
+    .map((ct) => ct.name);
+
   return (
     <motion.button
       onClick={onSelect}
@@ -30,7 +40,7 @@ export function DoctorCard({
       className="group flex flex-col items-start gap-3 rounded-2xl border border-slate-200 bg-white p-5 text-right shadow-sm hover:shadow-xl hover:border-primary/30"
     >
       <div className="flex w-full items-start justify-between">
-        <Avatar name={provider.display_name} className="h-14 w-14 text-lg" />
+        <Avatar name={provider.display_name} src={provider.image_url} className="h-14 w-14 text-lg" />
         {provider.rating && (
           <span className="flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">
             <Star className="h-3.5 w-3.5 fill-amber-500 text-amber-500" /> {provider.rating}
@@ -38,31 +48,43 @@ export function DoctorCard({
           </span>
         )}
       </div>
+
       <div>
         <p className="font-semibold text-slate-900">
           {provider.title} {provider.display_name}
         </p>
-        <p className="text-sm text-primary font-medium">{provider.specialty}</p>
+        <p className="text-sm text-primary font-medium">
+          {provider.specialty}
+          {experienceYears != null && <span className="text-slate-400 font-normal"> · {experienceYears} שנות ניסיון</span>}
+        </p>
+        {serviceNames.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {serviceNames.map((name) => (
+              <span key={name} className="rounded-full bg-primary/5 px-2 py-0.5 text-[10px] font-medium text-primary">
+                {name}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
+
       {provider.bio && <p className="text-xs text-slate-500 leading-relaxed line-clamp-3">{provider.bio}</p>}
-      <div className="flex flex-wrap gap-2 mt-1">
-        {primaryClinic && (
-          <span className="flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] text-slate-600">
-            <MapPin className="h-3 w-3" /> {primaryClinic.city}
-          </span>
-        )}
-        {provider.languages && provider.languages.length > 0 && (
-          <span className="flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] text-slate-600">
-            <Languages className="h-3 w-3" /> {provider.languages.join(", ")}
-          </span>
-        )}
-      </div>
-      <div className="mt-1 flex w-full items-center justify-between">
-        {resolvedPrice ? (
-          <span className="text-sm font-semibold text-slate-800">
-            {formatCurrency(resolvedPrice.price)}{" "}
-            <span className="text-xs font-normal text-emerald-600">{LAYER_LABELS[resolvedPrice.layer]}</span>
-          </span>
+
+      {primaryClinic && (
+        <div className="flex w-full items-start gap-1.5 rounded-lg bg-slate-50 px-2.5 py-2 text-xs">
+          <MapPin className="h-3.5 w-3.5 mt-0.5 shrink-0 text-slate-400" />
+          <div className="min-w-0">
+            <p className="font-medium text-slate-700 truncate">{primaryClinic.name}</p>
+            <p className="text-slate-500 truncate">
+              {primaryClinic.address}, {primaryClinic.city}
+            </p>
+          </div>
+        </div>
+      )}
+
+      <div className="mt-1 flex w-full items-end justify-between">
+        {breakdown ? (
+          <InsurancePriceBlock breakdown={breakdown} />
         ) : (
           <span className="text-xs text-slate-400">הרשמה להצגת מחיר</span>
         )}

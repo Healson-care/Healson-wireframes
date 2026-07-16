@@ -1,31 +1,42 @@
 "use client";
 
-import { useState } from "react";
 import { Card } from "@/components/ui/Card";
-import { Input } from "@/components/ui/Input";
 import { generateId } from "@/lib/utils";
-import { INSURANCE_LAYERS, KUPOT, LAYER_LABELS, InsuranceLayer, Kupah, ProviderAgreement } from "@/types";
+import {
+  INSURANCE_LAYERS,
+  KUPOT,
+  KupahArrangement,
+  LAYER_LABELS,
+  InsuranceLayer,
+  Kupah,
+  PRIVATE_INSURANCE_COMPANIES,
+  ProviderAgreement,
+} from "@/types";
+import { KupahArrangementPicker, MultiSelectPills } from "@/components/provider/KupahArrangementPicker";
 
 /** S/K/B/H agreement editor (§6.3, §8.3 PRV-07) — which insurance layers a
- * provider currently works with, and the layer-specific eligibility scope
- * (which kupot for K, which insurance companies for B). */
+ * provider currently works with. Layer S (basic קופה coverage) is tracked at
+ * the generic קופה level; layer K (שב"ן) and layer B (private insurance) are
+ * tracked at the specific plan/carrier level via ProviderProfile's
+ * kupah_arrangements / private_insurance_companies, so a provider can hold
+ * more than one plan of the same קופה (e.g. both מאוחדת עדיף and מאוחדת שיא). */
 export function AgreementsSection({
   providerId,
   agreements,
   onChange,
+  kupahArrangements,
+  onKupahArrangementsChange,
+  privateInsuranceCompanies,
+  onPrivateInsuranceCompaniesChange,
 }: {
   providerId: string;
   agreements: ProviderAgreement[];
   onChange: (agreements: ProviderAgreement[]) => void;
+  kupahArrangements: KupahArrangement[];
+  onKupahArrangementsChange: (value: KupahArrangement[]) => void;
+  privateInsuranceCompanies: string[];
+  onPrivateInsuranceCompaniesChange: (value: string[]) => void;
 }) {
-  const [companiesDraft, setCompaniesDraft] = useState<Record<InsuranceLayer, string>>(() => {
-    const draft = {} as Record<InsuranceLayer, string>;
-    for (const layer of INSURANCE_LAYERS) {
-      draft[layer] = agreements.find((a) => a.layer === layer)?.insurance_companies?.join(", ") ?? "";
-    }
-    return draft;
-  });
-
   function agreementFor(layer: InsuranceLayer) {
     return agreements.find((a) => a.layer === layer);
   }
@@ -38,24 +49,12 @@ export function AgreementsSection({
     }
   }
 
-  function toggleKupah(layer: InsuranceLayer, kupah: Kupah) {
-    onChange(
-      agreements.map((a) => {
-        if (a.layer !== layer) return a;
-        const list = a.kupah_list ?? [];
-        const next = list.includes(kupah) ? list.filter((k) => k !== kupah) : [...list, kupah];
-        return { ...a, kupah_list: next };
-      })
-    );
-  }
-
-  function updateCompanies(layer: InsuranceLayer, text: string) {
-    setCompaniesDraft((d) => ({ ...d, [layer]: text }));
-    const companies = text
-      .split(",")
-      .map((c) => c.trim())
-      .filter(Boolean);
-    onChange(agreements.map((a) => (a.layer === layer ? { ...a, insurance_companies: companies } : a)));
+  function toggleKupah(kupah: Kupah) {
+    const agreement = agreementFor("S");
+    if (!agreement) return;
+    const list = agreement.kupah_list ?? [];
+    const next = list.includes(kupah) ? list.filter((k) => k !== kupah) : [...list, kupah];
+    onChange(agreements.map((a) => (a.layer === "S" ? { ...a, kupah_list: next } : a)));
   }
 
   return (
@@ -76,13 +75,13 @@ export function AgreementsSection({
               <span className="text-xs text-slate-400">({layer})</span>
             </label>
 
-            {enabled && (layer === "S" || layer === "K") && (
+            {enabled && layer === "S" && (
               <div className="mt-3 flex flex-wrap gap-2">
                 {KUPOT.map((k) => (
                   <button
                     key={k}
                     type="button"
-                    onClick={() => toggleKupah(layer, k)}
+                    onClick={() => toggleKupah(k)}
                     className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                       agreement?.kupah_list?.includes(k)
                         ? "bg-primary text-white"
@@ -95,13 +94,19 @@ export function AgreementsSection({
               </div>
             )}
 
+            {enabled && layer === "K" && (
+              <div className="mt-3">
+                <KupahArrangementPicker value={kupahArrangements} onChange={onKupahArrangementsChange} />
+              </div>
+            )}
+
             {enabled && layer === "B" && (
               <div className="mt-3">
-                <Input
-                  label="חברות ביטוח מוכרות (מופרד בפסיקים)"
-                  placeholder="כלל, הראל, מגדל"
-                  value={companiesDraft[layer]}
-                  onChange={(e) => updateCompanies(layer, e.target.value)}
+                <MultiSelectPills
+                  label="חברות ביטוח פרטיות מוכרות"
+                  options={PRIVATE_INSURANCE_COMPANIES}
+                  value={privateInsuranceCompanies}
+                  onChange={onPrivateInsuranceCompaniesChange}
                 />
               </div>
             )}

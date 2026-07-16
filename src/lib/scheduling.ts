@@ -1,24 +1,81 @@
-// Mock slot availability generator shared by every booking flow (§/book and
-// the client personal-area booking flow both need identical fake calendars).
+// Real slot availability generator shared by every booking flow (§/book and
+// the client personal-area booking flow both call this once a provider is
+// picked). Slots are derived from the provider's primary clinic/location's
+// weekly hours (patients don't pick a location today, so that's the
+// authoritative calendar), minus any blocked dates and any time already
+// taken by an existing, non-cancelled appointment.
+import { Appointment, Clinic, DayKey, ProviderProfile } from "@/types";
+
 export interface DaySlots {
   date: string;
   label: string;
   slots: { time: string; available: boolean }[];
 }
 
-export function buildDays(): DaySlots[] {
-  const hours = ["09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "14:00", "14:30", "15:00", "15:30", "16:00"];
-  return Array.from({ length: 6 }, (_, dayIdx) => {
+const DAY_KEYS: DayKey[] = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+const SLOT_STEP_MINUTES = 30;
+
+function primaryLocation(provider: ProviderProfile): Clinic | undefined {
+  return provider.clinic_locations.find((c) => c.is_primary) ?? provider.clinic_locations[0];
+}
+
+function timeToMinutes(time: string): number {
+  const [h, m] = time.split(":").map(Number);
+  return h * 60 + m;
+}
+
+function minutesToTime(minutes: number): string {
+  const h = Math.floor(minutes / 60)
+    .toString()
+    .padStart(2, "0");
+  const m = (minutes % 60).toString().padStart(2, "0");
+  return `${h}:${m}`;
+}
+
+function slotsForRange(start: string, end: string): string[] {
+  const startMin = timeToMinutes(start);
+  const endMin = timeToMinutes(end);
+  const times: string[] = [];
+  for (let t = startMin; t + SLOT_STEP_MINUTES <= endMin; t += SLOT_STEP_MINUTES) {
+    times.push(minutesToTime(t));
+  }
+  return times;
+}
+
+export function buildDays(provider: ProviderProfile, appointments: Appointment[], daysAhead = 6): DaySlots[] {
+  const location = primaryLocation(provider);
+  const blockedDates = new Set((provider.blocked_dates ?? []).map((b) => b.date));
+  const occupied = new Set(
+    appointments
+      .filter((a) => a.provider_id === provider.id && a.status !== "בוטל")
+      .map((a) => `${a.date}T${a.time}`)
+  );
+
+  // Saturday (שבת) is never bookable, so it's skipped entirely rather than
+  // shown as a day with no slots — the day picker keeps advancing until it
+  // has collected `daysAhead` real (non-Saturday) options.
+  const days: DaySlots[] = [];
+  for (let dayOffset = 1; days.length < daysAhead; dayOffset++) {
     const d = new Date();
-    d.setDate(d.getDate() + dayIdx + 1);
+    d.setDate(d.getDate() + dayOffset);
+    const dayKey = DAY_KEYS[d.getDay()];
+    if (dayKey === "saturday") continue;
+
     const date = d.toISOString().slice(0, 10);
     const label = d.toLocaleDateString("he-IL", { weekday: "short", day: "2-digit", month: "2-digit" });
-    const slots = hours.map((time, i) => ({
+    const range = location?.hours[dayKey];
+    const isBlocked = blockedDates.has(date);
+
+    const times = !range || isBlocked ? [] : slotsForRange(range[0], range[1]);
+    const slots = times.map((time) => ({
       time,
-      available: (i + dayIdx) % 3 !== 0,
+      available: !occupied.has(`${date}T${time}`),
     }));
-    return { date, label, slots };
-  });
+
+    days.push({ date, label, slots });
+  }
+  return days;
 }
 
 // Deterministic (not random) "days until this provider's next opening" used

@@ -25,6 +25,18 @@ export function isoDateDaysFromNow(days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+export function isoTimestampHoursFromNow(hours: number): string {
+  const d = new Date();
+  d.setHours(d.getHours() + hours);
+  return d.toISOString();
+}
+
+export function yearsSince(iso?: string): number | null {
+  if (!iso) return null;
+  const years = (Date.now() - new Date(iso).getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+  return years >= 1 ? Math.floor(years) : null;
+}
+
 export function formatDateHe(iso?: string): string {
   if (!iso) return "—";
   try {
@@ -127,19 +139,67 @@ export function monthOverMonthTrend<T>(
 export function buildMonthlyData<T>(
   items: T[],
   dateField: (item: T) => string | undefined,
-  months = 6
+  months = 6,
+  valueField?: (item: T) => number
 ): { label: string; count: number }[] {
   const now = new Date();
   return Array.from({ length: months }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - (months - 1 - i), 1);
     const start = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
     const end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59).getTime();
-    const count = items.filter((item) => {
+    const inMonth = items.filter((item) => {
       const val = dateField(item);
       if (!val) return false;
       const t = new Date(val).getTime();
       return t >= start && t <= end;
-    }).length;
+    });
+    const count = valueField ? inMonth.reduce((sum, item) => sum + valueField(item), 0) : inMonth.length;
     return { label: HE_MONTHS[d.getMonth()], count };
   });
+}
+
+/** Groups items by calendar month (yyyy-MM key, newest last) — used for
+ * end-of-month provider/admin reports where each month needs several summed
+ * metrics at once (unlike buildMonthlyData, which produces a single series). */
+export function groupByMonth<T>(
+  items: T[],
+  dateField: (item: T) => string | undefined,
+  months = 6
+): { key: string; label: string; items: T[] }[] {
+  const now = new Date();
+  return Array.from({ length: months }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (months - 1 - i), 1);
+    const start = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+    const end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59).getTime();
+    const inMonth = items.filter((item) => {
+      const val = dateField(item);
+      if (!val) return false;
+      const t = new Date(val).getTime();
+      return t >= start && t <= end;
+    });
+    return {
+      key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+      label: `${HE_MONTHS[d.getMonth()]} ${d.getFullYear()}`,
+      items: inMonth,
+    };
+  });
+}
+
+/** Builds a CSV data URL (client-side only, no backend) from rows of plain
+ * values — mirrors buildIcsDataUrl's pattern of returning a data: URL an
+ * anchor can point at. */
+export function buildCsvDataUrl(headers: string[], rows: (string | number)[][]): string {
+  const escape = (v: string | number) => {
+    const s = String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const csv = [headers, ...rows].map((row) => row.map(escape).join(",")).join("\r\n");
+  return `data:text/csv;charset=utf-8,${encodeURIComponent("﻿" + csv)}`;
+}
+
+export function downloadCsv(filename: string, headers: string[], rows: (string | number)[][]): void {
+  const a = document.createElement("a");
+  a.href = buildCsvDataUrl(headers, rows);
+  a.download = filename;
+  a.click();
 }

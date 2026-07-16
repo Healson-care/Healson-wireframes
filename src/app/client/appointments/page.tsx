@@ -1,20 +1,83 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { motion } from "framer-motion";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { motion, AnimatePresence } from "framer-motion";
 import { ClientLayout } from "@/components/layouts/ClientLayout";
 import { useStore } from "@/lib/store";
 import { useCurrentPatient } from "@/lib/useCurrentPatient";
 import { PageHeader, EmptyState } from "@/components/ui/Misc";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { ConfirmDialog } from "@/components/ui/Dialog";
-import { Calendar, Clock, Info, MapPin } from "lucide-react";
+import { ConfirmDialog, Dialog } from "@/components/ui/Dialog";
+import { Input } from "@/components/ui/Input";
+import { Popover } from "@/components/ui/Popover";
+import { AppointmentReminderPlan } from "@/components/patient/AppointmentReminderPlan";
+import {
+  AlertCircle,
+  ArrowLeft,
+  Calendar,
+  CalendarRange,
+  ChevronDown,
+  Clock,
+  CreditCard,
+  FileText,
+  Info,
+  MapPin,
+  Phone,
+  ShieldCheck,
+  Smartphone,
+  Star,
+  Stethoscope,
+  Wallet,
+  X,
+} from "lucide-react";
 import { Card } from "@/components/ui/Card";
-import { Appointment, AppointmentStatus, WaitlistEntry, WaitlistStatus } from "@/types";
+import { cn, formatCurrency } from "@/lib/utils";
+import {
+  APPOINTMENT_STATUSES,
+  Appointment,
+  AppointmentStatus,
+  DOCUMENT_CATEGORIES,
+  WaitlistEntry,
+  WaitlistStatus,
+} from "@/types";
 
 function formatAppointmentDate(dateIso: string) {
   return new Date(dateIso).toLocaleDateString("he-IL", { weekday: "long", day: "2-digit", month: "2-digit" });
+}
+
+function formatShortDate(dateIso: string) {
+  return new Date(dateIso).toLocaleDateString("he-IL", { day: "2-digit", month: "2-digit" });
+}
+
+// Cancellation policy: free to cancel while still "ממתין לתשלום מקדמה"
+// (nothing charged yet). Once the deposit is paid, cancellation is only
+// allowed within 48h of that payment, and the refund is the deposit minus a
+// service fee of 5% of the total price or ₪100, whichever is lower. Past the
+// 48h window the appointment can no longer be cancelled.
+const CANCELLATION_WINDOW_HOURS = 48;
+const REFUND_FEE_RATE = 0.05;
+const REFUND_FEE_CAP = 100;
+
+type CancellationInfo = { canCancel: boolean; refundAmount: number | null };
+
+function getCancellationInfo(appointment: Appointment): CancellationInfo {
+  if (appointment.status === "ממתין לתשלום מקדמה") {
+    return { canCancel: true, refundAmount: null };
+  }
+  if (appointment.status !== "מאושר" && appointment.status !== "שולם במלואו") {
+    return { canCancel: false, refundAmount: null };
+  }
+  if (!appointment.deposit_paid_at) return { canCancel: false, refundAmount: null };
+  const hoursSincePaid = (Date.now() - new Date(appointment.deposit_paid_at).getTime()) / (1000 * 60 * 60);
+  if (hoursSincePaid > CANCELLATION_WINDOW_HOURS) return { canCancel: false, refundAmount: null };
+  const deposit = appointment.deposit_amount ?? 0;
+  const price = appointment.price ?? 0;
+  const fee = Math.min(price * REFUND_FEE_RATE, REFUND_FEE_CAP);
+  const refundAmount = Math.max(0, Math.round(deposit - fee));
+  return { canCancel: true, refundAmount };
 }
 
 // Explains, in the patient's own words, what each status of the booking
@@ -86,21 +149,272 @@ function StatusLegend() {
           </span>
         </div>
       </div>
+      <div className="h-px bg-slate-100 my-3" />
+      <p className="text-xs text-slate-500 leading-relaxed">
+        <span className="font-medium text-slate-700">מדיניות ביטול:</span> ניתן לבטל תור ללא עלות עד לתשלום המקדמה.
+        עד 48 שעות ממועד תשלום המקדמה ניתן לבטל ולקבל החזר מקדמה בניכוי דמי טיפול (5% מסך העסקה או ₪100 — הנמוך
+        מביניהם). לאחר מכן לא ניתן לבטל את התור.
+      </p>
     </Card>
+  );
+}
+
+function PaymentMethodFields({
+  payMethod,
+  onPayMethodChange,
+  saveCard,
+  onSaveCardChange,
+}: {
+  payMethod: "card" | "apple" | "google";
+  onPayMethodChange: (method: "card" | "apple" | "google") => void;
+  saveCard: boolean;
+  onSaveCardChange: (checked: boolean) => void;
+}) {
+  return (
+    <>
+      <div className="grid grid-cols-3 gap-2 mb-4">
+        <button
+          onClick={() => onPayMethodChange("card")}
+          className={`flex flex-col items-center gap-1 rounded-xl border p-3 text-xs font-medium ${payMethod === "card" ? "border-primary bg-primary/5 text-primary" : "border-slate-200 text-slate-500"}`}
+        >
+          <CreditCard className="h-4 w-4" /> כרטיס אשראי
+        </button>
+        <button
+          onClick={() => onPayMethodChange("apple")}
+          className={`flex flex-col items-center gap-1 rounded-xl border p-3 text-xs font-medium ${payMethod === "apple" ? "border-primary bg-primary/5 text-primary" : "border-slate-200 text-slate-500"}`}
+        >
+          <Smartphone className="h-4 w-4" /> Apple Pay
+        </button>
+        <button
+          onClick={() => onPayMethodChange("google")}
+          className={`flex flex-col items-center gap-1 rounded-xl border p-3 text-xs font-medium ${payMethod === "google" ? "border-primary bg-primary/5 text-primary" : "border-slate-200 text-slate-500"}`}
+        >
+          <Smartphone className="h-4 w-4" /> Google Pay
+        </button>
+      </div>
+      {payMethod === "card" && (
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          <div className="col-span-2">
+            <Input placeholder="מספר כרטיס" dir="ltr" defaultValue="4580 •••• •••• 1234" />
+          </div>
+          <Input placeholder="MM/YY" dir="ltr" defaultValue="08/28" />
+          <Input placeholder="CVV" dir="ltr" defaultValue="•••" />
+          <label className="col-span-2 flex items-center gap-2 text-xs text-slate-500 mt-1 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={saveCard}
+              onChange={(e) => onSaveCardChange(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
+            />
+            שמור את פרטי הכרטיס לתשלומים הבאים (הדגמה)
+          </label>
+        </div>
+      )}
+      <p className="flex items-center gap-1.5 text-[11px] text-slate-400 mb-4">
+        <ShieldCheck className="h-3.5 w-3.5" /> תשלום מאובטח בתקן PCI DSS · מצב הדגמה, לא מתבצע חיוב אמיתי
+      </p>
+    </>
+  );
+}
+
+function PayDepositDialog({
+  appointment,
+  onClose,
+  onPaid,
+}: {
+  appointment: Appointment | null;
+  onClose: () => void;
+  onPaid: (id: string) => void;
+}) {
+  const [payMethod, setPayMethod] = useState<"card" | "apple" | "google">("card");
+  const [paying, setPaying] = useState(false);
+  const [saveCard, setSaveCard] = useState(false);
+
+  const price = appointment?.price ?? 0;
+  const depositAmount = appointment?.deposit_amount ?? Math.round(price * 0.3);
+  const balanceAmount = price - depositAmount;
+
+  return (
+    <Dialog
+      open={!!appointment}
+      onClose={onClose}
+      title="תשלום מקדמה"
+      description={
+        appointment
+          ? `${appointment.service_name} · ${appointment.provider_name} · ${formatAppointmentDate(appointment.date)} ${appointment.time}`
+          : undefined
+      }
+    >
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 mb-4">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-semibold text-slate-700">מקדמה לתשלום</span>
+          <span className="text-lg font-bold text-primary">{formatCurrency(depositAmount)}</span>
+        </div>
+        <p className="text-[11px] text-slate-400 mt-1">
+          לשריון התור נדרש תשלום מקדמה עכשיו. היתרה תיגבה במועד התור.
+        </p>
+        <div className="flex items-center justify-between mt-2">
+          <span className="text-[11px] text-slate-400">יתרה לתשלום בתור</span>
+          <span className="text-[11px] text-slate-400">{formatCurrency(balanceAmount)}</span>
+        </div>
+      </div>
+      <PaymentMethodFields
+        payMethod={payMethod}
+        onPayMethodChange={setPayMethod}
+        saveCard={saveCard}
+        onSaveCardChange={setSaveCard}
+      />
+      <Button
+        size="lg"
+        className="w-full"
+        loading={paying}
+        onClick={() => {
+          if (!appointment) return;
+          setPaying(true);
+          setTimeout(() => {
+            onPaid(appointment.id);
+            setPaying(false);
+          }, 1200);
+        }}
+      >
+        שלם {formatCurrency(depositAmount)} ואשר תור
+      </Button>
+    </Dialog>
+  );
+}
+
+function PayBalanceDialog({
+  appointment,
+  onClose,
+  onPaid,
+}: {
+  appointment: Appointment | null;
+  onClose: () => void;
+  onPaid: (id: string) => void;
+}) {
+  const [payMethod, setPayMethod] = useState<"card" | "apple" | "google">("card");
+  const [paying, setPaying] = useState(false);
+  const [saveCard, setSaveCard] = useState(false);
+
+  const price = appointment?.price ?? 0;
+  const depositAmount = appointment?.deposit_amount ?? Math.round(price * 0.3);
+  const balanceAmount = price - depositAmount;
+
+  return (
+    <Dialog
+      open={!!appointment}
+      onClose={onClose}
+      title="תשלום יתרה"
+      description={
+        appointment
+          ? `${appointment.service_name} · ${appointment.provider_name} · ${formatAppointmentDate(appointment.date)} ${appointment.time}`
+          : undefined
+      }
+    >
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 mb-4">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-semibold text-slate-700">יתרה לתשלום</span>
+          <span className="text-lg font-bold text-primary">{formatCurrency(balanceAmount)}</span>
+        </div>
+        <p className="text-[11px] text-slate-400 mt-1">
+          זהו התשלום האחרון להשלמת התור — המקדמה כבר שולמה קודם.
+        </p>
+      </div>
+      <PaymentMethodFields
+        payMethod={payMethod}
+        onPayMethodChange={setPayMethod}
+        saveCard={saveCard}
+        onSaveCardChange={setSaveCard}
+      />
+      <Button
+        size="lg"
+        className="w-full"
+        loading={paying}
+        onClick={() => {
+          if (!appointment) return;
+          setPaying(true);
+          setTimeout(() => {
+            onPaid(appointment.id);
+            setPaying(false);
+          }, 1200);
+        }}
+      >
+        שלם {formatCurrency(balanceAmount)}
+      </Button>
+    </Dialog>
   );
 }
 
 type HistoryItem = { kind: "appointment"; data: Appointment } | { kind: "waitlist"; data: WaitlistEntry };
 
-export default function ClientAppointmentsPage() {
+// Both appointments and waitlist entries carry a "status" string, so a single
+// filter row covers both kinds. "נוצר קשר" is left out — a waitlist request
+// never actually shows that status to the patient, only "ממתין"/"בוטל".
+const STATUS_FILTER_OPTIONS: { value: AppointmentStatus | WaitlistStatus; label: string }[] = [
+  ...APPOINTMENT_STATUSES.map((s) => ({ value: s, label: s })),
+  { value: "ממתין" as WaitlistStatus, label: WAITLIST_STATUS_LABELS["ממתין"] },
+];
+
+function FilterChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
+        active ? "bg-primary text-white" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+      )}
+    >
+      {children}
+      {active && <X className="h-3 w-3" />}
+    </button>
+  );
+}
+
+function ClientAppointmentsPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const highlightId = searchParams.get("appointment");
+
   const appointments = useStore((s) => s.appointments);
   const waitlist = useStore((s) => s.waitlist);
+  const providers = useStore((s) => s.providers);
+  const documents = useStore((s) => s.documents);
   const updateAppointment = useStore((s) => s.updateAppointment);
+  const addDocument = useStore((s) => s.addDocument);
   const showToast = useStore((s) => s.showToast);
   const currentUser = useStore((s) => s.currentUser);
   const patient = useCurrentPatient();
 
-  const [cancelId, setCancelId] = useState<string | null>(null);
+  const [cancelAppointment, setCancelAppointment] = useState<Appointment | null>(null);
+  const [payDepositAppointment, setPayDepositAppointment] = useState<Appointment | null>(null);
+  const [payBalanceAppointment, setPayBalanceAppointment] = useState<Appointment | null>(null);
+
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [dateDialogOpen, setDateDialogOpen] = useState(false);
+
+  // Arrived here via a "קשור לתור" link on a document — pre-expand that
+  // appointment's details on mount.
+  const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>(() =>
+    highlightId ? { [highlightId]: true } : {}
+  );
+  function toggleExpanded(id: string) {
+    setExpandedIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  }
+
+  useEffect(() => {
+    if (!highlightId) return;
+    document.getElementById(`appt-${highlightId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [highlightId]);
 
   const isMine = (entry: { created_by_id?: string }) =>
     entry.created_by_id === patient?.id || entry.created_by_id === currentUser?.id;
@@ -118,19 +432,121 @@ export default function ClientAppointmentsPage() {
     return items.sort((a, b) => (a.data.date + a.data.time).localeCompare(b.data.date + b.data.time));
   }, [myAppointments, myWaitlistEntries]);
 
+  const filteredItems = useMemo(() => {
+    return historyItems.filter((item) => {
+      if (statusFilter && item.data.status !== statusFilter) return false;
+      if (dateFrom && item.data.date < dateFrom) return false;
+      if (dateTo && item.data.date > dateTo) return false;
+      return true;
+    });
+  }, [historyItems, statusFilter, dateFrom, dateTo]);
+
+  const hasActiveFilters = !!statusFilter || !!dateFrom || !!dateTo;
+
+  function clearFilters() {
+    setStatusFilter(null);
+    setDateFrom("");
+    setDateTo("");
+  }
+
   return (
     <ClientLayout>
-      <PageHeader title="התורים שלי" description="כל התורים ובקשות ההמתנה שלכם, מסודרים לפי מועד" />
+      <PageHeader title="היסטוריית תורים" description="כל התורים ובקשות ההמתנה שלכם, מסודרים לפי מועד" />
 
       <StatusLegend />
 
+      {historyItems.length > 0 && (
+        <div className="flex items-center gap-2 mb-4">
+          <div className="flex-1 min-w-0 overflow-x-auto no-scrollbar">
+            <div className="flex gap-1.5 w-max">
+              {STATUS_FILTER_OPTIONS.map((opt) => (
+                <FilterChip
+                  key={opt.value}
+                  active={statusFilter === opt.value}
+                  onClick={() => setStatusFilter(statusFilter === opt.value ? null : opt.value)}
+                >
+                  {opt.label}
+                </FilterChip>
+              ))}
+            </div>
+          </div>
+
+          <button
+            onClick={() => setDateDialogOpen(true)}
+            className={cn(
+              "flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+              dateFrom || dateTo
+                ? "border-primary bg-primary/5 text-primary"
+                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+            )}
+          >
+            <CalendarRange className="h-3.5 w-3.5" />
+            {dateFrom || dateTo
+              ? `${dateFrom ? formatShortDate(dateFrom) : "…"}-${dateTo ? formatShortDate(dateTo) : "…"}`
+              : "תאריכים"}
+          </button>
+
+          {hasActiveFilters && (
+            <button
+              onClick={clearFilters}
+              title="נקה סינון"
+              className="flex shrink-0 items-center justify-center rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+      )}
+
+      <Dialog open={dateDialogOpen} onClose={() => setDateDialogOpen(false)} title="סינון לפי תאריכים">
+        <div className="flex items-center gap-2 mb-4">
+          <Input
+            type="date"
+            label="מתאריך"
+            value={dateFrom}
+            max={dateTo || undefined}
+            onChange={(e) => setDateFrom(e.target.value)}
+          />
+          <Input
+            type="date"
+            label="עד תאריך"
+            value={dateTo}
+            min={dateFrom || undefined}
+            onChange={(e) => setDateTo(e.target.value)}
+          />
+        </div>
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={() => {
+              setDateFrom("");
+              setDateTo("");
+            }}
+            className="h-9 rounded-lg border border-slate-300 px-4 text-sm font-medium hover:bg-slate-50"
+          >
+            נקה
+          </button>
+          <Button size="sm" onClick={() => setDateDialogOpen(false)}>
+            החל
+          </Button>
+        </div>
+      </Dialog>
+
       {historyItems.length === 0 ? (
         <EmptyState title="אין לך תורים" description="ניתן לקבוע תור חדש דרך מסך החיפוש" />
+      ) : filteredItems.length === 0 ? (
+        <EmptyState title="אין תוצאות" description="לא נמצאו תורים או בקשות התואמים את הסינון שבחרתם" />
       ) : (
         <div className="flex flex-col gap-3">
-          {historyItems.map((item, i) => (
+          {filteredItems.map((item, i) => {
+            const isExpanded = !!expandedIds[item.data.id];
+            const provider = providers.find((p) => p.id === item.data.provider_id);
+            const linkedDocs = item.kind === "appointment" ? documents.filter((d) => d.appointment_id === item.data.id) : [];
+            const pendingQuestionnaires = linkedDocs.filter(
+              (d) => d.category === "questionnaire" && d.status === "ממתין למילוי"
+            );
+            return (
             <motion.div key={`${item.kind}-${item.data.id}`} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18, delay: i * 0.03 }}>
-              <Card className="p-4">
+              <Card id={`appt-${item.data.id}`} className={cn("p-4", highlightId === item.data.id && "ring-2 ring-primary")}>
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
@@ -143,13 +559,77 @@ export default function ClientAppointmentsPage() {
                     <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
                       <MapPin className="h-3 w-3" /> {item.data.provider_name}
                     </p>
+                    {linkedDocs.length > 0 && (
+                      <Popover
+                        trigger={
+                          pendingQuestionnaires.length > 0 ? (
+                            <span className="flex items-center gap-1 text-xs font-medium text-warning-text mt-1">
+                              <AlertCircle className="h-3 w-3" /> יש למלא שאלון ({pendingQuestionnaires.length})
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-xs text-primary hover:underline mt-1">
+                              <FileText className="h-3 w-3" /> מסמכים מקושרים ({linkedDocs.length})
+                            </span>
+                          )
+                        }
+                      >
+                        {(close) => (
+                          <div className="flex flex-col gap-2 text-sm">
+                            <p className="font-semibold text-slate-900">מסמכים לתור זה</p>
+                            <div className="flex flex-col gap-1.5">
+                              {linkedDocs.map((d) => {
+                                const isPending = d.category === "questionnaire" && d.status === "ממתין למילוי";
+                                return (
+                                  <div
+                                    key={d.id}
+                                    className={cn(
+                                      "flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5",
+                                      isPending ? "bg-warning-bg" : "bg-slate-50"
+                                    )}
+                                  >
+                                    <span className={cn("text-xs font-medium truncate", isPending ? "text-warning-text" : "text-slate-700")}>
+                                      {d.title}
+                                    </span>
+                                    <span className={cn("shrink-0 text-[10px]", isPending ? "text-warning-text" : "text-slate-400")}>
+                                      {isPending ? "ממתין למילוי" : DOCUMENT_CATEGORIES.find((c) => c.id === d.category)?.label}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <Button
+                              size="sm"
+                              className="mt-1 w-full"
+                              onClick={() => {
+                                close();
+                                router.push(`/client/documents?appointment=${item.data.id}`);
+                              }}
+                            >
+                              לצפייה מלאה במסמכים
+                            </Button>
+                          </div>
+                        )}
+                      </Popover>
+                    )}
                   </div>
                   {item.kind === "appointment" ? (
-                    <StatusBadge
-                      status={item.data.status}
-                      kind="appointment"
-                      title={APPOINTMENT_STATUS_DESCRIPTIONS[item.data.status]}
-                    />
+                    item.data.status === "ממתין לתשלום מקדמה" ? (
+                      <button
+                        onClick={() => setPayDepositAppointment(item.data)}
+                        title={`${APPOINTMENT_STATUS_DESCRIPTIONS[item.data.status]} — לחצו לתשלום`}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-warning-border bg-warning-bg px-2.5 py-1 text-xs font-medium text-warning-text underline decoration-dotted underline-offset-2 transition hover:bg-warning-text hover:text-white hover:no-underline hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-warning-text/40"
+                      >
+                        <CreditCard className="h-3 w-3" />
+                        {item.data.status}
+                        <span className="opacity-75">· לתשלום</span>
+                      </button>
+                    ) : (
+                      <StatusBadge
+                        status={item.data.status}
+                        kind="appointment"
+                        title={APPOINTMENT_STATUS_DESCRIPTIONS[item.data.status]}
+                      />
+                    )
                   ) : (
                     <Badge tone={WAITLIST_STATUS_TONE[item.data.status]} title={WAITLIST_STATUS_DESCRIPTIONS[item.data.status]}>
                       {WAITLIST_STATUS_LABELS[item.data.status]}
@@ -157,48 +637,193 @@ export default function ClientAppointmentsPage() {
                   )}
                 </div>
                 {item.kind === "appointment" && item.data.status !== "בוטל" && item.data.status !== "בוצע" && (
-                  <div className="mt-3 flex justify-end gap-2">
+                  <div className="mt-3 flex items-center justify-end gap-2">
                     {/* "שלם יתרה" only appears once the deposit is paid ("מאושר").
                         TODO(product, unresolved): nothing here flags or blocks an
                         appointment whose date arrives with the balance still
                         unpaid — see the note on AppointmentStatus in types/index.ts
                         and README.md. */}
                     {item.data.status === "מאושר" && (
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          updateAppointment(item.data.id, { status: "שולם במלואו" });
-                          showToast("היתרה שולמה במלואה", { variant: "success" });
-                        }}
-                      >
+                      <Button size="sm" onClick={() => setPayBalanceAppointment(item.data)}>
                         שלם יתרה
                       </Button>
                     )}
-                    <Button variant="outline" size="sm" onClick={() => setCancelId(item.data.id)}>
-                      בטל תור
-                    </Button>
+                    {getCancellationInfo(item.data).canCancel ? (
+                      <Button variant="outline" size="sm" onClick={() => setCancelAppointment(item.data)}>
+                        בטל תור
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-slate-400">חלף המועד לביטול תור זה</span>
+                    )}
                   </div>
                 )}
+
+                <button
+                  onClick={() => toggleExpanded(item.data.id)}
+                  className="mt-3 flex w-full items-center justify-center gap-1 text-xs font-medium text-slate-400 hover:text-slate-600"
+                >
+                  {isExpanded ? "הצג פחות" : "פרטים נוספים"}
+                  <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", isExpanded && "rotate-180")} />
+                </button>
+
+                <AnimatePresence initial={false}>
+                  {isExpanded && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="mt-3 pt-3 border-t border-slate-100 flex flex-col gap-2.5 text-sm">
+                        {item.kind === "appointment" && item.data.price !== undefined && (
+                          <div className="flex items-center justify-between">
+                            <span className="flex items-center gap-1.5 text-slate-500">
+                              <Wallet className="h-3.5 w-3.5" /> מחיר
+                            </span>
+                            <span className="font-medium text-slate-800">
+                              {formatCurrency(item.data.price)}
+                              {item.data.deposit_amount !== undefined && (
+                                <span className="text-xs font-normal text-slate-400">
+                                  {" "}
+                                  (מקדמה {formatCurrency(item.data.deposit_amount)})
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        )}
+                        {item.kind === "appointment" && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500">משך הפגישה</span>
+                            <span className="font-medium text-slate-800">{item.data.duration_minutes} דק׳</span>
+                          </div>
+                        )}
+                        {item.kind === "appointment" && provider?.clinic_locations[0] && (
+                          <div className="flex items-start justify-between">
+                            <span className="text-slate-500">סניף</span>
+                            <span className="text-left">
+                              <span className="block font-medium text-slate-800">{provider.clinic_locations[0].name}</span>
+                              <span className="text-xs text-slate-400">
+                                {provider.clinic_locations[0].address}, {provider.clinic_locations[0].city}
+                              </span>
+                            </span>
+                          </div>
+                        )}
+                        {item.kind === "appointment" && item.data.notes && (
+                          <div>
+                            <span className="block text-slate-500 mb-0.5">הערות</span>
+                            <p className="text-slate-700">{item.data.notes}</p>
+                          </div>
+                        )}
+
+                        {provider && (
+                          <div className="flex flex-col gap-1.5 rounded-lg bg-slate-50 p-3">
+                            <p className="flex items-center gap-1.5 font-medium text-slate-800">
+                              <Stethoscope className="h-3.5 w-3.5 text-primary" />
+                              {provider.title} {provider.display_name}
+                              {provider.specialty && ` · ${provider.specialty}`}
+                            </p>
+                            {provider.rating !== undefined && (
+                              <p className="flex items-center gap-1 text-xs text-slate-500">
+                                <Star className="h-3 w-3 fill-amber-400 text-amber-400" /> {provider.rating.toFixed(1)}
+                                {provider.review_count !== undefined && ` (${provider.review_count} ביקורות)`}
+                              </p>
+                            )}
+                            {provider.clinic_locations[0]?.phone && (
+                              <p className="flex items-center gap-1 text-xs text-slate-500">
+                                <Phone className="h-3 w-3" /> {provider.clinic_locations[0].phone}
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {item.kind === "appointment" &&
+                          item.data.status !== "בוטל" &&
+                          item.data.status !== "בוצע" && (
+                            <AppointmentReminderPlan appointment={item.data} provider={provider} />
+                          )}
+
+                        {item.data.status === "בוטל" && (
+                          <Link href="/client/search">
+                            <Button size="sm" className="w-full mt-1">
+                              קבע תור חדש <ArrowLeft className="h-3.5 w-3.5" />
+                            </Button>
+                          </Link>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </Card>
             </motion.div>
-          ))}
+            );
+          })}
         </div>
       )}
 
       <ConfirmDialog
-        open={!!cancelId}
-        onClose={() => setCancelId(null)}
+        open={!!cancelAppointment}
+        onClose={() => setCancelAppointment(null)}
         title="ביטול תור"
-        description="האם אתם בטוחים שתרצו לבטל תור זה?"
+        description={
+          cancelAppointment && getCancellationInfo(cancelAppointment).refundAmount !== null
+            ? `יוחזרו לכם ${formatCurrency(getCancellationInfo(cancelAppointment).refundAmount ?? 0)} מתוך המקדמה ששולמה, בניכוי דמי טיפול (5% מסך העסקה או ₪100 — הנמוך מביניהם).`
+            : "טרם שולמה מקדמה עבור תור זה, כך שהביטול הוא ללא עלות."
+        }
         destructive
         confirmLabel="בטל תור"
         onConfirm={() => {
-          if (cancelId) {
-            updateAppointment(cancelId, { status: "בוטל" });
-            showToast("התור בוטל", { variant: "success" });
+          if (!cancelAppointment) return;
+          const { refundAmount } = getCancellationInfo(cancelAppointment);
+          updateAppointment(cancelAppointment.id, { status: "בוטל" });
+          showToast(refundAmount ? `התור בוטל, ${formatCurrency(refundAmount)} יוחזרו לאמצעי התשלום` : "התור בוטל", {
+            variant: "success",
+          });
+        }}
+      />
+
+      <PayDepositDialog
+        appointment={payDepositAppointment}
+        onClose={() => setPayDepositAppointment(null)}
+        onPaid={(id) => {
+          updateAppointment(id, { status: "מאושר", deposit_paid_at: new Date().toISOString() });
+          showToast("התשלום התקבל, התור אושר", { variant: "success" });
+          setPayDepositAppointment(null);
+        }}
+      />
+
+      <PayBalanceDialog
+        appointment={payBalanceAppointment}
+        onClose={() => setPayBalanceAppointment(null)}
+        onPaid={(id) => {
+          updateAppointment(id, { status: "שולם במלואו" });
+          const patientId = patient?.id ?? currentUser?.id;
+          if (patientId && payBalanceAppointment) {
+            addDocument({
+              patient_id: patientId,
+              category: "receipt",
+              title: `קבלה על יתרה - ${payBalanceAppointment.service_name}`,
+              uploaded_by: "system",
+              appointment_id: id,
+              file: {
+                file_name: "קבלה.pdf",
+                uploaded_at: new Date().toISOString(),
+                data_url: "data:application/pdf;base64,",
+              },
+            });
           }
+          showToast("היתרה שולמה במלואה", { variant: "success" });
+          setPayBalanceAppointment(null);
         }}
       />
     </ClientLayout>
+  );
+}
+
+export default function ClientAppointmentsPage() {
+  return (
+    <Suspense fallback={<ClientLayout>{null}</ClientLayout>}>
+      <ClientAppointmentsPageContent />
+    </Suspense>
   );
 }

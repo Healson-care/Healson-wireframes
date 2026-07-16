@@ -13,7 +13,7 @@ import {
   InsuranceProfileForm,
   InsuranceProfileValue,
 } from "@/components/patient/InsuranceProfileForm";
-import { CONSENT_LABELS, CONSENT_REQUIRED, CONSENT_TYPES, ConsentType } from "@/types";
+import { CONSENT_DOCUMENT_VERSION, CONSENT_LABELS, CONSENT_REQUIRED, CONSENT_TYPES, ConsentType } from "@/types";
 import { isValidIsraeliId } from "@/lib/utils";
 import { ShieldOff, FileDown } from "lucide-react";
 
@@ -169,6 +169,7 @@ function DataRightsSection({ patientId }: { patientId: string }) {
   const exportPatientData = useStore((s) => s.exportPatientData);
   const addDsrRequest = useStore((s) => s.addDsrRequest);
   const getPatientConsents = useStore((s) => s.getPatientConsents);
+  const grantConsent = useStore((s) => s.grantConsent);
   const revokeConsent = useStore((s) => s.revokeConsent);
   const showToast = useStore((s) => s.showToast);
   const consentRecords = useStore((s) => s.consentRecords);
@@ -180,6 +181,16 @@ function DataRightsSection({ patientId }: { patientId: string }) {
       .filter((c) => c.consent_type === type)
       .sort((a, b) => (a.granted_at < b.granted_at ? 1 : -1))
       .find((c) => c.granted && !c.revoked_at);
+  }
+
+  function handleGrant(type: ConsentType) {
+    grantConsent(patientId, type, CONSENT_DOCUMENT_VERSION);
+    showToast("ההסכמה עודכנה", { description: CONSENT_LABELS[type], variant: "success" });
+  }
+
+  function handleRevoke(recordId: string, type: ConsentType) {
+    revokeConsent(recordId);
+    showToast("ההסכמה בוטלה", { description: CONSENT_LABELS[type] });
   }
 
   function handleExport() {
@@ -217,7 +228,7 @@ function DataRightsSection({ patientId }: { patientId: string }) {
         </div>
 
         <div className="flex flex-col gap-2">
-          <p className="text-sm font-medium text-slate-700">הסכמות שניתנו</p>
+          <p className="text-sm font-medium text-slate-700">ניהול הסכמות</p>
           {CONSENT_TYPES.map((type) => {
             const record = activeConsent(type);
             const required = CONSENT_REQUIRED[type];
@@ -229,12 +240,17 @@ function DataRightsSection({ patientId }: { patientId: string }) {
                     {record ? `אושר ב-${new Date(record.granted_at).toLocaleDateString("he-IL")}` : "לא אושר"}
                   </p>
                 </div>
-                {record && !required && (
-                  <Button variant="outline" size="sm" onClick={() => revokeConsent(record.id)}>
+                {required ? (
+                  <span className="text-xs text-slate-400">חובה</span>
+                ) : record ? (
+                  <Button variant="outline" size="sm" onClick={() => handleRevoke(record.id, type)}>
                     בטל הסכמה
                   </Button>
+                ) : (
+                  <Button variant="outline" size="sm" onClick={() => handleGrant(type)}>
+                    אשר הסכמה
+                  </Button>
                 )}
-                {required && <span className="text-xs text-slate-400">חובה</span>}
               </div>
             );
           })}

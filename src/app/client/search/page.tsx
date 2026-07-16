@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
@@ -30,9 +30,11 @@ const stepTransition = { duration: 0.25, ease: "easeOut" as const };
 export default function ClientSearchPage() {
   const router = useRouter();
   const providers = useStore((s) => s.providers);
+  const appointments = useStore((s) => s.appointments);
   const addAppointment = useStore((s) => s.addAppointment);
   const updateAppointment = useStore((s) => s.updateAppointment);
   const addOrder = useStore((s) => s.addOrder);
+  const addDocument = useStore((s) => s.addDocument);
   const showToast = useStore((s) => s.showToast);
   const currentUser = useStore((s) => s.currentUser);
   const patient = useCurrentPatient();
@@ -40,7 +42,10 @@ export default function ClientSearchPage() {
   const [step, setStep] = useState(0);
   const [selectedProvider, setSelectedProvider] = useState<ProviderProfile | null>(null);
 
-  const [days] = useState<DaySlots[]>(() => buildDays());
+  const days: DaySlots[] = useMemo(
+    () => (selectedProvider ? buildDays(selectedProvider, appointments) : []),
+    [selectedProvider, appointments]
+  );
   const [activeDayIdx, setActiveDayIdx] = useState(0);
   const [selectedSlot, setSelectedSlot] = useState<{ date: string; time: string; label: string } | null>(null);
   const [holdExpiresAt, setHoldExpiresAt] = useState<number | null>(null);
@@ -55,6 +60,9 @@ export default function ClientSearchPage() {
     price: number;
     icsUrl: string;
   } | null>(null);
+  const [pendingQuestionnaire, setPendingQuestionnaire] = useState<{ appointmentId: string; title: string } | null>(
+    null
+  );
 
   const consultation = selectedProvider?.consultation_types[0];
   const resolvedPrice =
@@ -66,6 +74,10 @@ export default function ClientSearchPage() {
   // history, even if they never complete payment.
   function selectSlot(date: string, time: string, label: string) {
     if (!selectedProvider) return;
+    if (patient?.processing_restricted) {
+      showToast("לא ניתן להמשיך", { description: "עיבוד הנתונים של מטופל זה חסום. פנה לתמיכה.", variant: "destructive" });
+      return;
+    }
     const appointment = addAppointment({
       client_name: currentUser?.full_name ?? "מטופל",
       client_phone: currentUser?.phone,
@@ -76,6 +88,8 @@ export default function ClientSearchPage() {
       time,
       duration_minutes: consultation?.duration_minutes ?? 30,
       status: "ממתין לתשלום מקדמה",
+      price,
+      deposit_amount: Math.round(price * 0.3),
       kupah: patient?.kupah,
       notes: "",
       created_by_id: patient?.id ?? currentUser?.id,
@@ -112,17 +126,22 @@ export default function ClientSearchPage() {
     setHoldExpiresAt(null);
     setPendingAppointmentId(null);
     setConfirmation(null);
+    setPendingQuestionnaire(null);
   }
 
   function handlePay() {
     if (!selectedProvider || !selectedSlot || !pendingAppointmentId) return;
+    if (patient?.processing_restricted) {
+      showToast("לא ניתן להמשיך", { description: "עיבוד הנתונים של מטופל זה חסום. פנה לתמיכה.", variant: "destructive" });
+      return;
+    }
     setPaying(true);
     setTimeout(() => {
       const commissionRate = selectedProvider.commission_rate ?? 15;
       const commissionAmount = Math.round((price * commissionRate) / 100);
       // Payment success is the moment the pending hold becomes a confirmed
       // appointment — and the moment this lead becomes a client in practice.
-      updateAppointment(pendingAppointmentId, { status: "מאושר" });
+      updateAppointment(pendingAppointmentId, { status: "מאושר", deposit_paid_at: new Date().toISOString() });
       addOrder({
         item_name: consultation?.name ?? "ייעוץ",
         provider_id: selectedProvider.id,
@@ -138,6 +157,36 @@ export default function ClientSearchPage() {
         commission_amount: commissionAmount,
         provider_payout_amount: price - commissionAmount,
       });
+      // The receipt and (if the service requires one) the pre-visit
+      // questionnaire are created the moment the deposit clears, linked to
+      // this appointment.
+      const patientId = patient?.id ?? currentUser?.id;
+      if (patientId) {
+        addDocument({
+          patient_id: patientId,
+          category: "receipt",
+          title: `קבלה על מקדמה - ${consultation?.name ?? "ייעוץ"}`,
+          uploaded_by: "system",
+          appointment_id: pendingAppointmentId,
+          file: {
+            file_name: "קבלה.pdf",
+            uploaded_at: new Date().toISOString(),
+            data_url: "data:application/pdf;base64,",
+          },
+        });
+        if (consultation?.requires_questionnaire) {
+          const questionnaireTitle = consultation.questionnaire_title ?? "שאלון לפני התור";
+          addDocument({
+            patient_id: patientId,
+            category: "questionnaire",
+            title: questionnaireTitle,
+            uploaded_by: "system",
+            appointment_id: pendingAppointmentId,
+            status: "ממתין למילוי",
+          });
+          setPendingQuestionnaire({ appointmentId: pendingAppointmentId, title: questionnaireTitle });
+        }
+      }
       const icsUrl = buildIcsDataUrl({
         title: `תור ל-${selectedProvider.display_name}`,
         description: consultation?.name,
@@ -240,7 +289,7 @@ export default function ClientSearchPage() {
               </motion.div>
             )}
 
-            {step === 3 && confirmation && selectedProvider && selectedSlot && (
+            {step === 3 && confirmation && selectedProvider && selectedSlot && pendingAppointmentId && (
               <motion.div key="step3" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition}>
                 <BookingConfirmation
                   provider={selectedProvider}
@@ -248,6 +297,8 @@ export default function ClientSearchPage() {
                   confirmation={confirmation}
                   homeHref="/client/appointments"
                   homeLabel="התורים שלי"
+                  appointmentId={pendingAppointmentId}
+                  pendingQuestionnaire={pendingQuestionnaire}
                 />
                 <div className="text-center mt-4">
                   <button onClick={handleReset} className="text-sm text-slate-400 hover:text-primary">
