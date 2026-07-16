@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Mail, Lock, ChevronDown, Smartphone } from "lucide-react";
+import { Mail, Lock, ChevronDown, Smartphone, PauseCircle, Ban, Phone } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { AuthLayout } from "@/components/layouts/AuthLayout";
 import { PatientTypeToggle } from "@/components/shared/PatientTypeToggle";
@@ -38,6 +38,7 @@ export default function LoginPage() {
   const [smsCode, setSmsCode] = useState("");
   const [emailCode, setEmailCode] = useState("");
   const [error, setError] = useState("");
+  const [blockedStatus, setBlockedStatus] = useState<"rejected" | "suspended" | null>(null);
   const [loading, setLoading] = useState(false);
   const [demoOpen, setDemoOpen] = useState(false);
 
@@ -66,11 +67,19 @@ export default function LoginPage() {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    setBlockedStatus(null);
     setLoading(true);
     setTimeout(() => {
       const result = login(email, password);
       setLoading(false);
       if (!result.ok) {
+        if (result.blockedStatus) {
+          // A provider blocked by lifecycle status gets a full explanation
+          // panel (what happened, what to do next) instead of a generic error.
+          setBlockedStatus(result.blockedStatus);
+          setError(result.error ?? "");
+          return;
+        }
         setError(result.error ?? "שגיאה בהתחברות");
         return;
       }
@@ -222,10 +231,47 @@ export default function LoginPage() {
       <h1 className="text-lg font-semibold text-slate-900 mb-1">התחברות</h1>
       <p className="text-sm text-slate-500 mb-5">היכנסו לחשבון שלכם כדי להמשיך</p>
 
-      {error && (
-        <div className="mb-4 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
-          {error}
+      {blockedStatus ? (
+        <div className="mb-4 rounded-xl border border-danger-border bg-danger-bg p-4">
+          <div className="flex items-start gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-danger">
+              {blockedStatus === "suspended" ? <PauseCircle className="h-5 w-5" /> : <Ban className="h-5 w-5" />}
+            </span>
+            <div className="min-w-0 text-sm text-danger-text">
+              <p className="font-semibold mb-1">
+                {blockedStatus === "suspended" ? "חשבון הספק שלך מושהה זמנית" : "בקשת ההצטרפות שלך נדחתה"}
+              </p>
+              <p className="leading-relaxed">{error}</p>
+              <p className="mt-2 leading-relaxed text-danger-text/80">
+                {blockedStatus === "suspended"
+                  ? "ההשהיה בוצעה על ידי צוות Healson. לבירור סיבת ההשהיה ותנאי החזרה לפעילות — פנו לתמיכה, ואנו נחזור אליכם בהקדם."
+                  : "ניתן להגיש בקשת הצטרפות חדשה עם מסמכים מעודכנים, או לפנות לתמיכה לבירור נוסף."}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <a
+                  href="mailto:support@healson.co.il"
+                  className="flex items-center gap-1.5 rounded-lg border border-danger-border bg-white px-3 py-1.5 text-xs font-medium text-danger-text hover:bg-danger-bg/50"
+                >
+                  <Phone className="h-3.5 w-3.5" /> פנייה לתמיכה
+                </a>
+                {blockedStatus === "rejected" && (
+                  <Link
+                    href="/apply"
+                    className="flex items-center gap-1.5 rounded-lg border border-danger-border bg-white px-3 py-1.5 text-xs font-medium text-danger-text hover:bg-danger-bg/50"
+                  >
+                    הגשת בקשה חדשה
+                  </Link>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
+      ) : (
+        error && (
+          <div className="mb-4 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
+            {error}
+          </div>
+        )
       )}
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
