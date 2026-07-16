@@ -21,6 +21,7 @@ import {
   SkillDomain,
   SkillSubdomain,
   ToastItem,
+  UploadedFile,
   User,
   VisitRecord,
   WaitlistEntry,
