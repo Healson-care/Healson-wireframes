@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
@@ -19,7 +19,6 @@ import { PaymentPanel } from "@/components/book/PaymentPanel";
 import { BookingConfirmation } from "@/components/book/BookingConfirmation";
 import { WaitlistJoinDialog } from "@/components/book/WaitlistJoinDialog";
 import { buildIcsDataUrl } from "@/lib/utils";
-import { buildDays, DaySlots } from "@/lib/scheduling";
 import {
   ConsentCheckboxes,
   ConsentValues,
@@ -80,15 +79,10 @@ export default function BookPage() {
   const [otpError, setOtpError] = useState("");
 
   // Step 4: slot selection + hold
-  const days: DaySlots[] = useMemo(
-    () => (selectedProvider ? buildDays(selectedProvider, appointments) : []),
-    [selectedProvider, appointments]
-  );
-  const [activeDayIdx, setActiveDayIdx] = useState(0);
   const [selectedSlot, setSelectedSlot] = useState<{ date: string; time: string; label: string } | null>(null);
   const [holdExpiresAt, setHoldExpiresAt] = useState<number | null>(null);
   const [pendingAppointmentId, setPendingAppointmentId] = useState<string | null>(null);
-  const [waitlistSlot, setWaitlistSlot] = useState<{ date: string; time: string; label: string } | null>(null);
+  const [waitlistSlot, setWaitlistSlot] = useState<{ date?: string; time?: string; label?: string } | null>(null);
 
   // Step 5: payment
   const [payMethod, setPayMethod] = useState<"card" | "apple" | "google">("card");
@@ -586,9 +580,7 @@ export default function BookPage() {
             </button>
             <SlotPicker
               provider={selectedProvider}
-              days={days}
-              activeDayIdx={activeDayIdx}
-              onDayChange={setActiveDayIdx}
+              appointments={appointments}
               onSelectSlot={selectSlot}
               onJoinWaitlist={(date, time, label) => setWaitlistSlot({ date, time, label })}
             />

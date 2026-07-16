@@ -715,10 +715,16 @@ const SERVICE_NAMES = [
   "בדיקת MRI לברך",
 ];
 
+// Cycled across all 4 published demo providers (not just provider1/2) so
+// every doctor a patient can find in search also has some booked slots to
+// demonstrate "fully booked day" / waitlist against — not just the two
+// original ones.
+const APPOINTMENT_PROVIDERS = [provider1, provider2, provider5, provider6];
+
 export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
   (_, i) => {
     const dayOffset = Math.floor(i / 3) - 4; // spread -4..+3 days
-    const provider = i % 2 === 0 ? provider1 : provider2;
+    const provider = APPOINTMENT_PROVIDERS[i % APPOINTMENT_PROVIDERS.length];
     const patient = SEED_PATIENTS[i % SEED_PATIENTS.length];
     const hour = 8 + (i % 9);
     const statusPool: Appointment["status"][] = [
