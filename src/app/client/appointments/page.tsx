@@ -17,6 +17,7 @@ import { AppointmentReminderPlan } from "@/components/patient/AppointmentReminde
 import {
   AlertCircle,
   ArrowLeft,
+  BellRing,
   Calendar,
   CalendarRange,
   ChevronDown,
@@ -429,14 +430,18 @@ function ClientAppointmentsPageContent() {
       ...myAppointments.map((a): HistoryItem => ({ kind: "appointment", data: a })),
       ...myWaitlistEntries.map((w): HistoryItem => ({ kind: "waitlist", data: w })),
     ];
-    return items.sort((a, b) => (a.data.date + a.data.time).localeCompare(b.data.date + b.data.time));
+    // General waitlist requests (no date/time) have nothing to sort by — they
+    // sort first, as the most open-ended/urgent-looking entries.
+    return items.sort((a, b) =>
+      ((a.data.date ?? "") + (a.data.time ?? "")).localeCompare((b.data.date ?? "") + (b.data.time ?? ""))
+    );
   }, [myAppointments, myWaitlistEntries]);
 
   const filteredItems = useMemo(() => {
     return historyItems.filter((item) => {
       if (statusFilter && item.data.status !== statusFilter) return false;
-      if (dateFrom && item.data.date < dateFrom) return false;
-      if (dateTo && item.data.date > dateTo) return false;
+      if (dateFrom && item.data.date && item.data.date < dateFrom) return false;
+      if (dateTo && item.data.date && item.data.date > dateTo) return false;
       return true;
     });
   }, [historyItems, statusFilter, dateFrom, dateTo]);
@@ -550,10 +555,20 @@ function ClientAppointmentsPageContent() {
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
-                      <Calendar className="h-4 w-4 text-primary" /> {formatAppointmentDate(item.data.date)}
-                      <span className="flex items-center gap-1 font-normal text-slate-500">
-                        <Clock className="h-3.5 w-3.5" /> {item.data.time}
-                      </span>
+                      {item.data.date ? (
+                        <>
+                          <Calendar className="h-4 w-4 text-primary" /> {formatAppointmentDate(item.data.date)}
+                          {item.data.time && (
+                            <span className="flex items-center gap-1 font-normal text-slate-500">
+                              <Clock className="h-3.5 w-3.5" /> {item.data.time}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <BellRing className="h-4 w-4 text-primary" /> כל מועד פנוי
+                        </>
+                      )}
                     </div>
                     {item.kind === "appointment" && <p className="text-sm text-slate-700 mt-1">{item.data.service_name}</p>}
                     <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
