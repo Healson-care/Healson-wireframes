@@ -181,6 +181,16 @@ export default function ClientSearchPage() {
           });
           setPendingQuestionnaire({ appointmentId: pendingAppointmentId, title: questionnaireTitle });
         }
+        for (const doc of consultation?.required_documents ?? []) {
+          addDocument({
+            patient_id: patientId,
+            category: "referral_personal",
+            title: doc.label,
+            uploaded_by: "system",
+            appointment_id: pendingAppointmentId,
+            status: "ממתין למילוי",
+          });
+        }
       }
       const icsUrl = buildIcsDataUrl({
         title: `תור ל-${selectedProvider.display_name}`,

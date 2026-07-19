@@ -1,8 +1,7 @@
 "use client";
 
-import { Calendar, FileText, PartyPopper, Sparkles } from "lucide-react";
+import { Calendar, FileText, PartyPopper } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { useStore } from "@/lib/store";
 import { buildIcsDataUrl } from "@/lib/utils";
 import { Appointment, ProviderProfile } from "@/types";
 
@@ -26,12 +25,12 @@ function formatStepTime(d: Date) {
 export function AppointmentReminderPlan({
   appointment,
   provider,
+  showTimeline = true,
 }: {
   appointment: Appointment;
   provider?: ProviderProfile;
+  showTimeline?: boolean;
 }) {
-  const showToast = useStore((s) => s.showToast);
-
   const icsUrl = buildIcsDataUrl({
     title: `תור ל-${appointment.provider_name}`,
     description: appointment.service_name,
@@ -56,31 +55,26 @@ export function AppointmentReminderPlan({
             <Calendar className="h-3.5 w-3.5" /> הוסף ליומן
           </Button>
         </a>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => showToast("תזכורת נשלחה בוואטסאפ ובמייל", { variant: "success" })}
-        >
-          <Sparkles className="h-3.5 w-3.5" /> שלחו לי תזכורת
-        </Button>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <p className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-3">
-          <FileText className="h-4 w-4 text-primary" /> מה קורה עכשיו
-        </p>
-        <ul className="flex flex-col gap-2.5 text-sm text-slate-500">
-          {steps.map((step) => (
-            <li key={step.label} className="flex items-center justify-between gap-2">
-              <span>{step.label}</span>
-              <span className="flex shrink-0 items-center gap-1 text-xs text-slate-400">
-                {step.highlight && <PartyPopper className="h-3 w-3" />}
-                {formatStepTime(step.when)}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </div>
+      {showTimeline && (
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-3">
+            <FileText className="h-4 w-4 text-primary" /> מה קורה עכשיו
+          </p>
+          <ul className="flex flex-col gap-2.5 text-sm text-slate-500">
+            {steps.map((step) => (
+              <li key={step.label} className="flex items-center justify-between gap-2">
+                <span>{step.label}</span>
+                <span className="flex shrink-0 items-center gap-1 text-xs text-slate-400">
+                  {step.highlight && <PartyPopper className="h-3 w-3" />}
+                  {formatStepTime(step.when)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

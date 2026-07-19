@@ -41,6 +41,7 @@ const CATEGORY_ICON: Record<DocumentCategory, typeof FileText> = {
   visit_summary: ClipboardList,
   questionnaire: ListChecks,
   lab_result: FlaskConical,
+  other: FileText,
 };
 
 function FilterChip({
