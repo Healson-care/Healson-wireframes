@@ -152,13 +152,17 @@ export default function AdminDashboardHome() {
           </CardHeader>
           <CardContent className="flex flex-col gap-2">
             {recentAppointments.map((a) => (
-              <div key={a.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm">
+              <Link
+                key={a.id}
+                href={`/appointments?appointment=${a.id}&date=${a.date}`}
+                className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm hover:bg-slate-100 transition-colors"
+              >
                 <div>
                   <p className="font-medium text-slate-800">{a.client_name}</p>
                   <p className="text-xs text-slate-500">{a.provider_name} · {a.date}</p>
                 </div>
                 <StatusBadge status={a.status} kind="appointment" />
-              </div>
+              </Link>
             ))}
           </CardContent>
         </Card>
@@ -169,13 +173,17 @@ export default function AdminDashboardHome() {
           </CardHeader>
           <CardContent className="flex flex-col gap-2">
             {recentPatients.map((p) => (
-              <div key={p.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm">
+              <Link
+                key={p.id}
+                href={`/crm/${p.id}`}
+                className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm hover:bg-slate-100 transition-colors"
+              >
                 <div>
                   <p className="font-medium text-slate-800">{p.full_name}</p>
                   <p className="text-xs text-slate-500">{p.kupah}</p>
                 </div>
                 <StatusBadge status={p.status} kind="patient" />
-              </div>
+              </Link>
             ))}
           </CardContent>
         </Card>

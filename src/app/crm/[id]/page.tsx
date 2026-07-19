@@ -16,14 +16,17 @@ import { PatientForm, PatientFormValues } from "@/components/admin/PatientForm";
 import { AppointmentForm, AppointmentFormValues } from "@/components/admin/AppointmentForm";
 import { fileToDataUrl } from "@/lib/file";
 import { cn, formatDateHe } from "@/lib/utils";
+import { findSchedulingConflict, isoDate, suggestNextFreeSlot } from "@/lib/calendar";
 import { Appointment, DOCUMENT_CATEGORIES, DocumentCategory, PatientDocument } from "@/types";
 import {
+  AlertTriangle,
   ArrowRight,
   CalendarClock,
   CalendarDays,
   Check,
   ClipboardList,
   Copy,
+  CreditCard,
   Download,
   FileDown,
   FileText,
@@ -142,6 +145,11 @@ function AdminPatientChartPageContent() {
     [patientDocuments]
   );
 
+  const overdueBalanceCount = useMemo(() => {
+    const todayIso = new Date().toISOString().slice(0, 10);
+    return patientAppointments.filter((a) => a.status === "מאושר" && a.date <= todayIso).length;
+  }, [patientAppointments]);
+
   if (!patient) {
     return (
       <AppLayout>
@@ -168,6 +176,43 @@ function AdminPatientChartPageContent() {
     if (!appt) return;
     setEditApptId(id);
     setEditApptForm({ date: appt.date, time: appt.time, duration_minutes: appt.duration_minutes, notes: appt.notes ?? "" });
+  }
+
+  const editingAppointment = editApptId ? appointments.find((a) => a.id === editApptId) : undefined;
+  const editApptConflict = editingAppointment
+    ? findSchedulingConflict(
+        appointments,
+        editingAppointment.provider_id ?? "",
+        editApptForm.date,
+        editApptForm.time,
+        editApptForm.duration_minutes,
+        editApptId ?? undefined
+      )
+    : undefined;
+  const editApptSuggestedSlot =
+    editApptConflict && editingAppointment
+      ? suggestNextFreeSlot(
+          appointments,
+          editingAppointment.provider_id ?? "",
+          editApptForm.date,
+          editApptForm.time,
+          editApptForm.duration_minutes,
+          editApptId ?? undefined
+        )
+      : undefined;
+
+  function handleCollectBalance(a: Appointment) {
+    if (!patient) return;
+    updateAppointment(a.id, { status: "שולם במלואו" });
+    addDocument({
+      patient_id: patient.id,
+      category: "receipt",
+      title: `קבלה על יתרה - ${a.service_name}`,
+      uploaded_by: "system",
+      appointment_id: a.id,
+      file: { file_name: "קבלה.pdf", uploaded_at: new Date().toISOString(), data_url: "data:application/pdf;base64," },
+    });
+    showToast("היתרה נגבתה בהצלחה", { variant: "success" });
   }
 
   function handleBookAppointment(values: AppointmentFormValues) {
@@ -271,7 +316,7 @@ function AdminPatientChartPageContent() {
         </div>
       )}
 
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+      <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
         <StatCard label="סה״כ תורים" value={patientAppointments.length} icon={<CalendarDays className="h-4 w-4" />} tone="blue" />
         <StatCard
           label="התור הקרוב"
@@ -279,6 +324,12 @@ function AdminPatientChartPageContent() {
           subtitle={upcomingAppointment ? `${upcomingAppointment.time} · ${upcomingAppointment.service_name}` : undefined}
           icon={<CalendarClock className="h-4 w-4" />}
           tone="green"
+        />
+        <StatCard
+          label="יתרה לגבייה"
+          value={overdueBalanceCount}
+          icon={<AlertTriangle className="h-4 w-4" />}
+          tone={overdueBalanceCount > 0 ? "danger" : "slate"}
         />
         <StatCard
           label="מסמכים ממתינים"
@@ -462,7 +513,20 @@ function AdminPatientChartPageContent() {
                             </span>
                           ),
                         },
-                        { key: "status", header: "סטטוס", render: (a) => <StatusBadge status={a.status} kind="appointment" /> },
+                        {
+                          key: "status",
+                          header: "סטטוס",
+                          render: (a) => (
+                            <div className="flex items-center gap-1.5">
+                              <StatusBadge status={a.status} kind="appointment" />
+                              {a.status === "מאושר" && a.date <= isoDate(new Date()) && (
+                                <Badge tone="red" title="התאריך הגיע והיתרה טרם שולמה">
+                                  <AlertTriangle className="h-3 w-3" /> יתרה
+                                </Badge>
+                              )}
+                            </div>
+                          ),
+                        },
                       ] satisfies DataTableColumn<Appointment>[]
                     }
                     rowActions={(a) => (
@@ -479,6 +543,15 @@ function AdminPatientChartPageContent() {
                             <Check className="h-3.5 w-3.5" />
                           </button>
                         )}
+                        {a.status === "מאושר" && (
+                          <button
+                            onClick={() => handleCollectBalance(a)}
+                            className="p-1.5 rounded-md hover:bg-slate-100 text-slate-500"
+                            title="גבה יתרה (טלפונית)"
+                          >
+                            <CreditCard className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                         <button onClick={() => openEditAppt(a.id)} className="p-1.5 rounded-md hover:bg-slate-100 text-slate-500" title="עריכה">
                           <Pencil className="h-3.5 w-3.5" />
                         </button>
@@ -491,6 +564,13 @@ function AdminPatientChartPageContent() {
                             <X className="h-3.5 w-3.5" />
                           </button>
                         )}
+                        <button
+                          onClick={() => router.push(`/appointments?appointment=${a.id}&date=${a.date}`)}
+                          className="p-1.5 rounded-md hover:bg-slate-100 text-slate-500"
+                          title="הצג ביומן"
+                        >
+                          <CalendarDays className="h-3.5 w-3.5" />
+                        </button>
                       </div>
                     )}
                   />
@@ -617,6 +697,7 @@ function AdminPatientChartPageContent() {
         onSubmit={handleBookAppointment}
         providers={providers}
         patientKupah={patient.kupah}
+        appointments={appointments}
       />
 
       <ConfirmDialog
@@ -653,6 +734,25 @@ function AdminPatientChartPageContent() {
             value={editApptForm.duration_minutes}
             onChange={(e) => setEditApptForm({ ...editApptForm, duration_minutes: Number(e.target.value) })}
           />
+          {editApptConflict && (
+            <div className="flex items-start gap-2 rounded-lg border border-danger-border bg-danger-bg px-3 py-2.5 text-sm text-danger-text">
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <div>
+                <p>לספק כבר יש תור ב-{editApptConflict.time} ({editApptConflict.client_name})</p>
+                {editApptSuggestedSlot ? (
+                  <button
+                    type="button"
+                    onClick={() => setEditApptForm({ ...editApptForm, time: editApptSuggestedSlot })}
+                    className="mt-1 font-medium hover:underline"
+                  >
+                    בחר את השעה הפנויה הבאה — {editApptSuggestedSlot}
+                  </button>
+                ) : (
+                  <p className="mt-1 text-xs">אין שעה פנויה נוספת ליום זה</p>
+                )}
+              </div>
+            </div>
+          )}
           <Textarea
             label="הערות"
             value={editApptForm.notes}

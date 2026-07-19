@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useStore } from "@/lib/store";
@@ -13,22 +13,49 @@ import { ConfirmDialog, Dialog } from "@/components/ui/Dialog";
 import { Input, Textarea } from "@/components/ui/Input";
 import { GeneralAppointmentForm, GeneralAppointmentFormValues } from "@/components/admin/GeneralAppointmentForm";
 import { cn, formatDateHe } from "@/lib/utils";
-import { addMonths, APPOINTMENT_CHIP_TONE, isoDate, monthGridDays, WEEKDAY_LABELS } from "@/lib/calendar";
-import { DOCUMENT_CATEGORIES } from "@/types";
-import { Check, Download, FileText, FolderOpen, Pencil, Plus, X } from "lucide-react";
+import {
+  addDays,
+  addMonths,
+  APPOINTMENT_CHIP_TONE,
+  findSchedulingConflict,
+  isoDate,
+  monthGridDays,
+  suggestNextFreeSlot,
+  WEEKDAY_LABELS,
+} from "@/lib/calendar";
+import { Appointment, DOCUMENT_CATEGORIES } from "@/types";
+import {
+  AlertTriangle,
+  Check,
+  CheckCircle2,
+  CreditCard,
+  Download,
+  FileText,
+  FolderOpen,
+  Pencil,
+  Plus,
+  Send,
+  X,
+} from "lucide-react";
 
-export default function AdminAppointmentsPage() {
+function AdminAppointmentsPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const dateParam = searchParams.get("date");
+  const appointmentParam = searchParams.get("appointment");
+  const initialDay = dateParam ? new Date(dateParam) : new Date();
+
   const appointments = useStore((s) => s.appointments);
   const documents = useStore((s) => s.documents);
   const patients = useStore((s) => s.patients);
   const providers = useStore((s) => s.providers);
   const updateAppointment = useStore((s) => s.updateAppointment);
   const addAppointment = useStore((s) => s.addAppointment);
+  const addDocument = useStore((s) => s.addDocument);
   const showToast = useStore((s) => s.showToast);
 
-  const [calendarMonth, setCalendarMonth] = useState(new Date());
-  const [selectedDay, setSelectedDay] = useState(new Date());
+  const [calendarMonth, setCalendarMonth] = useState(initialDay);
+  const [selectedDay, setSelectedDay] = useState(initialDay);
   const [cancelId, setCancelId] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ date: "", time: "", duration_minutes: 30, notes: "" });
@@ -41,6 +68,21 @@ export default function AdminAppointmentsPage() {
     return appointments.filter((a) => a.date === dayIso).sort((a, b) => a.time.localeCompare(b.time));
   }, [appointments, selectedDay]);
 
+  const overdueBalanceAppointments = useMemo(() => {
+    const todayIso = isoDate(new Date());
+    return appointments.filter((a) => a.status === "מאושר" && a.date <= todayIso);
+  }, [appointments]);
+
+  const tomorrowIso = useMemo(() => isoDate(addDays(new Date(), 1)), []);
+  const tomorrowPendingReminders = useMemo(
+    () => appointments.filter((a) => a.date === tomorrowIso && a.status !== "בוטל" && !a.reminder_sent_at),
+    [appointments, tomorrowIso]
+  );
+  const dayPendingReminders = useMemo(
+    () => dayAppointments.filter((a) => a.status !== "בוטל" && !a.reminder_sent_at),
+    [dayAppointments]
+  );
+
   function appointmentsForDay(d: Date) {
     const dayIso = isoDate(d);
     return appointments.filter((a) => a.date === dayIso).sort((a, b) => a.time.localeCompare(b.time));
@@ -51,6 +93,28 @@ export default function AdminAppointmentsPage() {
   }
 
   const docsApptAppointment = docsApptId ? appointments.find((a) => a.id === docsApptId) : undefined;
+  const editingAppointment = editId ? appointments.find((a) => a.id === editId) : undefined;
+  const editConflict = editingAppointment
+    ? findSchedulingConflict(
+        appointments,
+        editingAppointment.provider_id ?? "",
+        editForm.date,
+        editForm.time,
+        editForm.duration_minutes,
+        editId ?? undefined
+      )
+    : undefined;
+  const editSuggestedSlot =
+    editConflict && editingAppointment
+      ? suggestNextFreeSlot(
+          appointments,
+          editingAppointment.provider_id ?? "",
+          editForm.date,
+          editForm.time,
+          editForm.duration_minutes,
+          editId ?? undefined
+        )
+      : undefined;
 
   function openEdit(id: string) {
     const appt = appointments.find((a) => a.id === id);
@@ -62,6 +126,30 @@ export default function AdminAppointmentsPage() {
   function openBooking(dateIso?: string) {
     setBookingDate(dateIso);
     setBookOpen(true);
+  }
+
+  function handleSendReminders(pending: Appointment[]) {
+    if (pending.length === 0) return;
+    const now = new Date().toISOString();
+    for (const a of pending) {
+      updateAppointment(a.id, { reminder_sent_at: now });
+    }
+    showToast(`נשלחו ${pending.length} תזכורות SMS`, { variant: "success" });
+  }
+
+  function handleCollectBalance(a: Appointment) {
+    updateAppointment(a.id, { status: "שולם במלואו" });
+    if (a.created_by_id) {
+      addDocument({
+        patient_id: a.created_by_id,
+        category: "receipt",
+        title: `קבלה על יתרה - ${a.service_name}`,
+        uploaded_by: "system",
+        appointment_id: a.id,
+        file: { file_name: "קבלה.pdf", uploaded_at: new Date().toISOString(), data_url: "data:application/pdf;base64," },
+      });
+    }
+    showToast("היתרה נגבתה בהצלחה", { variant: "success" });
   }
 
   function handleBookAppointment(values: GeneralAppointmentFormValues) {
@@ -108,11 +196,65 @@ export default function AdminAppointmentsPage() {
         title="ניהול תורים"
         description="לוח תורים מרכזי עבור כל הספקים"
         actions={
-          <Button size="sm" onClick={() => openBooking(isoDate(selectedDay))}>
-            <Plus className="h-4 w-4" /> קביעת תור חדש
-          </Button>
+          <>
+            {tomorrowPendingReminders.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const d = new Date(tomorrowIso);
+                  setCalendarMonth(d);
+                  setSelectedDay(d);
+                  handleSendReminders(tomorrowPendingReminders);
+                }}
+              >
+                <Send className="h-4 w-4" /> שלח תזכורות למחר ({tomorrowPendingReminders.length})
+              </Button>
+            )}
+            <Button size="sm" onClick={() => openBooking(isoDate(selectedDay))}>
+              <Plus className="h-4 w-4" /> קביעת תור חדש
+            </Button>
+          </>
         }
       />
+
+      {overdueBalanceAppointments.length > 0 && (
+        <div className="rounded-lg border border-danger-border bg-danger-bg px-3.5 py-2.5 mb-4 text-sm text-danger-text">
+          <p className="flex items-center gap-2 font-medium mb-2">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            {overdueBalanceAppointments.length} תורים שהמועד שלהם הגיע והיתרה עדיין לא שולמה
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {overdueBalanceAppointments.map((a) => (
+              <div
+                key={a.id}
+                className="flex items-center gap-1.5 rounded-full border border-danger-border bg-white pr-1 pl-2.5 py-1"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    const d = new Date(a.date);
+                    setCalendarMonth(d);
+                    setSelectedDay(d);
+                  }}
+                  className="text-xs font-medium text-danger-text hover:underline"
+                  title="הצג את התור הזה ביומן"
+                >
+                  {a.client_name} · {formatDateHe(a.date)}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleCollectBalance(a)}
+                  className="flex items-center gap-1 rounded-full bg-danger-bg px-1.5 py-0.5 text-[11px] font-medium text-danger-text hover:opacity-80"
+                  title="גבה יתרה עכשיו"
+                >
+                  <CreditCard className="h-3 w-3" /> גבה
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <Card className="p-3 mb-4">
         <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
@@ -193,18 +335,25 @@ export default function AdminAppointmentsPage() {
                   </button>
                 </div>
                 <div className="flex flex-col gap-0.5">
-                  {dayAppts.slice(0, 2).map((a) => (
-                    <span
-                      key={a.id}
-                      className={cn(
-                        "truncate rounded border px-1 py-0.5 text-[10px]",
-                        APPOINTMENT_CHIP_TONE[a.status] ?? "bg-slate-100 text-slate-600 border-slate-200"
-                      )}
-                      title={`${a.time} · ${a.client_name} · ${a.status}`}
-                    >
-                      {a.time} {a.client_name}
-                    </span>
-                  ))}
+                  {dayAppts.slice(0, 2).map((a) => {
+                    const overdue = a.status === "מאושר" && a.date <= isoDate(new Date());
+                    return (
+                      <span
+                        key={a.id}
+                        className={cn(
+                          "flex items-center gap-0.5 truncate rounded border px-1 py-0.5 text-[10px]",
+                          APPOINTMENT_CHIP_TONE[a.status] ?? "bg-slate-100 text-slate-600 border-slate-200",
+                          overdue && "ring-1 ring-danger-border"
+                        )}
+                        title={`${a.time} · ${a.client_name} · ${a.status}${overdue ? " · יתרה לא שולמה" : ""}`}
+                      >
+                        {overdue && <AlertTriangle className="h-2.5 w-2.5 shrink-0" />}
+                        <span className="truncate">
+                          {a.time} {a.client_name}
+                        </span>
+                      </span>
+                    );
+                  })}
                   {dayAppts.length > 2 && <span className="text-[10px] text-slate-400">+{dayAppts.length - 2} נוספים</span>}
                 </div>
               </div>
@@ -212,6 +361,19 @@ export default function AdminAppointmentsPage() {
           })}
         </div>
       </Card>
+
+      {dayAppointments.length > 0 && (
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-sm font-medium text-slate-600">
+            {selectedDay.toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "numeric" })}
+          </span>
+          {dayPendingReminders.length > 0 && (
+            <Button size="sm" variant="outline" onClick={() => handleSendReminders(dayPendingReminders)}>
+              <Send className="h-3.5 w-3.5" /> שלח תזכורות ליום זה ({dayPendingReminders.length})
+            </Button>
+          )}
+        </div>
+      )}
 
       <AnimatePresence mode="wait">
         <motion.div
@@ -232,7 +394,7 @@ export default function AdminAppointmentsPage() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.18, delay: i * 0.03 }}
                 >
-                  <Card className="p-4" interactive>
+                  <Card className={cn("p-4", a.id === appointmentParam && "ring-2 ring-primary")} interactive>
                     <div className="flex items-start justify-between gap-2 flex-wrap">
                       <div>
                         <p className="text-sm font-semibold text-slate-900">{a.time} · {a.duration_minutes} דק׳</p>
@@ -245,13 +407,30 @@ export default function AdminAppointmentsPage() {
                         >
                           <FileText className="h-3 w-3" /> {docsForAppointment(a.id).length} מסמכים מקושרים
                         </button>
+                        {a.reminder_sent_at && (
+                          <p className="flex items-center gap-1 text-xs text-emerald-600 mt-1" title={`נשלח ${formatDateHe(a.reminder_sent_at)}`}>
+                            <CheckCircle2 className="h-3 w-3" /> תזכורת נשלחה
+                          </p>
+                        )}
                       </div>
-                      <StatusBadge status={a.status} kind="appointment" />
+                      <div className="flex flex-col items-end gap-1.5">
+                        <StatusBadge status={a.status} kind="appointment" />
+                        {a.status === "מאושר" && a.date <= isoDate(new Date()) && (
+                          <Badge tone="red" title="התאריך הגיע והיתרה טרם שולמה">
+                            <AlertTriangle className="h-3 w-3" /> יתרה לא שולמה
+                          </Badge>
+                        )}
+                      </div>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2 justify-end">
                       {a.status === "ממתין לתשלום מקדמה" && (
                         <Button size="sm" onClick={() => { updateAppointment(a.id, { status: "מאושר" }); showToast("התור אושר", { variant: "success" }); }}>
                           <Check className="h-3.5 w-3.5" /> אשר
+                        </Button>
+                      )}
+                      {a.status === "מאושר" && (
+                        <Button size="sm" variant="outline" onClick={() => handleCollectBalance(a)}>
+                          <CreditCard className="h-3.5 w-3.5" /> גבה יתרה
                         </Button>
                       )}
                       <Button size="sm" variant="outline" onClick={() => openEdit(a.id)}>
@@ -287,6 +466,7 @@ export default function AdminAppointmentsPage() {
         providers={providers}
         patients={patients}
         initialDate={bookingDate}
+        appointments={appointments}
       />
 
       <ConfirmDialog
@@ -313,6 +493,25 @@ export default function AdminAppointmentsPage() {
             value={editForm.duration_minutes}
             onChange={(e) => setEditForm({ ...editForm, duration_minutes: Number(e.target.value) })}
           />
+          {editConflict && (
+            <div className="flex items-start gap-2 rounded-lg border border-danger-border bg-danger-bg px-3 py-2.5 text-sm text-danger-text">
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <div>
+                <p>לספק כבר יש תור ב-{editConflict.time} ({editConflict.client_name})</p>
+                {editSuggestedSlot ? (
+                  <button
+                    type="button"
+                    onClick={() => setEditForm({ ...editForm, time: editSuggestedSlot })}
+                    className="mt-1 font-medium hover:underline"
+                  >
+                    בחר את השעה הפנויה הבאה — {editSuggestedSlot}
+                  </button>
+                ) : (
+                  <p className="mt-1 text-xs">אין שעה פנויה נוספת ליום זה</p>
+                )}
+              </div>
+            </div>
+          )}
           <Textarea label="הערות" value={editForm.notes} onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })} />
           <Button
             onClick={() => {
@@ -370,5 +569,13 @@ export default function AdminAppointmentsPage() {
         )}
       </Dialog>
     </AppLayout>
+  );
+}
+
+export default function AdminAppointmentsPage() {
+  return (
+    <Suspense fallback={<AppLayout>{null}</AppLayout>}>
+      <AdminAppointmentsPageContent />
+    </Suspense>
   );
 }

@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Dialog } from "@/components/ui/Dialog";
 import { Input, Select, Textarea } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
+import { findSchedulingConflict, suggestNextFreeSlot } from "@/lib/calendar";
 import { APPOINTMENT_STATUSES, Appointment, ProviderProfile } from "@/types";
+import { AlertTriangle } from "lucide-react";
 
 export interface AppointmentFormValues {
   provider_id: string;
@@ -41,6 +43,7 @@ export function AppointmentForm({
   providers,
   patientKupah,
   initialDate,
+  appointments,
 }: {
   open: boolean;
   onClose: () => void;
@@ -48,6 +51,7 @@ export function AppointmentForm({
   providers: ProviderProfile[];
   patientKupah: string;
   initialDate?: string;
+  appointments: Appointment[];
 }) {
   const [form, setForm] = useState<AppointmentFormValues>(emptyValues(initialDate));
   const [wasOpen, setWasOpen] = useState(false);
@@ -58,6 +62,16 @@ export function AppointmentForm({
   } else if (!open && wasOpen) {
     setWasOpen(false);
   }
+
+  const conflict = useMemo(
+    () => findSchedulingConflict(appointments, form.provider_id, form.date, form.time, form.duration_minutes),
+    [appointments, form.provider_id, form.date, form.time, form.duration_minutes]
+  );
+  const suggestedSlot = useMemo(
+    () =>
+      conflict ? suggestNextFreeSlot(appointments, form.provider_id, form.date, form.time, form.duration_minutes) : undefined,
+    [conflict, appointments, form.provider_id, form.date, form.time, form.duration_minutes]
+  );
 
   return (
     <Dialog open={open} onClose={onClose} title="קביעת תור חדש" description="קביעה ידנית עבור המטופל, כמוסכם בטלפון">
@@ -89,6 +103,26 @@ export function AppointmentForm({
           <Input type="date" label="תאריך" required value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
           <Input type="time" label="שעה" required value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} />
         </div>
+
+        {conflict && (
+          <div className="flex items-start gap-2 rounded-lg border border-danger-border bg-danger-bg px-3 py-2.5 text-sm text-danger-text">
+            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+            <div>
+              <p>לספק כבר יש תור ב-{conflict.time} ({conflict.client_name})</p>
+              {suggestedSlot ? (
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, time: suggestedSlot })}
+                  className="mt-1 font-medium hover:underline"
+                >
+                  בחר את השעה הפנויה הבאה — {suggestedSlot}
+                </button>
+              ) : (
+                <p className="mt-1 text-xs">אין שעה פנויה נוספת ליום זה</p>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <Input

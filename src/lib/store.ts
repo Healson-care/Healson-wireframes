@@ -26,6 +26,7 @@ import {
   VisitRecord,
   WaitlistEntry,
 } from "@/types";
+import { DEFAULT_REMINDER_SETTINGS, ReminderSettings } from "@/lib/reminders";
 import {
   DEMO_NEW_PATIENT_USER,
   SEED_APPOINTMENTS,
@@ -173,6 +174,7 @@ interface EntitiesState {
   dsrRequests: DsrRequest[];
   defaultCommissionRate: number;
   commissionRateByServiceType: Partial<Record<ServiceType, number>>;
+  reminderSettings: ReminderSettings;
 
   addPatient: (p: Omit<Patient, "id" | "created_date">) => Patient;
   updatePatient: (id: string, data: Partial<Patient>) => void;
@@ -206,6 +208,7 @@ interface EntitiesState {
 
   addAppointment: (a: Omit<Appointment, "id">) => Appointment;
   updateAppointment: (id: string, data: Partial<Appointment>) => void;
+  updateReminderSettings: (data: Partial<ReminderSettings>) => void;
 
   addOrder: (o: Omit<Order, "id" | "created_date">) => Order;
   updateOrder: (id: string, data: Partial<Order>) => void;
@@ -582,6 +585,7 @@ export const useStore = create<Store>()(
       dsrRequests: SEED_DSR_REQUESTS,
       defaultCommissionRate: 15,
       commissionRateByServiceType: {},
+      reminderSettings: DEFAULT_REMINDER_SETTINGS,
 
       addPatient: (p) => {
         const record: Patient = { ...p, id: generateId("pat"), created_date: new Date().toISOString() };
@@ -763,6 +767,8 @@ export const useStore = create<Store>()(
         set((s) => ({
           appointments: s.appointments.map((a) => (a.id === id ? { ...a, ...data } : a)),
         })),
+      updateReminderSettings: (data) =>
+        set((s) => ({ reminderSettings: { ...s.reminderSettings, ...data } })),
 
       addOrder: (o) => {
         const record: Order = { ...o, id: generateId("ord"), created_date: new Date().toISOString() };

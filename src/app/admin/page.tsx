@@ -7,7 +7,7 @@ import { PageHeader, Avatar, EmptyState } from "@/components/ui/Misc";
 import { Badge } from "@/components/ui/Badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { Input, Select } from "@/components/ui/Input";
+import { Input, Select, Textarea } from "@/components/ui/Input";
 import { Dialog, ConfirmDialog } from "@/components/ui/Dialog";
 import { DataTable, DataTableColumn } from "@/components/ui/DataTable";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/Tabs";
@@ -24,6 +24,7 @@ import {
   User,
 } from "@/types";
 import { generateId, formatDateHe } from "@/lib/utils";
+import { EXAMPLE_REMINDER_APPOINTMENT, REMINDER_PLACEHOLDERS, renderReminderTemplate } from "@/lib/reminders";
 import { Plus, Trash2, Building2, Users, Settings, Percent, ShieldAlert, UserPlus } from "lucide-react";
 
 const ROLE_LABELS: Record<Role, string> = { admin: "מנהל", provider: "ספק", patient: "מטופל" };
@@ -33,6 +34,8 @@ export default function AdminSettingsPage() {
   const branches = useStore((s) => s.branches);
   const showToast = useStore((s) => s.showToast);
   const addAdminUser = useStore((s) => s.addAdminUser);
+  const reminderSettings = useStore((s) => s.reminderSettings);
+  const updateReminderSettings = useStore((s) => s.updateReminderSettings);
 
   const [localUsers, setLocalUsers] = useState(users);
   const [localBranches, setLocalBranches] = useState(branches);
@@ -41,6 +44,7 @@ export default function AdminSettingsPage() {
   const [deleteBranchId, setDeleteBranchId] = useState<string | null>(null);
   const [repFormOpen, setRepFormOpen] = useState(false);
   const [repForm, setRepForm] = useState({ full_name: "", email: "", phone: "" });
+  const [reminderDraft, setReminderDraft] = useState(reminderSettings);
 
   const [settings, setSettings] = useState({
     emailNotifications: true,
@@ -205,6 +209,53 @@ export default function AdminSettingsPage() {
                 onClick={() => showToast("ההגדרות נשמרו בהצלחה", { variant: "success" })}
               >
                 שמור הגדרות
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card className="max-w-lg mt-5">
+            <CardHeader>
+              <CardTitle>תזכורות אוטומטיות</CardTitle>
+              <p className="text-sm text-slate-500">שליחת SMS תזכורת אוטומטית לכל תורי המחר, בשעה קבועה כל יום</p>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              <SettingToggle
+                label="שליחה אוטומטית מופעלת"
+                checked={reminderDraft.enabled}
+                onChange={(v) => setReminderDraft({ ...reminderDraft, enabled: v })}
+              />
+              <Input
+                type="time"
+                label="שעת שליחה יומית"
+                value={reminderDraft.sendTime}
+                onChange={(e) => setReminderDraft({ ...reminderDraft, sendTime: e.target.value })}
+              />
+              <Textarea
+                label="תבנית ההודעה"
+                value={reminderDraft.template}
+                onChange={(e) => setReminderDraft({ ...reminderDraft, template: e.target.value })}
+                rows={3}
+              />
+              <p className="text-xs text-slate-400">
+                משתנים זמינים: {REMINDER_PLACEHOLDERS.map((p) => p.token).join(" · ")}
+              </p>
+              <div className="rounded-lg bg-slate-50 px-3 py-2.5 text-sm text-slate-600">
+                <p className="text-xs font-medium text-slate-400 mb-1">תצוגה מקדימה</p>
+                {renderReminderTemplate(reminderDraft.template, EXAMPLE_REMINDER_APPOINTMENT)}
+              </div>
+              <Button
+                size="sm"
+                className="self-start"
+                onClick={() => {
+                  updateReminderSettings({
+                    enabled: reminderDraft.enabled,
+                    sendTime: reminderDraft.sendTime,
+                    template: reminderDraft.template,
+                  });
+                  showToast("הגדרות התזכורות נשמרו", { variant: "success" });
+                }}
+              >
+                שמור הגדרות תזכורות
               </Button>
             </CardContent>
           </Card>

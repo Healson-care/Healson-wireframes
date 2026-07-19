@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -9,6 +9,7 @@ import {
   Stethoscope,
   ShoppingCart,
   CalendarDays,
+  CalendarCheck,
   Users,
   Settings,
   UserRound,
@@ -22,6 +23,7 @@ import {
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { addDays, isoDate } from "@/lib/calendar";
 import { Logo } from "@/components/shared/Logo";
 import { SidebarDashboardSkeleton } from "@/components/ui/Skeleton";
 import { CommandPalette } from "@/components/ui/CommandPalette";
@@ -41,7 +43,10 @@ interface NavGroup {
 const NAV_GROUPS: NavGroup[] = [
   {
     label: "ראשי",
-    items: [{ href: "/dashboard", label: "לוח בקרה", icon: Home }],
+    items: [
+      { href: "/today", label: "היום שלי", icon: CalendarCheck },
+      { href: "/dashboard", label: "לוח בקרה", icon: Home },
+    ],
   },
   {
     label: "תפעול",
@@ -83,6 +88,35 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const { ready, user } = useRequireRole("admin");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+
+  const appointments = useStore((s) => s.appointments);
+  const updateAppointment = useStore((s) => s.updateAppointment);
+  const reminderSettings = useStore((s) => s.reminderSettings);
+  const updateReminderSettings = useStore((s) => s.updateReminderSettings);
+  const showToast = useStore((s) => s.showToast);
+
+  // Simulates a daily cron: once the configured send time has passed on a
+  // given day, auto-send reminders for tomorrow's appointments the first
+  // time any admin page loads that day (there's no real backend/scheduler
+  // in this mock app — see WORKFLOW.local.md).
+  useEffect(() => {
+    if (!ready || !user || !reminderSettings.enabled) return;
+    const now = new Date();
+    const nowIso = isoDate(now);
+    if (reminderSettings.lastAutoSendDate === nowIso) return;
+    const [sendHour, sendMinute] = reminderSettings.sendTime.split(":").map(Number);
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    if (nowMinutes < sendHour * 60 + sendMinute) return;
+
+    const tomorrowIso = isoDate(addDays(now, 1));
+    const pending = appointments.filter((a) => a.date === tomorrowIso && a.status !== "בוטל" && !a.reminder_sent_at);
+    if (pending.length > 0) {
+      const sentAt = new Date().toISOString();
+      for (const a of pending) updateAppointment(a.id, { reminder_sent_at: sentAt });
+      showToast(`נשלחו אוטומטית ${pending.length} תזכורות SMS לתורי מחר`, { variant: "success" });
+    }
+    updateReminderSettings({ lastAutoSendDate: nowIso });
+  }, [ready, user, appointments, reminderSettings, updateAppointment, updateReminderSettings, showToast]);
 
   if (!ready || !user) {
     return <SidebarDashboardSkeleton />;

@@ -617,6 +617,7 @@ export interface Appointment {
   notes?: string;
   created_by_id?: string; // patient id
   referral_document?: UploadedFile;
+  reminder_sent_at?: string; // ISO timestamp of the last SMS reminder sent to the patient
 }
 
 export type WaitlistStatus = "ממתין" | "נוצר קשר" | "בוטל";
