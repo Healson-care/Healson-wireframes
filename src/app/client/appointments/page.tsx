@@ -12,7 +12,9 @@ import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog, Dialog } from "@/components/ui/Dialog";
 import { Input } from "@/components/ui/Input";
+import { FileDropzone } from "@/components/ui/FileDropzone";
 import { Popover } from "@/components/ui/Popover";
+import { FilterDropdown } from "@/components/ui/FilterDropdown";
 import { AppointmentReminderPlan } from "@/components/patient/AppointmentReminderPlan";
 import { SlotPicker } from "@/components/book/SlotPicker";
 import { WaitlistJoinDialog } from "@/components/book/WaitlistJoinDialog";
@@ -41,7 +43,7 @@ import {
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { cn, formatCurrency } from "@/lib/utils";
-import { fileToDataUrl } from "@/lib/file";
+import { fileToDataUrl, validateDocumentFile } from "@/lib/file";
 import {
   Appointment,
   AppointmentStatus,
@@ -479,32 +481,6 @@ const HISTORY_STATUS_OPTIONS: { value: AppointmentStatus | WaitlistStatus; label
   { value: "בוטל", label: "בוטל", description: "התור בוטל, או שבקשת ההמתנה בוטלה" },
 ];
 
-function FilterChip({
-  active,
-  onClick,
-  title,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  title?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      className={cn(
-        "flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
-        active ? "bg-primary text-white" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
-      )}
-    >
-      {children}
-      {active && <X className="h-3 w-3" />}
-    </button>
-  );
-}
-
 function SectionJumpTab({ label, count, targetId }: { label: string; count: number; targetId: string }) {
   return (
     <button
@@ -575,6 +551,11 @@ function AppointmentListCard({
   // rather than creating a new document.
   async function handleFulfillRequiredDoc(docId: string, file: File | null) {
     if (!file) return;
+    const validationError = validateDocumentFile(file);
+    if (validationError) {
+      showToast(validationError, { variant: "destructive" });
+      return;
+    }
     const dataUrl = await fileToDataUrl(file);
     updateDocument(docId, {
       status: "זמין",
@@ -737,6 +718,7 @@ function AppointmentListCard({
                       <Upload className="h-3.5 w-3.5" /> העלאה
                       <input
                         type="file"
+                        accept=".pdf,.jpg,.jpeg,.png"
                         className="hidden"
                         onChange={(e) => handleFulfillRequiredDoc(d.id, e.target.files?.[0] ?? null)}
                       />
@@ -868,7 +850,7 @@ function AppointmentListCard({
                 {item.kind === "appointment" &&
                   item.data.status !== "בוטל" &&
                   item.data.status !== "בוצע" && (
-                    <AppointmentReminderPlan appointment={item.data} provider={provider} showTimeline={false} />
+                    <AppointmentReminderPlan appointment={item.data} provider={provider} />
                   )}
 
               </div>
@@ -894,7 +876,7 @@ function AppointmentListCard({
             />
             <div className="flex flex-col gap-1.5">
               <label className="text-sm font-medium text-slate-700">קובץ</label>
-              <input type="file" onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)} className="text-sm" />
+              <FileDropzone file={uploadFile} onFileChange={setUploadFile} />
             </div>
             <Button type="submit" loading={uploading} className="mt-2">
               <Upload className="h-4 w-4" /> העלה
@@ -976,19 +958,16 @@ function AppointmentSection({
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-1.5 mb-3 mt-3">
-            {statusOptions.map((opt) => (
-              <FilterChip
-                key={opt.value}
-                active={statusFilter === opt.value}
-                onClick={() => {
-                  setStatusFilter(statusFilter === opt.value ? null : opt.value);
-                  showToast(opt.label, { description: opt.description });
-                }}
-                title={opt.description}
-              >
-                {opt.label}
-              </FilterChip>
-            ))}
+            <FilterDropdown
+              value={statusFilter}
+              options={statusOptions.map((opt) => ({ value: opt.value, label: opt.label }))}
+              allLabel="כל הסטטוסים"
+              onSelect={(value) => {
+                setStatusFilter(value);
+                const opt = value ? statusOptions.find((o) => o.value === value) : undefined;
+                if (opt) showToast(opt.label, { description: opt.description });
+              }}
+            />
 
             <button
               onClick={() => setDateDialogOpen(true)}
