@@ -35,6 +35,7 @@ export default function RegisterPage() {
   const resendRegistrationOtp = useStore((s) => s.resendRegistrationOtp);
   const currentUser = useStore((s) => s.currentUser);
   const hasHydrated = useStore((s) => s.hasHydrated);
+  const logout = useStore((s) => s.logout);
   const completePatientRegistration = useStore((s) => s.completePatientRegistration);
   const patients = useStore((s) => s.patients);
   const showToast = useStore((s) => s.showToast);
@@ -83,6 +84,15 @@ export default function RegisterPage() {
   }, [hasHydrated, currentUser, isUnregisteredLead, router]);
 
   const effectivePhase: Phase = phase === "credentials" && isUnregisteredLead ? "profile" : phase;
+
+  function handleClose() {
+    // Registration isn't complete until completePatientRegistration runs
+    // (handleFinish) — if the user is bailing out anywhere before that,
+    // clear the partial session so the landing page shows itself exactly
+    // as it does for a fresh visitor instead of staying stuck "logged in".
+    if (currentUser) logout();
+    router.push("/");
+  }
 
   function handleRegister(e: React.FormEvent) {
     e.preventDefault();
@@ -213,7 +223,7 @@ export default function RegisterPage() {
 
   if (effectivePhase === "otp") {
     return (
-      <AuthLayout>
+      <AuthLayout onClose={handleClose}>
         <h1 className="text-lg font-semibold text-slate-900 mb-1">אימות קוד</h1>
         <p className="text-sm text-slate-500 mb-5">שלחנו קוד אימות בן 6 ספרות לכתובת {email}</p>
         {error && (
@@ -245,7 +255,7 @@ export default function RegisterPage() {
 
   if (effectivePhase === "profile") {
     return (
-      <AuthLayout>
+      <AuthLayout onClose={handleClose}>
         <h1 className="text-lg font-semibold text-slate-900 mb-1">פרטים ופרופיל ביטוחי</h1>
         <p className="text-sm text-slate-500 mb-5">נדרש לפני שמירת נתוני בריאות במערכת</p>
         {error && (
@@ -286,7 +296,7 @@ export default function RegisterPage() {
   if (effectivePhase === "consent") {
     const canFinish = areRequiredConsentsChecked(consents);
     return (
-      <AuthLayout>
+      <AuthLayout onClose={handleClose}>
         <h1 className="text-lg font-semibold text-slate-900 mb-1">הסכמות</h1>
         <p className="text-sm text-slate-500 mb-5">אנא סמנו את ההסכמות הנדרשות כדי להמשיך</p>
         <ConsentCheckboxes value={consents} onChange={setConsents} />
@@ -299,7 +309,7 @@ export default function RegisterPage() {
 
   if (effectivePhase === "final-sms") {
     return (
-      <AuthLayout>
+      <AuthLayout onClose={handleClose}>
         <h1 className="text-lg font-semibold text-slate-900 mb-1">אימות דו-שלבי (1/2)</h1>
         <p className="text-sm text-slate-500 mb-5">
           לצורך אבטחת המידע הרפואי, נדרש אימות נוסף לפני סיום ההרשמה — קוד שנשלח ב-SMS וקוד נוסף באימייל.
@@ -333,7 +343,7 @@ export default function RegisterPage() {
 
   if (effectivePhase === "final-email") {
     return (
-      <AuthLayout>
+      <AuthLayout onClose={handleClose}>
         <h1 className="text-lg font-semibold text-slate-900 mb-1">אימות דו-שלבי (2/2)</h1>
         <p className="text-sm text-slate-500 mb-5">שלחנו קוד אימות נוסף לכתובת האימייל שלך</p>
         {error && (
@@ -364,7 +374,7 @@ export default function RegisterPage() {
   }
 
   return (
-    <AuthLayout>
+    <AuthLayout onClose={handleClose}>
       <PatientTypeToggle active="new" />
       <h1 className="text-lg font-semibold text-slate-900 mb-1">יצירת חשבון</h1>
       <p className="text-sm text-slate-500 mb-5">הצטרפו לפלטפורמת HEALSON</p>

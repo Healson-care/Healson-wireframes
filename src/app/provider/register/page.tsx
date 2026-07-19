@@ -29,7 +29,7 @@ import {
   Sparkles,
   Rocket,
   XCircle,
-  LogOut,
+  X,
   Clock,
 } from "lucide-react";
 import { Logo } from "@/components/shared/Logo";
@@ -599,13 +599,17 @@ function RegisterShell({ phase, wide, children }: { phase: Phase; wide?: boolean
           </div>
           <button
             onClick={() => {
+              // Registration isn't complete yet at any point this shell is
+              // shown — clear the partial session so the landing page shows
+              // itself exactly as it does for a fresh visitor, not "stuck
+              // logged in" with its entry sections hidden.
               logout();
-              router.push("/login");
+              router.push("/");
             }}
             className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm text-slate-500 hover:bg-slate-100"
           >
-            <LogOut className="h-4 w-4" />
-            <span className="hidden sm:inline">התנתק</span>
+            <X className="h-4 w-4" />
+            <span className="hidden sm:inline">חזרה לדף הבית</span>
           </button>
         </div>
       </header>
@@ -736,6 +740,10 @@ export default function ProviderRegisterPage() {
 
   const [synced, setSynced] = useState(false);
   const [phase, setPhase] = useState<Phase>("category");
+  // The application form is long — it's split into sub-steps (details →
+  // extras → service area), each fitting roughly one viewport, with
+  // per-step validation. formStep indexes into the formSteps array below.
+  const [formStep, setFormStep] = useState(0);
   const [applicationProviderId, setApplicationProviderId] = useState<string | null>(null);
   const [demoOutcome, setDemoOutcome] = useState<"approved" | "rejected" | null>(null);
   const [category, setCategory] = useState<ProviderCategory | null>(null);
@@ -765,8 +773,23 @@ export default function ProviderRegisterPage() {
   const [storeStructure, setStoreStructure] = useState<"single" | "chain">("single");
   const [memberProviderTypes, setMemberProviderTypes] = useState<ProviderType[]>([]);
   const [otpCode, setOtpCode] = useState("");
-  const [error, setError] = useState("");
+  const [error, setErrorMessage] = useState("");
+  const [errorNonce, setErrorNonce] = useState(0);
+  const errorRef = useRef<HTMLDivElement | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // The form is long — on validation failure the user is at the submit button
+  // at the bottom while the error banner renders at the top. Scroll it into
+  // view every time an error is raised (nonce bumps even when the same
+  // message repeats, so a second failed submit still scrolls).
+  function setError(message: string) {
+    setErrorMessage(message);
+    if (message) setErrorNonce((n) => n + 1);
+  }
+
+  useEffect(() => {
+    if (errorNonce > 0) errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [errorNonce]);
 
   // One-time resume sync, run during render (not an effect) the first time
   // `ready`/`provider` become available — covers both a same-session
@@ -823,24 +846,54 @@ export default function ProviderRegisterPage() {
   // specialty; every other type has no gate and is always true.
   const extraFieldsGate = config?.licenseOnlyForSpecialty ? specialty === config.licenseOnlyForSpecialty : true;
 
+  const showInsuranceSection = !!config && (config.showKupot || config.showPrivateInsurance) && extraFieldsGate;
+  const hasExtrasStep =
+    !!config && (config.showDescription || (config.showMedicalResume && extraFieldsGate) || showInsuranceSection);
+  const formSteps: { key: "details" | "extras" | "area"; label: string }[] = [
+    { key: "details", label: "פרטים ורישוי" },
+    ...(hasExtrasStep ? ([{ key: "extras", label: "תיאור וביטוחים" }] as const) : []),
+    { key: "area", label: "אזור שירות" },
+  ];
+  const safeFormStep = Math.min(formStep, formSteps.length - 1);
+  const currentFormStepKey = formSteps[safeFormStep].key;
+  const isLastFormStep = safeFormStep === formSteps.length - 1;
+
+  // Custom validations for fields native `required` can't cover (file
+  // uploads, pill multi-selects) — all belong to the "details" sub-step, and
+  // re-checked on final submit as a safety net.
+  function detailsStepError(): string | null {
+    if (!config) return null;
+    if (config.licenseFileRequired !== false && !licenseFile && !provider?.license_file) {
+      return `נא לצרף ${config.licenseFileLabel.replace(/\s*\(.*\)$/, "")}`;
+    }
+    if (isSurgeon && !surgicalPrivilegesHospital) {
+      return "רופא/ה מנתח/ת נדרש/ת לציין את בית החולים בו יש הרשאת ניתוח";
+    }
+    if (config.showMemberProviderTypes && memberProviderTypes.length === 0) {
+      return "נא לבחור לפחות סוג ספק אחד הפועל בארגון";
+    }
+    if (config.multiSpecialty && specialtyMulti.length === 0) {
+      return `נא לבחור לפחות אפשרות אחת עבור ${config.specialtyLabel}`;
+    }
+    return null;
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!providerType || !config || !provider) return;
     setError("");
-    if (config.licenseFileRequired !== false && !licenseFile && !provider.license_file) {
-      setError(`נא לצרף ${config.licenseFileLabel.replace(/\s*\(.*\)$/, "")}`);
-      return;
+    if (currentFormStepKey === "details" || isLastFormStep) {
+      const stepError = detailsStepError();
+      if (stepError) {
+        setError(stepError);
+        return;
+      }
     }
-    if (isSurgeon && !surgicalPrivilegesHospital) {
-      setError("רופא/ה מנתח/ת נדרש/ת לציין את בית החולים בו יש הרשאת ניתוח");
-      return;
-    }
-    if (config.showMemberProviderTypes && memberProviderTypes.length === 0) {
-      setError("נא לבחור לפחות סוג ספק אחד הפועל בארגון");
-      return;
-    }
-    if (config.multiSpecialty && specialtyMulti.length === 0) {
-      setError(`נא לבחור לפחות אפשרות אחת עבור ${config.specialtyLabel}`);
+    // Not on the last sub-step yet — advance instead of submitting (native
+    // `required` validation already ran on the visible fields).
+    if (!isLastFormStep) {
+      setFormStep(safeFormStep + 1);
+      window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
     setLoading(true);
@@ -959,6 +1012,7 @@ export default function ProviderRegisterPage() {
 
   function selectType(t: ProviderType) {
     setProviderType(t);
+    setFormStep(0);
     setContactName("");
     setContactPhone("");
     setContactEmail("");
@@ -1126,10 +1180,14 @@ export default function ProviderRegisterPage() {
             animate={{ scale: 1, opacity: 1 }}
             transition={{ type: "spring", stiffness: 260, damping: 18 }}
             className={`flex h-14 w-14 items-center justify-center rounded-full ${
-              rejected ? "bg-danger-bg text-danger-text" : "bg-success-bg text-success-text"
+              rejected
+                ? "bg-danger-bg text-danger-text"
+                : approved
+                ? "bg-success-bg text-success-text"
+                : "bg-info-bg text-info-text"
             }`}
           >
-            {rejected ? <XCircle className="h-7 w-7" /> : <CheckCircle2 className="h-7 w-7" />}
+            {rejected ? <XCircle className="h-7 w-7" /> : approved ? <CheckCircle2 className="h-7 w-7" /> : <Clock className="h-7 w-7" />}
           </motion.div>
 
           {rejected ? (
@@ -1143,11 +1201,19 @@ export default function ProviderRegisterPage() {
                 חזרה לדף ההצטרפות
               </Button>
             </>
+          ) : approved ? (
+            <>
+              <h1 className="text-lg font-semibold text-slate-900">הרישיון אומת — ברוכים הבאים! 🎉</h1>
+              <p className="text-sm text-slate-600 leading-relaxed max-w-md">
+                הרישיון שלך אומת בהצלחה. כעת תוכל/י להשלים את חתימת ההסכם, הגדרת הקטלוג והמחירים שלך.
+              </p>
+            </>
           ) : (
             <>
-              <h1 className="text-lg font-semibold text-slate-900">ברוכים הבאים! 🎉</h1>
+              <h1 className="text-lg font-semibold text-slate-900">הבקשה נשלחה בהצלחה</h1>
               <p className="text-sm text-slate-600 leading-relaxed max-w-md">
-                הרישיון שלך אומת בהצלחה. כעת תוכל/י להשלים את פרטי הקטלוג, החתימה על ההסכם, והגדרת המחירים שלך.
+                צוות Healson בודק כעת את הרישיון והמסמכים שצירפת — בדרך כלל תוך 24 שעות. נעדכן אותך ברגע
+                שהבדיקה תסתיים, ואז ניתן יהיה להמשיך לחתימת ההסכם ולהגדרת הקטלוג.
               </p>
             </>
           )}
@@ -1181,13 +1247,13 @@ export default function ProviderRegisterPage() {
           </div>
 
           {!rejected && (
-            <div className="mt-4 w-full rounded-xl border border-blue-200 bg-blue-50/60 p-4 text-right">
-              <p className="text-xs font-semibold text-blue-900 mb-2">📋 מה עכשיו?</p>
-              <ol className="text-xs text-blue-800 space-y-1.5 text-right">
+            <div className="mt-4 w-full rounded-xl border border-info-border bg-info-bg p-4 text-right">
+              <p className="text-xs font-semibold text-info-text mb-2">📋 מה עכשיו?</p>
+              <ol className="text-xs text-info-text space-y-1.5 text-right">
                 <li><strong>1.</strong> חתום על הסכם השירותים עם Healson</li>
                 <li><strong>2.</strong> בחרו הסדרי ביטוח (קופות, ביטוח פרטי)</li>
                 <li><strong>3.</strong> הוסיפו את השירותים/מוצרים שלכם</li>
-                <li><strong>4.</strong> הוסיפו מיקום (מרפאה, סניף, וכו')</li>
+                <li><strong>4.</strong> הוסיפו מיקום (מרפאה, סניף, וכו&apos;)</li>
                 <li><strong>5.</strong> קבעו זמינות (שעות פעילות)</li>
                 <li><strong>6.</strong> שלחו בקשה לפרסום סופי</li>
               </ol>
@@ -1232,8 +1298,6 @@ export default function ProviderRegisterPage() {
 
   if (!config || !providerType) return null;
 
-  const showInsuranceSection = (config.showKupot || config.showPrivateInsurance) && extraFieldsGate;
-
   return (
     <RegisterShell phase={phase} wide>
       <div className="mb-4 flex items-center gap-2">
@@ -1258,13 +1322,35 @@ export default function ProviderRegisterPage() {
         </button>
       </div>
 
+      {formSteps.length > 1 && (
+        <div className="mb-4 flex flex-wrap items-center gap-1.5">
+          {formSteps.map((step, i) => (
+            <span
+              key={step.key}
+              className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium ${
+                i === safeFormStep
+                  ? "bg-primary/10 text-primary"
+                  : i < safeFormStep
+                  ? "bg-success-bg text-success-text"
+                  : "bg-slate-100 text-slate-400"
+              }`}
+            >
+              {i < safeFormStep ? <CheckCircle2 className="h-3.5 w-3.5" /> : <span>{i + 1}.</span>}
+              {step.label}
+            </span>
+          ))}
+        </div>
+      )}
+
       {error && (
-        <div className="mb-4 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
+        <div ref={errorRef} className="mb-4 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
           {error}
         </div>
       )}
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        {currentFormStepKey === "details" && (
+        <>
         <FormSection icon={<UserIcon className="h-4 w-4" />} title="פרטים אישיים ויצירת קשר">
           {config.showTitle ? (
             <div className="grid grid-cols-3 gap-2">
@@ -1515,7 +1601,11 @@ export default function ProviderRegisterPage() {
             )}
           </AnimatePresence>
         </FormSection>
+        </>
+        )}
 
+        {currentFormStepKey === "extras" && (
+        <>
         <div className="rounded-lg bg-info-bg border border-info-border px-3 py-2 text-xs text-info-text">
           את הפרטים הבאים ניתן להשלים ולערוך גם מאוחר יותר, דרך הפורטל האישי, לאחר אישור הבקשה
         </div>
@@ -1571,7 +1661,10 @@ export default function ProviderRegisterPage() {
             )}
           </FormSection>
         )}
+        </>
+        )}
 
+        {currentFormStepKey === "area" && (
         <FormSection icon={<MapPin className="h-4 w-4" />} title="אזור שירות ופריסה">
           <MultiSelectPills
             label="אזורי שירות (ניתן לבחור יותר מאחד)"
@@ -1635,10 +1728,26 @@ export default function ProviderRegisterPage() {
             )
           )}
         </FormSection>
+        )}
 
-        <Button type="submit" loading={loading} className="w-full mt-1">
-          שליחת בקשה
-        </Button>
+        <div className="mt-1 flex gap-2">
+          {safeFormStep > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setError("");
+                setFormStep(safeFormStep - 1);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+            >
+              חזרה
+            </Button>
+          )}
+          <Button type="submit" loading={loading} className="flex-1">
+            {isLastFormStep ? "שליחת בקשה" : "המשך"}
+          </Button>
+        </div>
       </form>
     </RegisterShell>
   );

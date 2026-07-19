@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 import { Logo } from "@/components/shared/Logo";
 import { SidebarDashboardSkeleton } from "@/components/ui/Skeleton";
 import { CommandPalette } from "@/components/ui/CommandPalette";
+import { NotificationsBell, buildAdminNotifications } from "@/components/shared/NotificationsBell";
 import { useRequireRole } from "@/lib/useRequireRole";
 
 interface NavItem {
@@ -81,6 +82,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
   const logout = useStore((s) => s.logout);
   const { ready, user } = useRequireRole("admin");
+  const providers = useStore((s) => s.providers);
+  const dsrRequests = useStore((s) => s.dsrRequests);
+  const notifications = buildAdminNotifications(providers, dsrRequests);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
 
@@ -239,6 +243,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             <span className="hidden lg:inline text-sm font-medium text-slate-700">{activeLabel ?? "ניהול"}</span>
             <div className="mr-auto flex items-center gap-3">
               <CommandPalette items={COMMAND_ITEMS} />
+              <NotificationsBell notifications={notifications} />
               <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">
                 מנהל
               </span>

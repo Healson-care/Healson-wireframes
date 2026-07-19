@@ -13,7 +13,6 @@ import {
   Lock,
   MapPin,
   CalendarClock,
-  Info,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useRequireRole } from "@/lib/useRequireRole";
@@ -35,7 +34,6 @@ import { OnboardingChecklist } from "@/components/provider/OnboardingChecklist";
 import { formatDateHe } from "@/lib/utils";
 import {
   getFirstIncompleteStepKey,
-  getNextProviderAction,
   getProviderSetupConfig,
   isAvailabilityComplete,
   isCatalogComplete,
@@ -49,6 +47,7 @@ export default function ProviderOnboardingPage() {
   const upsertProviderProfile = useStore((s) => s.upsertProviderProfile);
   const signProviderAgreement = useStore((s) => s.signProviderAgreement);
   const requestProviderGoLive = useStore((s) => s.requestProviderGoLive);
+  const approveProviderGoLive = useStore((s) => s.approveProviderGoLive);
   const logout = useStore((s) => s.logout);
   const showToast = useStore((s) => s.showToast);
   const [activeTab, setActiveTab] = useState("sign");
@@ -93,7 +92,6 @@ export default function ProviderOnboardingPage() {
   const step3Done = isCatalogComplete(provider);
   const step4Done = isLocationsComplete(provider);
   const step5Done = isAvailabilityComplete(provider);
-  const nextAction = getNextProviderAction(provider);
 
   const checklistItems = [
     { label: "חתימה על ההסכם עם Healson", done: step1Done, key: "sign" },
@@ -105,54 +103,8 @@ export default function ProviderOnboardingPage() {
     ...(setupConfig.showAvailability ? [{ label: "הגדרת זמינות", done: step5Done, key: "availability" }] : []),
   ];
 
-  const progressPercent = checklistItems.length > 0 ? Math.round((checklistItems.filter((item) => item.done).length / checklistItems.length) * 100) : 0;
+  const remainingCount = checklistItems.filter((item) => !item.done).length;
   const nextStep = checklistItems.find((item) => !item.done);
-  const isProfileReady = checklistItems.every((item) => item.done);
-
-  const onboardingHighlights = [
-    {
-      title: "הסכם מאושר",
-      description: "הסכם שירותי Healson מאושר ומוכן לתהליך הבא.",
-      completed: step1Done,
-      icon: FileSignature,
-    },
-    ...(setupConfig.showAgreements
-      ? [
-          {
-            title: "הגדרת הסדרי ביטוח",
-            description: "ביטוח ציבורי, פרטי וקופות סגורות מוגדרים כראוי.",
-            completed: step2Done,
-            icon: Handshake,
-          },
-        ]
-      : []),
-    {
-      title: `קטלוג ${setupConfig.catalogLabel}`,
-      description: `הגדר את ${setupConfig.catalogItemLabel} הראשון שלך כדי להתחיל לקבל הזמנות.`, 
-      completed: step3Done,
-      icon: Stethoscope,
-    },
-    ...(setupConfig.locationTypes.length > 0
-      ? [
-          {
-            title: `${setupConfig.locationLabelPlural} וקביעת מקום`,
-            description: `הוספת ${setupConfig.locationLabelSingular} פעיל עם פרטי מיקום מלאים.`, 
-            completed: step4Done,
-            icon: MapPin,
-          },
-        ]
-      : []),
-    ...(setupConfig.showAvailability
-      ? [
-          {
-            title: "פתיחת זמינות",
-            description: "קבע ימים, שעות ושעות הזנה כדי לאפשר לקוחות להזמין בקלות.",
-            completed: step5Done,
-            icon: CalendarClock,
-          },
-        ]
-      : []),
-  ];
 
   function handleTabChange(next: string) {
     if (!step1Done && next !== "sign") {
@@ -188,118 +140,68 @@ export default function ProviderOnboardingPage() {
       <main className="flex-1 mx-auto w-full max-w-4xl px-4 py-6">
         <PageHeader
           title={`ברוך/ה הבא/ה, ${provider.title ?? ""} ${provider.display_name}`}
-          description="הרישיון שלך אומת. השלימו את השלבים הבאים כדי להשלים את ההצטרפות."
+          description={
+            nextStep
+              ? `הרישיון שלך אומת. נותרו ${remainingCount} שלבים להשלמת ההצטרפות.`
+              : "הרישיון שלך אומת וכל השלבים הושלמו."
+          }
         />
 
-        <Card className="mb-6 overflow-hidden bg-gradient-to-r from-slate-950 via-slate-900 to-slate-800 text-white shadow-lg">
-          <CardContent className="grid gap-6 sm:grid-cols-[minmax(0,1fr)_220px] items-center">
-            <div className="space-y-4">
-              <div className="rounded-3xl bg-white/10 p-4 text-sm text-slate-200 shadow-inner">
-                <p className="font-semibold">ברוכים הבאים למסלול האונבורדינג של ספקים ב-Healson</p>
-                <p className="mt-1 text-slate-300">השלבים כאן מעוצבים כך שתוכל לראות בכל רגע מה נשאר ואיך להגיע ל-Go Live בצורה ברורה ומהירה.</p>
+        {/* Corrections from Healson come first — the most urgent thing on the page. */}
+        {provider.rejection_reason && (
+          <Card className="mb-5 border-danger-border bg-danger-bg">
+            <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-sm text-danger-text">
+                <p className="font-medium mb-0.5">נדרשים תיקונים מצוות Healson:</p>
+                <p>{provider.rejection_reason}</p>
               </div>
-              <div className="space-y-3">
-                <p className="text-sm uppercase tracking-[0.18em] text-slate-400">מה עוד נשאר</p>
-                <div className="text-4xl font-bold tracking-tight text-white tabular-nums">{progressPercent}%</div>
-                <p className="text-sm text-slate-300">השלמת {checklistItems.filter((item) => item.done).length} מתוך {checklistItems.length} שלבים על מנת להיות פעיל במערכת.</p>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {onboardingHighlights.map((highlight) => {
-                  const Icon = highlight.icon;
-                  return (
-                    <div
-                      key={highlight.title}
-                      className={
-                        highlight.completed
-                          ? "rounded-3xl border border-emerald-400/30 bg-emerald-500/10 p-4"
-                          : "rounded-3xl border border-slate-700/60 bg-white/5 p-4"
-                      }
-                    >
-                      <div className="flex items-center gap-3">
-                        <Icon className="h-5 w-5 text-slate-100" />
-                        <div>
-                          <p className="text-sm font-semibold text-white">{highlight.title}</p>
-                          <p className="text-xs text-slate-300">{highlight.description}</p>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-            <div className="rounded-[32px] border border-white/10 bg-white/5 p-6 text-center shadow-xl shadow-slate-950/10">
-              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-200">איך כובשים את השלב הבא</p>
-              <p className="mt-4 text-lg font-semibold text-white">השלם את השלבים לפי הסדר כדי להגיע לפרסום במהירות.</p>
-              <p className="mt-3 text-sm leading-6 text-slate-300">
-                חתום על ההסכם, בחר את הצעות הביטוח שלך, הוסף שירותים, פרסם מיקום וקבע זמינות — הכל כאן בממשק אחד.
-              </p>
-              <div className="mt-6 rounded-3xl bg-primary p-4 text-left text-sm text-white shadow-lg shadow-primary/20">
-                <p className="font-semibold">טיפ חכם:</p>
-                <p className="mt-2 text-slate-100">שמירה של לפחות שירות אחד, מיקום אחד וזמינות מבטיחה שהלקוחות שלך יראו אותך מייד.</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+              {nextStep && (
+                <Button variant="outline" size="sm" className="shrink-0" onClick={() => setActiveTab(nextStep.key)}>
+                  עבור לתיקון
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         <ProviderJourneyStepper provider={provider} className="mb-5" />
 
-        {!provider.go_live_requested_at && !provider.onboarding_ready_at && (
-          <Card className="mb-5 border-primary/20 bg-gradient-to-r from-primary/10 via-white to-accent/10 shadow-sm">
-            <CardContent className="flex flex-col gap-4 rounded-3xl p-5 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm font-semibold text-slate-900">השלב הבא שלך</p>
-                <p className="mt-2 text-sm text-slate-600">
-                  {nextStep
-                    ? `השלם את ${nextStep.label} כדי להתקדם לשלב הבא ולקרב את הפרופיל שלך לפרסום.`
-                    : "הפרופיל שלך מוכן. שלח בקשה לפרסום כדי להתחיל לקבל לקוחות."}
-                </p>
-              </div>
-              <div className="flex flex-col gap-3 sm:items-end">
-                {nextStep ? (
-                  <Button
-                    variant="secondary"
-                    onClick={() => setActiveTab(nextStep.key)}
-                    className="w-full sm:w-auto"
-                  >
-                    עבור ל{nextStep.label}
-                  </Button>
-                ) : (
-                  <Button
-                    onClick={() => {
-                      requestProviderGoLive(provider.id);
-                      showToast("הבקשה לפרסום נשלחה לצוות Healson", { variant: "success" });
-                    }}
-                    className="w-full sm:w-auto"
-                  >
-                    פרסם והגש לאישור
-                  </Button>
-                )}
-                <p className="text-xs text-slate-500">
-                  {progressPercent}% הושלם • {checklistItems.filter((item) => item.done).length} מתוך {checklistItems.length} שלבים
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {nextAction && (
-          <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-info-border bg-info-bg p-3.5 text-info-text">
-            <Info className="h-4 w-4 shrink-0 mt-0.5" />
-            <p className="text-sm font-medium">{nextAction}</p>
-          </div>
-        )}
-
         {provider.go_live_requested_at ? (
-          <Card className="mb-5 border-info-border bg-info-bg">
-            <CardContent className="flex items-center gap-3 text-info-text">
-              <Clock3 className="h-5 w-5 shrink-0" />
-              <p className="text-sm font-medium">
-                ביקשת פרסום בתאריך {formatDateHe(provider.go_live_requested_at)} — הבקשה ממתינה לאישור Go-Live סופי
-                של צוות Healson. תקבל/י עדכון ברגע שהפרופיל יאושר ויפורסם.
+          <>
+            <Card className="mb-5 border-info-border bg-info-bg">
+              <CardContent className="flex items-center gap-3 text-info-text">
+                <Clock3 className="h-5 w-5 shrink-0" />
+                <p className="text-sm font-medium">
+                  ביקשת פרסום בתאריך {formatDateHe(provider.go_live_requested_at)} — הבקשה ממתינה לאישור Go-Live סופי
+                  של צוות Healson. תקבל/י עדכון ברגע שהפרופיל יאושר ויפורסם.
+                </p>
+              </CardContent>
+            </Card>
+            {/* Demo-only shortcut mirroring the register page's "מצב הדגמה"
+                box — simulates the admin's approveProviderGoLive action so a
+                demo can walk the full journey without switching to the admin
+                account. The approved-status effect at the top of this page
+                then redirects to the full dashboard automatically. */}
+            <div className="mb-5 rounded-xl border border-dashed border-amber-300 bg-amber-50/60 p-4">
+              <p className="mb-1 text-xs font-semibold text-amber-700">🎮 מצב הדגמה</p>
+              <p className="mb-3 text-xs text-amber-700/80">
+                לצורך הדגמת המוצר בלבד — סמלץ את אישור הפרסום של צוות Healson:
               </p>
-            </CardContent>
-          </Card>
-        ) : provider.onboarding_ready_at ? (
+              <Button
+                onClick={() => approveProviderGoLive(provider.id)}
+                variant="outline"
+                className="text-primary border-primary/40"
+              >
+                <Rocket className="h-4 w-4" /> אשר פרסום ועבור לפורטל המלא (דמו)
+              </Button>
+            </div>
+          </>
+        ) : provider.onboarding_ready_at || !nextStep ? (
+          // Shown when the store stamped onboarding_ready_at OR every
+          // checklist step is done — the store's stamp has extra conditions
+          // (insurance agreements, service↔calendar linkage) that don't apply
+          // to every provider type, and the publish CTA must never disappear
+          // for a provider who finished everything the wizard asked of them.
           <Card className="mb-5 border-success-border bg-success-bg">
             <CardContent className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-3 text-success-text">
@@ -318,17 +220,8 @@ export default function ProviderOnboardingPage() {
           </Card>
         ) : (
           <div className="mb-5">
-            <OnboardingChecklist items={checklistItems} />
+            <OnboardingChecklist items={checklistItems} ring onItemClick={handleTabChange} />
           </div>
-        )}
-
-        {provider.rejection_reason && (
-          <Card className="mb-5 border-danger-border bg-danger-bg">
-            <CardContent className="text-sm text-danger-text">
-              <p className="font-medium mb-0.5">נדרשים תיקונים:</p>
-              <p>{provider.rejection_reason}</p>
-            </CardContent>
-          </Card>
         )}
 
         <Tabs value={activeTab} onValueChange={handleTabChange}>
@@ -421,6 +314,7 @@ export default function ProviderOnboardingPage() {
               allowedLocationTypes={setupConfig.locationTypes}
               locationLabelSingular={setupConfig.locationLabelSingular}
               locationLabelPlural={setupConfig.locationLabelPlural}
+              linkedServices={provider.consultation_types}
             />
           </TabsContent>
 

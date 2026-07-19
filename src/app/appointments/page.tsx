@@ -9,9 +9,10 @@ import { StatusBadge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog, Dialog } from "@/components/ui/Dialog";
-import { Input, Textarea } from "@/components/ui/Input";
+import { Input, Select, Textarea } from "@/components/ui/Input";
 import { cn } from "@/lib/utils";
-import { Check, Pencil, Trash2, X } from "lucide-react";
+import { APPOINTMENT_STATUSES } from "@/types";
+import { Check, Pencil, Trash2, X, Search, CalendarRange, List } from "lucide-react";
 
 function startOfWeek(d: Date) {
   const date = new Date(d);
@@ -27,6 +28,11 @@ function addDays(d: Date, n: number) {
   date.setDate(date.getDate() + n);
   return date;
 }
+function addMonths(d: Date, n: number) {
+  const date = new Date(d);
+  date.setMonth(date.getMonth() + n);
+  return date;
+}
 
 export default function AdminAppointmentsPage() {
   const appointments = useStore((s) => s.appointments);
@@ -35,7 +41,11 @@ export default function AdminAppointmentsPage() {
   const showToast = useStore((s) => s.showToast);
 
   const [weekAnchor, setWeekAnchor] = useState(new Date());
+  const [monthAnchor, setMonthAnchor] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState(new Date());
+  const [view, setView] = useState<"week" | "month">("week");
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [cancelId, setCancelId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
@@ -44,10 +54,17 @@ export default function AdminAppointmentsPage() {
   const weekStart = startOfWeek(weekAnchor);
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
+  const monthGridStart = startOfWeek(new Date(monthAnchor.getFullYear(), monthAnchor.getMonth(), 1));
+  const monthDays = Array.from({ length: 42 }, (_, i) => addDays(monthGridStart, i));
+
   const dayAppointments = useMemo(() => {
     const dayIso = isoDate(selectedDay);
-    return appointments.filter((a) => a.date === dayIso).sort((a, b) => a.time.localeCompare(b.time));
-  }, [appointments, selectedDay]);
+    return appointments
+      .filter((a) => a.date === dayIso)
+      .filter((a) => statusFilter === "all" || a.status === statusFilter)
+      .filter((a) => !query || a.client_name.includes(query) || a.provider_name.includes(query))
+      .sort((a, b) => a.time.localeCompare(b.time));
+  }, [appointments, selectedDay, statusFilter, query]);
 
   function countForDay(d: Date) {
     return appointments.filter((a) => a.date === isoDate(d)).length;
@@ -62,8 +79,103 @@ export default function AdminAppointmentsPage() {
 
   return (
     <AppLayout>
-      <PageHeader title="ניהול תורים" description="לוח תורים מרכזי עבור כל הספקים" />
+      <PageHeader
+        title="ניהול תורים"
+        description="לוח תורים מרכזי עבור כל הספקים"
+        actions={
+          <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1">
+            <button
+              onClick={() => setView("week")}
+              className={cn(
+                "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
+                view === "week" ? "bg-primary text-white" : "text-slate-500 hover:bg-slate-50"
+              )}
+            >
+              <List className="h-3.5 w-3.5" /> שבועי
+            </button>
+            <button
+              onClick={() => setView("month")}
+              className={cn(
+                "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
+                view === "month" ? "bg-primary text-white" : "text-slate-500 hover:bg-slate-50"
+              )}
+            >
+              <CalendarRange className="h-3.5 w-3.5" /> חודשי
+            </button>
+          </div>
+        }
+      />
 
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        <Input
+          placeholder="חיפוש לפי מטופל או ספק..."
+          icon={<Search className="h-4 w-4" />}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="max-w-xs"
+        />
+        <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="max-w-[180px]">
+          <option value="all">כל הסטטוסים</option>
+          {APPOINTMENT_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </Select>
+      </div>
+
+      {view === "month" ? (
+        <Card className="p-3 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <Button variant="outline" size="sm" onClick={() => setMonthAnchor(addMonths(monthAnchor, -1))}>
+              חודש קודם
+            </Button>
+            <span className="text-sm font-medium text-slate-600">
+              {monthAnchor.toLocaleDateString("he-IL", { month: "long", year: "numeric" })}
+            </span>
+            <Button variant="outline" size="sm" onClick={() => setMonthAnchor(addMonths(monthAnchor, 1))}>
+              חודש הבא
+            </Button>
+          </div>
+          <div className="grid grid-cols-7 gap-1.5">
+            {monthDays.map((d) => {
+              const isSelected = isoDate(d) === isoDate(selectedDay);
+              const inMonth = d.getMonth() === monthAnchor.getMonth();
+              const count = countForDay(d);
+              return (
+                <button
+                  key={d.toISOString()}
+                  onClick={() => {
+                    setSelectedDay(d);
+                    setView("week");
+                    setWeekAnchor(d);
+                  }}
+                  className={cn(
+                    "flex flex-col items-center gap-1 rounded-lg p-2 text-xs min-h-[52px]",
+                    isSelected
+                      ? "bg-primary text-white"
+                      : inMonth
+                      ? "bg-slate-50 text-slate-600 hover:bg-slate-100"
+                      : "bg-white text-slate-300 hover:bg-slate-50"
+                  )}
+                >
+                  <span className="font-semibold">{d.getDate()}</span>
+                  {count > 0 && (
+                    <span
+                      className={cn(
+                        "rounded-full px-1.5 text-[10px]",
+                        isSelected ? "bg-white/20" : "bg-primary/10 text-primary"
+                      )}
+                    >
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </Card>
+      ) : (
       <Card className="p-3 mb-4">
         <div className="flex items-center justify-between mb-3">
           <Button variant="outline" size="sm" onClick={() => setWeekAnchor(addDays(weekAnchor, -7))}>
@@ -106,6 +218,7 @@ export default function AdminAppointmentsPage() {
           })}
         </div>
       </Card>
+      )}
 
       <AnimatePresence mode="wait">
         <motion.div
@@ -116,7 +229,10 @@ export default function AdminAppointmentsPage() {
           transition={{ duration: 0.18 }}
         >
           {dayAppointments.length === 0 ? (
-            <EmptyState title="אין תורים ביום זה" description="בחר יום אחר בלוח השבועי למעלה" />
+            <EmptyState
+              title="אין תורים ביום זה"
+              description={query || statusFilter !== "all" ? "נסה לשנות את החיפוש או הסינון" : "בחר יום אחר בלוח למעלה"}
+            />
           ) : (
             <div className="flex flex-col gap-3">
               {dayAppointments.map((a, i) => (

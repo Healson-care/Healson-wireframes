@@ -1,16 +1,18 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ProviderLayout } from "@/components/layouts/ProviderLayout";
 import { useStore } from "@/lib/store";
 import { useCurrentProvider } from "@/lib/useCurrentPatient";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/Tabs";
+import { Dialog } from "@/components/ui/Dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
-import { Badge } from "@/components/ui/Badge";
+import { StatusBadge, ProviderStatusBadge, ProviderPublishedBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Avatar, EmptyState, OpenDecisionNote, PageHeader, StatCard } from "@/components/ui/Misc";
 import { CardListSkeleton, Skeleton } from "@/components/ui/Skeleton";
+import { ProgressRing } from "@/components/ui/Progress";
 import { PriceListEntry, PriceListSection } from "@/components/provider/PriceListSection";
 import { ServiceCatalogSection } from "@/components/provider/ServiceCatalogSection";
 import { ClinicsSection } from "@/components/provider/ClinicsSection";
@@ -19,6 +21,8 @@ import { ReferralFormsSection } from "@/components/provider/ReferralFormsSection
 import { AgreementsSection } from "@/components/provider/AgreementsSection";
 import { BlockedDatesSection } from "@/components/provider/BlockedDatesSection";
 import { MonthlyReportSection } from "@/components/provider/MonthlyReportSection";
+import { MonthlySettlementSection } from "@/components/provider/MonthlySettlementSection";
+import { BankAccountSection } from "@/components/provider/BankAccountSection";
 import { BarChartSimple, LineChartSimple } from "@/components/charts/SimpleCharts";
 import {
   LayoutDashboard,
@@ -29,11 +33,12 @@ import {
   CreditCard,
   Users,
   CheckCircle2,
-  BadgeCheck,
   Handshake,
   Star,
   FileBarChart,
   Clock,
+  Bell,
+  ChevronLeft,
 } from "lucide-react";
 import { formatCurrency, formatDateHe, monthOverMonthTrend, buildMonthlyData } from "@/lib/utils";
 import { PROVIDER_STATUS_LABELS } from "@/types";
@@ -46,6 +51,17 @@ import {
   isAvailabilityComplete,
 } from "@/lib/provider-setup";
 
+const DASHBOARD_TABS = [
+  "overview",
+  "agreements",
+  "consultations",
+  "clinics",
+  "forms",
+  "schedule",
+  "payments",
+  "reports",
+] as const;
+
 export default function ProviderDashboardPage() {
   const currentUser = useStore((s) => s.currentUser);
   const provider = useCurrentProvider();
@@ -54,6 +70,24 @@ export default function ProviderDashboardPage() {
   const patients = useStore((s) => s.patients);
   const appointments = useStore((s) => s.appointments);
   const showToast = useStore((s) => s.showToast);
+  // Tab state lives in the URL (?tab=) so support/admin can send providers a
+  // direct link to a specific section. Read once via the lazy initializer
+  // (server prerender falls back to "overview" — harmless, since the page
+  // renders a skeleton until store hydration anyway); written back via
+  // replaceState to avoid polluting browser history with every tab click.
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    if (typeof window === "undefined") return "overview";
+    const fromUrl = new URLSearchParams(window.location.search).get("tab");
+    return fromUrl && (DASHBOARD_TABS as readonly string[]).includes(fromUrl) ? fromUrl : "overview";
+  });
+  const [publishDialogOpen, setPublishDialogOpen] = useState(false);
+
+  function handleTabChange(next: string) {
+    setActiveTab(next);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", next);
+    window.history.replaceState(null, "", url.toString());
+  }
 
   // Create an empty profile automatically the first time a provider logs in.
   useEffect(() => {
@@ -82,8 +116,16 @@ export default function ProviderDashboardPage() {
   const myOrders = orders.filter((o) => o.provider_id === provider.id);
   const completedOrders = myOrders.filter((o) => o.status === "הושלם");
   const completedRevenue = completedOrders.reduce((sum, o) => sum + o.final_price, 0);
-  const commissionPaid = completedOrders.reduce((sum, o) => sum + (o.commission_amount ?? 0), 0);
-  const netPayout = completedOrders.reduce((sum, o) => sum + (o.provider_payout_amount ?? o.final_price), 0);
+  // Money actually owed/transferred to the provider only counts orders
+  // Healson has fully collected — a completed service whose balance is still
+  // just a deposit ("מקדמה שולמה") isn't payable yet, so it must not inflate
+  // the net-payout figure even though the service itself is done.
+  const collectedOrders = completedOrders.filter((o) => o.payment_status === "שולם במלואו");
+  const commissionPaid = collectedOrders.reduce((sum, o) => sum + (o.commission_amount ?? 0), 0);
+  const netPayout = collectedOrders.reduce((sum, o) => sum + (o.provider_payout_amount ?? o.final_price), 0);
+  const pendingCollectionPayout = completedOrders
+    .filter((o) => o.payment_status !== "שולם במלואו" && o.payment_status !== "הוחזר")
+    .reduce((sum, o) => sum + (o.provider_payout_amount ?? 0), 0);
 
   const myAppointments = appointments.filter((a) => a.provider_id === provider.id);
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -96,6 +138,7 @@ export default function ProviderDashboardPage() {
   const revenueTrend = monthOverMonthTrend(completedOrders, (o) => o.created_date, (o) => o.final_price);
   const revenueMonthly = buildMonthlyData(completedOrders, (o) => o.created_date, 6, (o) => o.final_price);
   const appointmentsMonthly = buildMonthlyData(myAppointments, (a) => a.date, 6);
+  const patientsMonthly = buildMonthlyData(myPatients, (p) => p.created_date, 6);
 
   const setupConfig = getProviderSetupConfig(provider.provider_type);
   const catalogDone = isCatalogComplete(provider);
@@ -105,6 +148,53 @@ export default function ProviderDashboardPage() {
   const nextAction = getNextProviderAction(provider);
   const isLive = provider.status === "approved" && provider.is_published;
   const canTogglePublish = provider.status === "approved" && readyToPublish;
+
+  // Single source of truth for both the hero progress ring and the "השלמת הפרופיל"
+  // checklist in the overview tab below — same conditions/order as that list always had.
+  const profileChecklist: { ok: boolean; label: string }[] = [
+    { ok: !!provider.license_number, label: "מספר רישיון" },
+    { ok: !!provider.specialty, label: "תחום התמחות" },
+    ...(setupConfig.showAgreements
+      ? [{ ok: provider.agreements.length > 0, label: "הגדרת הסדרי ביטוח (S/K/B/H)" }]
+      : []),
+    { ok: catalogDone, label: `לפחות פריט אחד ב${setupConfig.catalogLabel}` },
+    ...(setupConfig.locationTypes.length > 0
+      ? [{ ok: locationsDone, label: `לפחות ${setupConfig.locationLabelSingular} אחד/ת` }]
+      : []),
+    ...(setupConfig.showAvailability ? [{ ok: availabilityDone, label: "זמינות שבועית הוגדרה" }] : []),
+    { ok: isVerified, label: "אושר על ידי צוות Healson" },
+    { ok: provider.is_published, label: "פרופיל פורסם" },
+  ];
+  const profileCompletePercent = Math.round(
+    (profileChecklist.filter((i) => i.ok).length / profileChecklist.length) * 100
+  );
+
+  // Real, derived-only task list — no new persisted state. Surfaces the same
+  // nextAction banner as the first task plus a couple of other actionable gaps.
+  const tasks: { id: string; tone: "danger" | "warning" | "info"; label: string; href?: string }[] = [];
+  if (nextAction) {
+    tasks.push({
+      id: "next-action",
+      tone: provider.status === "rejected" ? "danger" : "warning",
+      label: nextAction,
+      href: provider.status === "onboarding" ? "/provider/onboarding" : undefined,
+    });
+  }
+  if (upcomingAppointments.length > 0) {
+    tasks.push({
+      id: "appts",
+      tone: "info",
+      label: `${upcomingAppointments.length} תורים קרובים בימים הקרובים`,
+      href: "/provider/appointments",
+    });
+  }
+  if (setupConfig.showAvailability && !availabilityDone && provider.status === "approved") {
+    tasks.push({
+      id: "availability",
+      tone: "danger",
+      label: "לא הוגדרה זמינות שבועית פעילה — לקוחות לא יכולים לקבוע תור חדש",
+    });
+  }
 
   return (
     <ProviderLayout>
@@ -117,12 +207,7 @@ export default function ProviderDashboardPage() {
               variant={isLive ? "outline" : "primary"}
               disabled={!canTogglePublish}
               title={!canTogglePublish ? "יש להשלים קטלוג, מיקומים וזמינות לפני הפרסום" : undefined}
-              onClick={() => {
-                upsertProviderProfile(currentUser!.id, { is_published: !provider.is_published });
-                showToast(provider.is_published ? "הפרופיל הוסר מהפרסום" : "הפרופיל פורסם בהצלחה", {
-                  variant: "success",
-                });
-              }}
+              onClick={() => setPublishDialogOpen(true)}
             >
               {isLive ? "בטל פרסום" : "פרסם פרופיל"}
             </Button>
@@ -142,18 +227,11 @@ export default function ProviderDashboardPage() {
               <h2 className="text-lg font-bold text-slate-900">
                 {provider.title} {provider.display_name}
               </h2>
-              {provider.status === "approved" ? (
-                <Badge tone="green">
-                  <BadgeCheck className="h-3 w-3" /> מאושר
-                </Badge>
-              ) : provider.status === "rejected" ? (
-                <Badge tone="red">נדחה{provider.rejection_reason ? `: ${provider.rejection_reason}` : ""}</Badge>
-              ) : provider.status === "suspended" ? (
-                <Badge tone="slate">מושהה</Badge>
-              ) : (
-                <Badge tone="amber">{PROVIDER_STATUS_LABELS[provider.status]}</Badge>
-              )}
-              {provider.is_published && <Badge tone="blue">פעיל</Badge>}
+              <ProviderStatusBadge
+                status={provider.status}
+                title={provider.status === "rejected" ? provider.rejection_reason : undefined}
+              />
+              {provider.is_published && <ProviderPublishedBadge />}
             </div>
             <p className="text-sm text-amber-700 font-medium mt-0.5">{provider.specialty || "—"}</p>
             <div className="flex flex-wrap items-center gap-3 mt-1">
@@ -168,7 +246,7 @@ export default function ProviderDashboardPage() {
               )}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3 text-center">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
             <div className="rounded-xl bg-white/70 px-3 py-2 shadow-sm">
               <p className="text-lg font-bold text-slate-900">{provider.consultation_types.length}</p>
               <p className="text-xs text-slate-500">{setupConfig.catalogLabel}</p>
@@ -177,17 +255,57 @@ export default function ProviderDashboardPage() {
               <p className="text-lg font-bold text-slate-900">{provider.clinic_locations.length}</p>
               <p className="text-xs text-slate-500">{setupConfig.locationLabelPlural}</p>
             </div>
+            <div className="rounded-xl bg-white/70 px-3 py-2 shadow-sm">
+              <p className="text-lg font-bold text-slate-900 tabular-nums">{formatCurrency(completedRevenue)}</p>
+              <p className="text-xs text-slate-500">הכנסה (הושלם)</p>
+            </div>
+            <div className="rounded-xl bg-white/70 px-3 py-2 shadow-sm">
+              <p className="text-lg font-bold text-slate-900 tabular-nums">{myAppointments.length}</p>
+              <p className="text-xs text-slate-500">תורים סה״כ</p>
+            </div>
           </div>
+          <ProgressRing
+            percent={profileCompletePercent}
+            tone={profileCompletePercent === 100 ? "success" : "primary"}
+            label="פרופיל"
+            textClassName="text-slate-900"
+          />
         </div>
       </div>
 
-      {nextAction && (
-        <div className="mb-6 rounded-lg border border-warning-border bg-warning-bg px-4 py-3 text-sm text-warning-text">
-          {nextAction}
-        </div>
+      {tasks.length > 0 && (
+        <Card className="mb-6 border-warning-border bg-warning-bg/30">
+          <CardHeader className="flex items-center gap-2 flex-row">
+            <Bell className="h-4 w-4 text-warning" />
+            <CardTitle>משימות ותזכורות</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            {tasks.map((task) => {
+              const toneClasses =
+                task.tone === "danger"
+                  ? "border-danger-border bg-danger-bg text-danger-text"
+                  : task.tone === "info"
+                  ? "border-info-border bg-info-bg text-info-text"
+                  : "border-warning-border bg-warning-bg text-warning-text";
+              const content = (
+                <div className={`flex items-center gap-3 rounded-xl border px-3.5 py-2.5 text-sm ${toneClasses}`}>
+                  <span className="flex-1">{task.label}</span>
+                  {task.href && <ChevronLeft className="h-4 w-4 shrink-0" />}
+                </div>
+              );
+              return task.href ? (
+                <Link key={task.id} href={task.href} className="transition-opacity hover:opacity-80">
+                  {content}
+                </Link>
+              ) : (
+                <div key={task.id}>{content}</div>
+              );
+            })}
+          </CardContent>
+        </Card>
       )}
 
-      <Tabs defaultValue="overview">
+      <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList className="mb-4 flex-wrap">
           <TabsTrigger value="overview" icon={<LayoutDashboard className="h-3.5 w-3.5" />}>סקירה</TabsTrigger>
           {setupConfig.showAgreements && (
@@ -201,7 +319,6 @@ export default function ProviderDashboardPage() {
           )}
           <TabsTrigger value="payments" icon={<CreditCard className="h-3.5 w-3.5" />}>תשלומים</TabsTrigger>
           <TabsTrigger value="reports" icon={<FileBarChart className="h-3.5 w-3.5" />}>דוחות</TabsTrigger>
-          <TabsTrigger value="crm" icon={<Users className="h-3.5 w-3.5" />}>CRM</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
@@ -212,6 +329,7 @@ export default function ProviderDashboardPage() {
               icon={<Users className="h-4 w-4" />}
               tone="blue"
               trend={myPatients.length > 0 ? patientsTrend : undefined}
+              sparklineData={patientsMonthly}
             />
             <StatCard
               label="סטטוס אישור Healson"
@@ -225,6 +343,7 @@ export default function ProviderDashboardPage() {
               icon={<CreditCard className="h-4 w-4" />}
               tone="purple"
               trend={completedOrders.length > 0 ? revenueTrend : undefined}
+              sparklineData={revenueMonthly}
             />
           </div>
 
@@ -283,20 +402,9 @@ export default function ProviderDashboardPage() {
                 <CardTitle>השלמת הפרופיל</CardTitle>
               </CardHeader>
               <CardContent className="text-sm text-slate-600 flex flex-col gap-2">
-                <ChecklistItem ok={!!provider.license_number} label="מספר רישיון" />
-                <ChecklistItem ok={!!provider.specialty} label="תחום התמחות" />
-                {setupConfig.showAgreements && (
-                  <ChecklistItem ok={provider.agreements.length > 0} label="הגדרת הסדרי ביטוח (S/K/B/H)" />
-                )}
-                <ChecklistItem ok={catalogDone} label={`לפחות פריט אחד ב${setupConfig.catalogLabel}`} />
-                {setupConfig.locationTypes.length > 0 && (
-                  <ChecklistItem ok={locationsDone} label={`לפחות ${setupConfig.locationLabelSingular} אחד/ת`} />
-                )}
-                {setupConfig.showAvailability && (
-                  <ChecklistItem ok={availabilityDone} label="זמינות שבועית הוגדרה" />
-                )}
-                <ChecklistItem ok={isVerified} label="אושר על ידי צוות Healson" />
-                <ChecklistItem ok={provider.is_published} label="פרופיל פורסם" />
+                {profileChecklist.map((item) => (
+                  <ChecklistItem key={item.label} ok={item.ok} label={item.label} />
+                ))}
               </CardContent>
             </Card>
           </div>
@@ -354,6 +462,7 @@ export default function ProviderDashboardPage() {
             allowedLocationTypes={setupConfig.locationTypes}
             locationLabelSingular={setupConfig.locationLabelSingular}
             locationLabelPlural={setupConfig.locationLabelPlural}
+            linkedServices={provider.consultation_types}
           />
         </TabsContent>
 
@@ -382,14 +491,15 @@ export default function ProviderDashboardPage() {
         </TabsContent>
         )}
 
-        <TabsContent value="payments">
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        <TabsContent value="payments" className="flex flex-col gap-4">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3">
             <StatCard label="הכנסה ברוטו" value={formatCurrency(completedRevenue)} tone="green" />
             <StatCard label="עמלת Healson" value={formatCurrency(commissionPaid)} tone="rose" />
             <StatCard label="תשלום נטו לספק" value={formatCurrency(netPayout)} tone="purple" />
+            <StatCard label="ממתין לגבייה" value={formatCurrency(pendingCollectionPayout)} tone="amber" />
             <StatCard label="עסקאות שהושלמו" value={completedOrders.length} tone="blue" />
           </div>
-          <Card className="mb-4">
+          <Card>
             <CardHeader>
               <CardTitle>הכנסה חודשית</CardTitle>
             </CardHeader>
@@ -401,7 +511,7 @@ export default function ProviderDashboardPage() {
             <CardHeader>
               <CardTitle>עסקאות אחרונות</CardTitle>
               <p className="text-sm text-slate-500">
-                עמלת Healson הנוכחית: {provider.commission_rate ?? 15}% לעסקה
+                עמלת Healson הנוכחית: {provider.commission_rate ?? 15}% לעסקה · &quot;נטו לספק&quot; משלם רק על סכומים שהתקבלו בפועל
               </p>
             </CardHeader>
             <CardContent>
@@ -411,7 +521,10 @@ export default function ProviderDashboardPage() {
                 <div className="flex flex-col gap-2">
                   {myOrders.slice(0, 10).map((o) => (
                     <div key={o.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm">
-                      <span className="text-slate-700">{o.patient_name} · {o.item_name}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-700">{o.patient_name} · {o.item_name}</span>
+                        {o.status === "הושלם" && <StatusBadge status={o.payment_status ?? "ממתין"} kind="payment" />}
+                      </div>
                       <div className="text-left">
                         <span className="font-medium text-slate-900">{formatCurrency(o.final_price)}</span>
                         {o.commission_amount !== undefined && (
@@ -424,38 +537,56 @@ export default function ProviderDashboardPage() {
               )}
             </CardContent>
           </Card>
+
+          <BankAccountSection
+            provider={provider}
+            onSave={(data) => upsertProviderProfile(currentUser.id, data)}
+            showToast={showToast}
+          />
         </TabsContent>
 
-        <TabsContent value="reports">
+        <TabsContent value="reports" className="flex flex-col gap-4">
+          <MonthlySettlementSection
+            orders={myOrders}
+            settlements={provider.monthly_settlements ?? []}
+            onChange={(monthly_settlements) => upsertProviderProfile(currentUser!.id, { monthly_settlements })}
+            showToast={showToast}
+          />
           <MonthlyReportSection orders={myOrders} providerName={provider.display_name} />
         </TabsContent>
 
-        <TabsContent value="crm">
-          {myPatients.length === 0 ? (
-            <EmptyState icon={<Users className="h-10 w-10" />} title="אין מטופלים משויכים" />
-          ) : (
-            <Card>
-              <CardContent className="flex flex-wrap items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex -space-x-2 rtl:space-x-reverse">
-                    {myPatients.slice(0, 5).map((p) => (
-                      <Avatar key={p.id} name={p.full_name} className="ring-2 ring-white" />
-                    ))}
-                  </div>
-                  <p className="text-sm text-slate-600">
-                    <span className="font-semibold text-slate-900">{myPatients.length}</span> מטופלים משויכים אליך
-                  </p>
-                </div>
-                <Link href="/provider/patients">
-                  <Button variant="outline" size="sm">
-                    לרשימת המטופלים המלאה
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
       </Tabs>
+
+      <Dialog
+        open={publishDialogOpen}
+        onClose={() => setPublishDialogOpen(false)}
+        title={isLive ? "ביטול פרסום הפרופיל" : "פרסום הפרופיל"}
+      >
+        <div className="flex flex-col gap-4">
+          <p className="text-sm text-slate-600 leading-relaxed">
+            {isLive
+              ? "הפרופיל שלך יוסר מתוצאות החיפוש ולקוחות לא יוכלו לקבוע תורים או להזמין שירותים חדשים. תורים והזמנות קיימים לא יבוטלו. ניתן לפרסם מחדש בכל עת."
+              : "הפרופיל שלך יופיע בתוצאות החיפוש, ולקוחות יוכלו לקבוע תורים ולהזמין שירותים לפי הקטלוג והזמינות שהגדרת."}
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setPublishDialogOpen(false)}>
+              ביטול
+            </Button>
+            <Button
+              variant={isLive ? "destructive" : "primary"}
+              onClick={() => {
+                upsertProviderProfile(currentUser!.id, { is_published: !provider.is_published });
+                showToast(provider.is_published ? "הפרופיל הוסר מהפרסום" : "הפרופיל פורסם בהצלחה", {
+                  variant: "success",
+                });
+                setPublishDialogOpen(false);
+              }}
+            >
+              {isLive ? "בטל פרסום" : "פרסם פרופיל"}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
     </ProviderLayout>
   );
 }

@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import {
   Appointment,
+  Branch,
   CatalogItem,
   ConsentRecord,
   ConsentType,
@@ -94,7 +95,18 @@ interface AuthState {
   pendingRegistration: PendingRegistration | null;
   pendingProviderSubmission: PendingProviderSubmission | null;
   pendingLoginVerification: PendingLoginVerification | null;
-  login: (email: string, password: string) => { ok: boolean; error?: string; requiresOtp?: boolean };
+  login: (
+    email: string,
+    password: string
+  ) => {
+    ok: boolean;
+    error?: string;
+    requiresOtp?: boolean;
+    // Set when a provider is blocked from logging in by their lifecycle
+    // status — lets the login page render a dedicated blocked-state panel
+    // (reason, what to do next) instead of a generic one-line error.
+    blockedStatus?: "rejected" | "suspended";
+  };
   verifyLoginSmsOtp: (code: string) => { ok: boolean; error?: string };
   verifyLoginEmailOtp: (code: string) => { ok: boolean; error?: string };
   resendLoginOtp: (channel: "sms" | "email") => string | null;
@@ -184,6 +196,9 @@ interface EntitiesState {
   convertLead: (id: string) => Patient | undefined;
 
   addAdminUser: (data: { full_name: string; email: string; phone?: string }) => User;
+
+  addBranch: (data: Omit<Branch, "id">) => Branch;
+  deleteBranch: (id: string) => void;
 
   upsertProviderProfile: (
     userId: string | undefined,
@@ -280,13 +295,14 @@ export const useStore = create<Store>()(
             if (provider?.status === "rejected") {
               return {
                 ok: false,
+                blockedStatus: "rejected",
                 error: provider.rejection_reason
                   ? `בקשתך נדחתה: ${provider.rejection_reason}`
                   : "בקשתך להצטרפות נדחתה.",
               };
             }
             if (provider?.status === "suspended") {
-              return { ok: false, error: "חשבון הספק מושהה זמנית. אנא פנה לתמיכה." };
+              return { ok: false, blockedStatus: "suspended", error: "חשבון הספק מושהה זמנית. אנא פנה לתמיכה." };
             }
           }
           // Policy: an existing patient (already has a Patient record, i.e.
@@ -659,6 +675,13 @@ export const useStore = create<Store>()(
         set((s) => ({ users: [...s.users, record] }));
         return record;
       },
+
+      addBranch: (data) => {
+        const record: Branch = { id: generateId("branch"), ...data };
+        set((s) => ({ branches: [...s.branches, record] }));
+        return record;
+      },
+      deleteBranch: (id) => set((s) => ({ branches: s.branches.filter((b) => b.id !== id) })),
 
       updateProviderById: (id, data) =>
         set((s) => ({
