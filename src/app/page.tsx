@@ -76,19 +76,15 @@ export default function LandingPage() {
   const showToast = useStore((s) => s.showToast);
   const [secureLoginOpen, setSecureLoginOpen] = useState(false);
 
-  function enterAs(role: Role) {
+ function enterAs(role: Role) {
     if (role === "provider") {
       setSecureLoginOpen(true);
       return;
     }
-    loginAsDemo(role);
-    if (role === "patient" && useStore.getState().pendingLoginVerification) {
-      // Existing patient: loginAsDemo queued the double SMS+email OTP
-      // step-up instead of signing in directly. Send them to /login, which
-      // picks up the pending verification and resumes the OTP screens —
-      // otherwise they'd be bounced from /client back to a blank login form
-      // with no explanation.
-      router.push("/login");
+    if (role === "patient") {
+      // Patient is the one real (non-demo) account type here — send them
+      // to the actual register/login flow instead of an instant demo sign-in.
+      router.push("/client/login");
       return;
     }
     loginAsDemo(role);
