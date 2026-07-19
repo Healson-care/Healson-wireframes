@@ -179,7 +179,7 @@ export default function ProviderApplyPage() {
           </div>
 
           <div className="mt-6 rounded-xl bg-primary/5 border border-primary/20 p-4">
-            <p className="text-xs text-slate-600"><strong>💡 טיפ:</strong> כל שלב עוד מה שלוש שעות — יצירת החשבון רק דקה!</p>
+            <p className="text-xs text-slate-600"><strong>💡 טיפ:</strong> יצירת החשבון לוקחת פחות מדקה — שאר השלבים מטופלים בהמשך, בזמנכם</p>
           </div>
         </div>
       </div>
