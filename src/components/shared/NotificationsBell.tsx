@@ -82,7 +82,7 @@ export function buildProviderNotifications(
       tone: "danger",
       title: "נדרשים תיקונים מצוות Healson",
       description: provider.rejection_reason,
-      href: "/provider/onboarding",
+      href: "/provider/dashboard",
     });
   }
   if (provider.status === "onboarding" && provider.go_live_requested_at) {
@@ -98,7 +98,7 @@ export function buildProviderNotifications(
       tone: "success",
       title: "הכל מוכן לפרסום",
       description: "נותר לשלוח בקשת פרסום לצוות Healson",
-      href: "/provider/onboarding",
+      href: "/provider/dashboard",
     });
   }
   if (provider.status === "approved" && !provider.bank_account?.verified_at) {
@@ -107,7 +107,7 @@ export function buildProviderNotifications(
       tone: "warning",
       title: "חסרים פרטי חשבון בנק",
       description: "נדרשים כדי שנוכל להעביר אליך את התשלום החודשי",
-      href: "/provider/dashboard?tab=payments",
+      href: "/provider/profile/payments",
     });
   }
   const todayStr = new Date().toISOString().slice(0, 10);

@@ -29,10 +29,9 @@ import {
   Sparkles,
   Rocket,
   XCircle,
-  X,
   Clock,
 } from "lucide-react";
-import { Logo } from "@/components/shared/Logo";
+import { ProviderLayout } from "@/components/layouts/ProviderLayout";
 import { Input, Select, Textarea } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { DashboardSkeleton } from "@/components/ui/Skeleton";
@@ -176,17 +175,6 @@ const INSURANCE_AGENCY_SERVICES = [
 ];
 
 SUBSPECIALTIES_BY_SPECIALTY["סיעוד"] = NURSE_SPECIALTIES;
-
-const SERVICE_AREAS = [
-  "תל אביב והמרכז",
-  "ירושלים והסביבה",
-  "חיפה והצפון",
-  "באר שבע והדרום",
-  "השרון",
-  "השפלה",
-  "יהודה ושומרון",
-  "אונליין ",
-];
 
 const STORE_CATEGORIES = [
   "ציוד רפואי ביתי ושיקומי",
@@ -584,39 +572,26 @@ function RegisterStepper({ phase }: { phase: Phase }) {
   );
 }
 
+// The application (category → type → form → otp → submitted) renders INSIDE the
+// provider portal shell — the provider already has a real account/session, so
+// this stage is presented as a pending request within the portal, not as a
+// standalone signup wizard. ProviderLayout supplies the header + stage badge
+// ("בקשה בבדיקה") and keeps the operational nav locked until approval.
 function RegisterShell({ phase, wide, children }: { phase: Phase; wide?: boolean; children: ReactNode }) {
-  const router = useRouter();
-  const logout = useStore((s) => s.logout);
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-br from-primary/5 via-slate-50 to-amber-50">
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur">
-        <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-2">
-            <Logo />
-            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-              השלמת הרשמה
-            </span>
+    <ProviderLayout>
+      <div className="flex flex-col items-center">
+        {phase !== "otp" && phase !== "success" && (
+          <div className="mb-5 w-full max-w-2xl rounded-xl border border-info-border bg-info-bg px-4 py-3 text-sm text-info-text">
+            <p className="font-medium">בקשת הצטרפות כספק</p>
+            <p className="mt-0.5 text-xs text-info-text/80">
+              החשבון שלך נוצר. השלם/י את פרטי הבקשה לבדיקת צוות Healson — לאחר האישור ייפתח שלב ההצטרפות בפורטל.
+            </p>
           </div>
-          <button
-            onClick={() => {
-              // Registration isn't complete yet at any point this shell is
-              // shown — clear the partial session so the landing page shows
-              // itself exactly as it does for a fresh visitor, not "stuck
-              // logged in" with its entry sections hidden.
-              logout();
-              router.push("/");
-            }}
-            className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm text-slate-500 hover:bg-slate-100"
-          >
-            <X className="h-4 w-4" />
-            <span className="hidden sm:inline">חזרה לדף הבית</span>
-          </button>
-        </div>
-      </header>
-      <div className="flex flex-1 flex-col items-center justify-center p-4">
+        )}
         <div
           className={`w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-lg transition-[max-width] duration-300 sm:p-8 ${
-            wide ? "max-w-2xl" : "max-w-sm"
+            wide ? "max-w-2xl" : "max-w-md"
           }`}
         >
           <RegisterStepper phase={phase} />
@@ -632,9 +607,8 @@ function RegisterShell({ phase, wide, children }: { phase: Phase; wide?: boolean
             </motion.div>
           </AnimatePresence>
         </div>
-        <p className="mt-6 text-xs text-slate-400">פלטפורמת ניהול שירותי בריאות בישראל © 2026</p>
       </div>
-    </div>
+    </ProviderLayout>
   );
 }
 
@@ -732,10 +706,10 @@ export default function ProviderRegisterPage() {
   const showToast = useStore((s) => s.showToast);
 
   // Once Ops verifies the license, status moves to "onboarding" — send the
-  // provider on to the full onboarding wizard instead of leaving them here.
+  // provider on to the dashboard, where onboarding now lives inline.
   const movedToOnboarding = ready && provider?.status === "onboarding";
   useEffect(() => {
-    if (movedToOnboarding) router.replace("/provider/onboarding");
+    if (movedToOnboarding) router.replace("/provider/dashboard");
   }, [movedToOnboarding, router]);
 
   const [synced, setSynced] = useState(false);
@@ -766,7 +740,6 @@ export default function ProviderRegisterPage() {
   const [medicalResumeFile, setMedicalResumeFile] = useState<File | null>(null);
   const [kupahArrangements, setKupahArrangements] = useState<KupahArrangement[]>([]);
   const [privateInsurers, setPrivateInsurers] = useState<string[]>([]);
-  const [serviceAreas, setServiceAreas] = useState<string[]>([]);
   const [subSpecialties, setSubSpecialties] = useState<string[]>([]);
   const [otherSubSpecialty, setOtherSubSpecialty] = useState("");
   const [locationCount, setLocationCount] = useState("");
@@ -824,7 +797,6 @@ export default function ProviderRegisterPage() {
         setDescription(provider.bio ?? "");
         setKupahArrangements(provider.kupah_arrangements ?? []);
         setPrivateInsurers(provider.private_insurance_companies ?? []);
-        setServiceAreas(provider.service_areas ?? []);
         setSubSpecialties(provider.sub_specialties ?? []);
         setLocationCount(provider.location_count != null ? String(provider.location_count) : "");
         setStoreStructure(type === "store" && (provider.location_count ?? 1) > 1 ? "chain" : "single");
@@ -849,10 +821,15 @@ export default function ProviderRegisterPage() {
   const showInsuranceSection = !!config && (config.showKupot || config.showPrivateInsurance) && extraFieldsGate;
   const hasExtrasStep =
     !!config && (config.showDescription || (config.showMedicalResume && extraFieldsGate) || showInsuranceSection);
+  // The "coverage" sub-step only exists when there's actually a coverage field
+  // to fill (store branch structure, or a location count) — service areas were
+  // removed from the application (real address→map linkage happens later, when
+  // adding clinics), so a type with neither skips this step entirely.
+  const hasAreaStep = !!config && (providerType === "store" || config.showLocationCount === true);
   const formSteps: { key: "details" | "extras" | "area"; label: string }[] = [
     { key: "details", label: "פרטים ורישוי" },
     ...(hasExtrasStep ? ([{ key: "extras", label: "תיאור וביטוחים" }] as const) : []),
-    { key: "area", label: "אזור שירות" },
+    ...(hasAreaStep ? ([{ key: "area", label: "פריסה" }] as const) : []),
   ];
   const safeFormStep = Math.min(formStep, formSteps.length - 1);
   const currentFormStepKey = formSteps[safeFormStep].key;
@@ -937,7 +914,6 @@ export default function ProviderRegisterPage() {
       medical_resume_file: config.showMedicalResume && extraFieldsGate ? medicalResumeFileRecord : undefined,
       kupah_arrangements: config.showKupot && extraFieldsGate ? kupahArrangements : undefined,
       private_insurance_companies: config.showPrivateInsurance && extraFieldsGate ? privateInsurers : undefined,
-      service_areas: serviceAreas,
       sub_specialties: config.showSubSpecialties
         ? subSpecialties.map((s) => (s === "אחר" && otherSubSpecialty.trim() ? otherSubSpecialty.trim() : s))
         : undefined,
@@ -1025,7 +1001,6 @@ export default function ProviderRegisterPage() {
     setMedicalResumeFile(null);
     setKupahArrangements([]);
     setPrivateInsurers([]);
-    setServiceAreas([]);
     setSubSpecialties([]);
     setOtherSubSpecialty("");
     setLocationCount("");
@@ -1287,7 +1262,7 @@ export default function ProviderRegisterPage() {
           )}
 
           {approved && (
-            <Button onClick={() => router.push("/provider/onboarding")} className="mt-4">
+            <Button onClick={() => router.push("/provider/dashboard")} className="mt-4">
               <Rocket className="h-4 w-4" /> המשך לשלב הבא
             </Button>
           )}
@@ -1665,17 +1640,7 @@ export default function ProviderRegisterPage() {
         )}
 
         {currentFormStepKey === "area" && (
-        <FormSection icon={<MapPin className="h-4 w-4" />} title="אזור שירות ופריסה">
-          <MultiSelectPills
-            label="אזורי שירות (ניתן לבחור יותר מאחד)"
-            options={[
-              ...(config.excludeOnlineServiceArea ? SERVICE_AREAS.filter((a) => a.trim() !== "אונליין") : SERVICE_AREAS),
-              ...(config.extraServiceAreas ?? []),
-            ]}
-            value={serviceAreas}
-            onChange={setServiceAreas}
-          />
-
+        <FormSection icon={<MapPin className="h-4 w-4" />} title="פריסה">
           {providerType === "store" ? (
             <div className="flex flex-col gap-2">
               <span className="text-sm font-medium text-slate-700">מבנה העסק</span>

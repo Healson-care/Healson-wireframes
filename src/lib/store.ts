@@ -375,8 +375,31 @@ export const useStore = create<Store>()(
         return { ok: true };
       },
 
+      // Demo-only "Continue with Google" SSO shortcut for a NEW provider.
+      // Creates (or resets, on repeat clicks) a fresh provider account and logs
+      // it in, exactly like registerProviderAccount — but with a Google
+      // identity instead of an email/password form. It lands in `pending_review`
+      // with a BARE profile (no type/documents yet), so the caller sends the
+      // provider into the in-portal application (/provider/register) to choose
+      // their provider type, upload documents and submit for review — the same
+      // request stage every provider goes through, before onboarding. Idempotent
+      // by fixed id, same reset technique as the "new patient" demo above.
       loginWithGoogle: () => {
-        get().loginAsDemo("patient");
+        const GOOGLE_PROVIDER_ID = "user_google_provider";
+        const user: User = {
+          id: GOOGLE_PROVIDER_ID,
+          email: "google.provider@demo.co.il",
+          full_name: 'ישראל ישראלי',
+          role: "provider",
+          phone: "050-0000000",
+          created_date: new Date().toISOString(),
+        };
+        set((s) => ({
+          users: [...s.users.filter((u) => u.id !== GOOGLE_PROVIDER_ID), user],
+          providers: s.providers.filter((p) => p.user_id !== GOOGLE_PROVIDER_ID),
+          currentUser: user,
+        }));
+        get().upsertProviderProfile(GOOGLE_PROVIDER_ID, { display_name: user.full_name });
       },
 
       loginAsDemo: (role, patientVariant) => {
