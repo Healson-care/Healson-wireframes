@@ -128,6 +128,10 @@ const provider2: ProviderProfile = {
       linked_clinic_ids: [provider2ClinicId],
       requires_questionnaire: true,
       questionnaire_title: "שאלון בריאות כללי",
+      required_documents: [
+        { id: generateId("reqdoc"), label: "רשימת תרופות נוכחית" },
+        { id: generateId("reqdoc"), label: "תוצאות בדיקת דם אחרונה (אם קיימות)" },
+      ],
     },
     {
       id: generateId("ct"),
@@ -234,6 +238,10 @@ const provider1: ProviderProfile = {
       ],
       service_type: "consultation",
       linked_clinic_ids: [provider1ClinicId, provider1ClinicId2],
+      required_documents: [
+        { id: generateId("reqdoc"), label: "הפניה מרופא מטפל" },
+        { id: generateId("reqdoc"), label: "צילומי רנטגן קודמים (אם קיימים)" },
+      ],
     },
     {
       id: generateId("ct"),
@@ -971,6 +979,30 @@ export const SEED_DOCUMENTS: PatientDocument[] = [
     title: "שאלון בריאות לפני בדיקת מאמץ",
     uploaded_by: "system",
     appointment_id: demoDocAppointments[0]?.id,
+    status: "ממתין למילוי",
+    created_date: isoDateDaysFromNow(-1),
+  },
+  // Demo of the "required documents" checklist (see ConsultationType.
+  // required_documents) — pending items tied to an upcoming appointment so
+  // the checklist shows up on /client/appointments without needing to book
+  // a fresh appointment first.
+  {
+    id: generateId("doc"),
+    patient_id: demoPatient.id,
+    category: "referral_personal",
+    title: "הפניה מרופא מטפל",
+    uploaded_by: "system",
+    appointment_id: demoDocAppointments[1]?.id,
+    status: "ממתין למילוי",
+    created_date: isoDateDaysFromNow(-1),
+  },
+  {
+    id: generateId("doc"),
+    patient_id: demoPatient.id,
+    category: "referral_personal",
+    title: "צילומי רנטגן קודמים (אם קיימים)",
+    uploaded_by: "system",
+    appointment_id: demoDocAppointments[1]?.id,
     status: "ממתין למילוי",
     created_date: isoDateDaysFromNow(-1),
   },

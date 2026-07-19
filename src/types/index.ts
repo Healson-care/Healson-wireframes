@@ -443,6 +443,11 @@ export interface ConsultationType {
   // document (see PatientDocument) once the deposit is paid.
   requires_questionnaire?: boolean;
   questionnaire_title?: string;
+  // Specific documents the patient must upload before the appointment (e.g.
+  // a referral letter, prior imaging). Same "once the deposit is paid"
+  // timing as requires_questionnaire — each entry becomes a pending
+  // PatientDocument (category "referral_personal") linked to the appointment.
+  required_documents?: { id: string; label: string }[];
 }
 
 export interface ExamType {
@@ -749,7 +754,8 @@ export type DocumentCategory =
   | "receipt"
   | "visit_summary"
   | "questionnaire"
-  | "lab_result";
+  | "lab_result"
+  | "other";
 
 export const DOCUMENT_CATEGORIES: { id: DocumentCategory; label: string }[] = [
   { id: "referral_personal", label: "הפניות וטפסים אישיים" },
@@ -757,6 +763,7 @@ export const DOCUMENT_CATEGORIES: { id: DocumentCategory; label: string }[] = [
   { id: "visit_summary", label: "סיכומי ביקור וטפסי רופא" },
   { id: "questionnaire", label: "שאלונים" },
   { id: "lab_result", label: "תוצאות מעבדה" },
+  { id: "other", label: "אחר" },
 ];
 
 export type DocumentStatus = "ממתין למילוי" | "זמין";

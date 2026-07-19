@@ -24,7 +24,7 @@ import { useCurrentPatient } from "@/lib/useCurrentPatient";
 const NAV_ITEMS = [
   { href: "/client", label: "בית", icon: Home },
   { href: "/client/search", label: "חיפוש", icon: Search },
-  { href: "/client/appointments", label: "היסטוריית תורים", icon: CalendarDays },
+  { href: "/client/appointments", label: "התורים שלי", icon: CalendarDays },
   { href: "/client/reminders", label: "תזכורות", icon: Bell },
   { href: "/client/documents", label: "מסמכים", icon: FileText },
   { href: "/client/profile", label: "פרופיל", icon: UserRound },
