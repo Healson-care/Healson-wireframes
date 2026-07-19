@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { BellRing, Clock } from "lucide-react";
+import { BellRing, Clock, MapPin } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
 import { buildMonth, MonthDay } from "@/lib/scheduling";
@@ -24,13 +24,20 @@ export function SlotPicker({
 }: {
   provider: ProviderProfile;
   appointments: Appointment[];
-  onSelectSlot: (date: string, time: string, label: string) => void;
-  // date/time/label are omitted for a general "any time works" request.
-  onJoinWaitlist: (date?: string, time?: string, label?: string) => void;
+  onSelectSlot: (date: string, time: string, label: string, clinicId: string) => void;
+  // date/time/label/clinicId are omitted for a general "any time works" request.
+  onJoinWaitlist: (date?: string, time?: string, label?: string, clinicId?: string) => void;
 }) {
+  // Skipped entirely when the provider only has one location — no need to
+  // make patients pick between clinics that don't exist.
+  const [selectedClinicId, setSelectedClinicId] = useState<string | null>(
+    provider.clinic_locations.length === 1 ? provider.clinic_locations[0].id : null
+  );
   const [monthOffset, setMonthOffset] = useState(0);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [pendingSlot, setPendingSlot] = useState<{ date: string; time: string; label: string } | null>(null);
+
+  const selectedClinic = provider.clinic_locations.find((c) => c.id === selectedClinicId) ?? null;
 
   const monthDate = useMemo(() => {
     const d = new Date();
@@ -39,7 +46,10 @@ export function SlotPicker({
     return d;
   }, [monthOffset]);
 
-  const monthDays = useMemo(() => buildMonth(provider, appointments, monthDate), [provider, appointments, monthDate]);
+  const monthDays = useMemo(
+    () => (selectedClinic ? buildMonth(provider, appointments, monthDate, selectedClinic) : []),
+    [provider, appointments, monthDate, selectedClinic]
+  );
 
   // Naturally resets when the month changes — a selected date string from a
   // different month simply won't match anything in this month's day list.
@@ -51,6 +61,36 @@ export function SlotPicker({
 
   const leadingBlanks = monthDays.length > 0 ? monthDays[0].weekday : 0;
 
+  if (!selectedClinic) {
+    return (
+      <div>
+        <div className="text-center mb-6">
+          <h2 className="text-xl font-bold text-slate-900">בחרו סניף</h2>
+          <p className="text-slate-500 text-sm mt-1">
+            ל{provider.title} {provider.display_name} יש כמה סניפים — באיזה מהם תרצו לקבוע תור?
+          </p>
+        </div>
+        <div className="flex flex-col gap-2.5">
+          {provider.clinic_locations.map((clinic) => (
+            <button
+              key={clinic.id}
+              onClick={() => setSelectedClinicId(clinic.id)}
+              className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-4 text-right transition-colors hover:border-primary/40 hover:bg-primary/5"
+            >
+              <MapPin className="h-5 w-5 shrink-0 mt-0.5 text-primary" />
+              <div>
+                <p className="font-semibold text-slate-900">{clinic.name}</p>
+                <p className="text-sm text-slate-500">
+                  {clinic.address}, {clinic.city}
+                </p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <div className="text-center mb-6">
@@ -58,6 +98,14 @@ export function SlotPicker({
         <p className="text-slate-500 text-sm mt-1">
           זמינות אצל {provider.title} {provider.display_name}
         </p>
+        {provider.clinic_locations.length > 1 && (
+          <button
+            onClick={() => setSelectedClinicId(null)}
+            className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+          >
+            <MapPin className="h-3.5 w-3.5" /> {selectedClinic.name} · שינוי סניף
+          </button>
+        )}
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -131,7 +179,7 @@ export function SlotPicker({
       </div>
 
       <button
-        onClick={() => onJoinWaitlist()}
+        onClick={() => onJoinWaitlist(undefined, undefined, undefined, selectedClinic.id)}
         className="mt-3 flex w-full items-center justify-center gap-1.5 text-xs font-medium text-primary hover:underline"
       >
         <BellRing className="h-3.5 w-3.5" /> לא מצאתם שעה מתאימה? הצטרפות כללית לרשימת המתנה
@@ -163,7 +211,7 @@ export function SlotPicker({
               ) : (
                 <button
                   key={slot.time}
-                  onClick={() => onJoinWaitlist(selectedDay.date, slot.time, dateLabel(selectedDay.date))}
+                  onClick={() => onJoinWaitlist(selectedDay.date, slot.time, dateLabel(selectedDay.date), selectedClinic.id)}
                   title="הצטרפות לרשימת המתנה עבור מועד זה"
                   className="group flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-400 transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
                 >
@@ -187,7 +235,7 @@ export function SlotPicker({
         description={pendingSlot ? `לקבוע תור ב-${pendingSlot.label} בשעה ${pendingSlot.time}?` : undefined}
         confirmLabel="כן, קבע תור"
         onConfirm={() => {
-          if (pendingSlot) onSelectSlot(pendingSlot.date, pendingSlot.time, pendingSlot.label);
+          if (pendingSlot) onSelectSlot(pendingSlot.date, pendingSlot.time, pendingSlot.label, selectedClinic.id);
         }}
       />
     </div>

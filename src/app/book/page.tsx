@@ -84,7 +84,7 @@ export default function BookPage() {
   // Creating the appointment here (not at payment time) is deliberate: from the
   // moment a slot is picked it's "ממתין לתשלום מקדמה" in the patient's history,
   // even if they never complete payment.
-  function selectSlot(date: string, time: string, label: string) {
+  function selectSlot(date: string, time: string, label: string, clinicId: string) {
     if (!selectedProvider || !patient) return;
     if (patient.processing_restricted) {
       showToast("לא ניתן להמשיך", { description: "עיבוד הנתונים של מטופל זה חסום. פנה לתמיכה.", variant: "destructive" });
@@ -96,11 +96,12 @@ export default function BookPage() {
       provider_id: selectedProvider.id,
       provider_name: `${selectedProvider.title ?? ""} ${selectedProvider.display_name}`.trim(),
       service_name: consultation?.name ?? "ייעוץ",
+      clinic_id: clinicId,
       date,
       time,
       duration_minutes: consultation?.duration_minutes ?? 30,
       status: "ממתין לתשלום מקדמה",
-     price,
+      price,
       deposit_amount: Math.round(price * 0.3),
       kupah: patient.kupah,
       notes: "",
