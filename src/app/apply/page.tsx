@@ -7,6 +7,7 @@ import { Mail, Lock, Phone, User as UserIcon, CheckCircle2, Clock, ShieldCheck, 
 import { Logo } from "@/components/shared/Logo";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
+import { ProviderGoogleSignIn } from "@/components/shared/ProviderGoogleSignIn";
 import { useStore } from "@/lib/store";
 
 export default function ProviderApplyPage() {
@@ -115,6 +116,14 @@ export default function ProviderApplyPage() {
               צור חשבון והמשך
             </Button>
           </form>
+
+          <div className="my-5 flex items-center gap-3">
+            <span className="h-px flex-1 bg-slate-200" />
+            <span className="text-xs text-slate-400">או</span>
+            <span className="h-px flex-1 bg-slate-200" />
+          </div>
+
+          <ProviderGoogleSignIn label="הצטרפות מהירה עם Google" />
 
           <p className="mt-5 text-center text-sm text-slate-500">
             כבר יש לך חשבון?{" "}

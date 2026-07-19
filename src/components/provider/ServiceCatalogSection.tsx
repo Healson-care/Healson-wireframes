@@ -14,7 +14,6 @@ import {
   ANESTHESIA_TYPE_LABELS,
   ANESTHESIA_TYPES,
   AnesthesiaType,
-  Clinic,
   ConsultationType,
   INSURANCE_LAYERS,
   InsuranceLayer,
@@ -23,7 +22,7 @@ import {
   PROVIDER_SERVICE_TYPES,
   ProviderServiceType,
 } from "@/types";
-import { Plus, Pencil, Trash2, Stethoscope, CalendarDays, TriangleAlert } from "lucide-react";
+import { Plus, Pencil, Trash2, Stethoscope, MapPin } from "lucide-react";
 
 /** Provider-side catalog editor for medical-service provider types (§PRV-02)
  * — the provider picks services from the admin-managed Skill Tree
@@ -34,14 +33,12 @@ export function ServiceCatalogSection({
   onChange,
   providerId,
   itemLabel,
-  clinics = [],
   providerSpecialty,
 }: {
   items: ConsultationType[];
   onChange: (items: ConsultationType[]) => void;
   providerId: string;
   itemLabel: string;
-  clinics?: Clinic[];
   // Doctor's own specialty (ProviderProfile.specialty) — when it matches a
   // skill domain name_he (see medical-tree.ts), the picker below defaults to
   // and stays scoped to that one domain instead of showing all of them.
@@ -65,7 +62,6 @@ export function ServiceCatalogSection({
   const [duration, setDuration] = useState("30");
   const [prices, setPrices] = useState<Record<InsuranceLayer, string>>(emptyLayerPrices());
   const [serviceType, setServiceType] = useState<ProviderServiceType>("consultation");
-  const [linkedClinicIds, setLinkedClinicIds] = useState<string[]>([]);
   const [showAllDomains, setShowAllDomains] = useState(!matchedDomain);
   const [requiresReferral, setRequiresReferral] = useState(false);
   const [requiresFasting, setRequiresFasting] = useState(false);
@@ -98,7 +94,6 @@ export function ServiceCatalogSection({
     setDuration("30");
     setPrices(emptyLayerPrices());
     setServiceType("consultation");
-    setLinkedClinicIds([]);
     setShowAllDomains(!matchedDomain);
     setRequiresReferral(false);
     setRequiresFasting(false);
@@ -123,7 +118,6 @@ export function ServiceCatalogSection({
     item.prices.forEach((p) => (map[p.layer] = String(p.price)));
     setPrices(map);
     setServiceType(item.service_type ?? "consultation");
-    setLinkedClinicIds(item.linked_clinic_ids ?? []);
     setShowAllDomains(!matchedDomain || itemDomainId !== matchedDomain.id);
     setRequiresReferral(item.requires_referral ?? false);
     setRequiresFasting(item.requires_fasting ?? false);
@@ -136,10 +130,6 @@ export function ServiceCatalogSection({
     setOpen(true);
   }
 
-  function toggleLinkedClinic(id: string) {
-    setLinkedClinicIds((prev) => (prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]));
-  }
-
   function handleSave() {
     const catalogItem = availableCatalog.find((c) => c.id === catalogItemId);
     const editingExisting = editingId ? items.find((i) => i.id === editingId) : undefined;
@@ -150,7 +140,9 @@ export function ServiceCatalogSection({
       prices: INSURANCE_LAYERS.filter((l) => prices[l] !== "").map((l) => ({ layer: l, price: Number(prices[l]) || 0 })),
       catalog_item_id: catalogItem?.id ?? editingExisting?.catalog_item_id,
       service_type: serviceType,
-      linked_clinic_ids: linkedClinicIds,
+      // Location linking is owned by the clinics screen now — preserve whatever
+      // links already exist, never reset them from here.
+      linked_clinic_ids: editingExisting?.linked_clinic_ids ?? [],
       requires_referral: requiresReferral,
       requires_fasting: serviceType === "test" ? requiresFasting : undefined,
       sample_type: serviceType === "test" && sampleType ? sampleType : undefined,
@@ -216,12 +208,12 @@ export function ServiceCatalogSection({
                     <div className="mt-1.5">
                       {(item.linked_clinic_ids?.length ?? 0) > 0 ? (
                         <span className="flex items-center gap-1 text-[11px] text-slate-500">
-                          <CalendarDays className="h-3 w-3" />
-                          {item.linked_clinic_ids!.length} יומנים מקושרים
+                          <MapPin className="h-3 w-3" />
+                          מוצע ב-{item.linked_clinic_ids!.length} מיקומים
                         </span>
                       ) : (
-                        <span className="flex items-center gap-1 text-[11px] text-warning-text font-medium">
-                          <TriangleAlert className="h-3 w-3" /> לא משויך ליומן
+                        <span className="flex items-center gap-1 text-[11px] text-slate-400">
+                          <MapPin className="h-3 w-3" /> שייכו למיקום בלשונית &quot;מרפאות&quot;
                         </span>
                       )}
                     </div>
@@ -414,28 +406,10 @@ export function ServiceCatalogSection({
             )}
           </div>
 
-          <div>
-            <p className="text-sm font-medium text-slate-700 mb-2">יומנים מקושרים</p>
-            {clinics.length === 0 ? (
-              <p className="flex items-center gap-1.5 rounded-lg bg-warning-bg border border-warning-border px-3 py-2 text-xs text-warning-text">
-                <TriangleAlert className="h-3.5 w-3.5 shrink-0" /> יש להוסיף יומן לפני שניתן לשייך שירות זה — עבור/י לטאב &quot;יומנים&quot;
-              </p>
-            ) : (
-              <div className="flex flex-col gap-1.5">
-                {clinics.map((c) => (
-                  <label key={c.id} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50">
-                    <input
-                      type="checkbox"
-                      checked={linkedClinicIds.includes(c.id)}
-                      onChange={() => toggleLinkedClinic(c.id)}
-                      className="h-4 w-4 rounded border-slate-300 accent-primary"
-                    />
-                    {c.name}
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
+          <p className="flex items-start gap-1.5 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+            <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+            שיוך השירות למיקומים נעשה בלשונית &quot;מרפאות&quot; — שם בוחרים לכל מיקום אילו שירותים מוצעים בו.
+          </p>
 
           <p className="text-xs text-slate-400">מחיר לשכבת ביטוח — השאירו ריק אם הספק לא עובד מול שכבה זו</p>
           <LayerPriceInputs prices={prices} onChange={setPrices} />
