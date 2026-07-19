@@ -758,9 +758,9 @@ export type DocumentCategory =
   | "other";
 
 export const DOCUMENT_CATEGORIES: { id: DocumentCategory; label: string }[] = [
-  { id: "referral_personal", label: "הפניות וטפסים אישיים" },
-  { id: "receipt", label: "קבלות וחשבוניות" },
-  { id: "visit_summary", label: "סיכומי ביקור וטפסי רופא" },
+  { id: "referral_personal", label: "הפניות וטפסים" },
+  { id: "receipt", label: "קבלות" },
+  { id: "visit_summary", label: "סיכומי ביקור" },
   { id: "questionnaire", label: "שאלונים" },
   { id: "lab_result", label: "תוצאות מעבדה" },
   { id: "other", label: "אחר" },

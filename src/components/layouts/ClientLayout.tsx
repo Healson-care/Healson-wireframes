@@ -31,12 +31,32 @@ const NAV_ITEMS = [
 
 const COMMAND_ITEMS = NAV_ITEMS.map((item) => ({ ...item, group: "ניווט" }));
 
+// Small notification-style count badge overlaid on a nav icon — currently
+// only "מסמכים" uses it, for documents still waiting on the patient.
+function NavIcon({ Icon, count, className }: { Icon: typeof FileText; count: number; className: string }) {
+  return (
+    <span className="relative inline-flex">
+      <Icon className={className} />
+      {count > 0 && (
+        <span className="absolute -top-1.5 -left-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold leading-none text-white">
+          {count}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function ClientLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const logout = useStore((s) => s.logout);
+  const documents = useStore((s) => s.documents);
   const { ready, user } = useRequireRole("patient");
   const patient = useCurrentPatient();
+
+  const pendingDocumentsCount = documents.filter(
+    (d) => d.patient_id === patient?.id && d.status === "ממתין למילוי"
+  ).length;
 
   // Role alone isn't enough — a lead (patient-role user with no Patient
   // record, e.g. the demo "מטופל חדש") must never see the personal area,
@@ -68,7 +88,11 @@ export function ClientLayout({ children }: { children: ReactNode }) {
                   pathname === item.href ? "bg-primary/10 text-primary" : "text-slate-600 hover:bg-slate-100"
                 )}
               >
-                <item.icon className="h-4 w-4" />
+                <NavIcon
+                  Icon={item.icon}
+                  count={item.href === "/client/documents" ? pendingDocumentsCount : 0}
+                  className="h-4 w-4"
+                />
                 {item.label}
               </Link>
             ))}
@@ -112,7 +136,11 @@ export function ClientLayout({ children }: { children: ReactNode }) {
                 pathname === item.href ? "text-primary" : "text-slate-500"
               )}
             >
-              <item.icon className="h-5 w-5" />
+              <NavIcon
+                Icon={item.icon}
+                count={item.href === "/client/documents" ? pendingDocumentsCount : 0}
+                className="h-5 w-5"
+              />
               {item.label}
             </Link>
           ))}
