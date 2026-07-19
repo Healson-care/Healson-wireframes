@@ -50,6 +50,52 @@ export const PRIVATE_INSURANCE_COMPANIES = [
 
 export type PrivateInsuranceCompany = (typeof PRIVATE_INSURANCE_COMPANIES)[number];
 
+// Israeli bank clearing codes (מס' בנק) — used for provider payout accounts.
+export const ISRAELI_BANKS = [
+  { code: "10", name: "בנק לאומי" },
+  { code: "12", name: "בנק הפועלים" },
+  { code: "11", name: "בנק דיסקונט" },
+  { code: "20", name: "בנק מזרחי טפחות" },
+  { code: "31", name: "הבנק הבינלאומי" },
+  { code: "17", name: "בנק מרכנתיל דיסקונט" },
+  { code: "14", name: "בנק אוצר החייל" },
+  { code: "04", name: "בנק יהב" },
+  { code: "52", name: "בנק פועלי אגודת ישראל" },
+  { code: "9", name: "בנק הדואר" },
+] as const;
+
+// Bank details a provider submits so Healson can transfer their monthly
+// payout (§PRV-06/automation §"העברת תשלום לספקים"). Submitting this form
+// requires uploading a signed bank-account-management authorization
+// document — the same "אישור ניהול חשבון בנק" collected at onboarding —
+// and the account is not usable for a real transfer until verified_at is
+// set (mirrors the license_verified_at review pattern on ProviderProfile).
+export interface ProviderBankAccount {
+  account_holder_name: string;
+  bank_code: string;
+  branch_number: string;
+  account_number: string;
+  authorization_file?: UploadedFile;
+  submitted_at: string;
+  verified_at?: string;
+}
+
+// Monthly reconciliation between Healson and the provider (automation
+// §"התחשבנות חודשית"): each closed month the provider reviews the activity
+// report, approves it (or disputes it with a note), and uploads their
+// invoice. Figures themselves stay derived from orders — only the review
+// decision + invoice are persisted here, keyed by month ("YYYY-MM").
+export const SETTLEMENT_STATUSES = ["ממתין לאישור", "אושר", "במחלוקת"] as const;
+export type SettlementStatus = (typeof SETTLEMENT_STATUSES)[number];
+
+export interface MonthlySettlement {
+  month: string; // "YYYY-MM"
+  status: SettlementStatus;
+  approved_at?: string;
+  dispute_note?: string;
+  invoice_file?: UploadedFile;
+}
+
 // A provider's declared K-layer arrangement with a specific Kupah, at a
 // given supplemental-plan level — collected at application time (§apply
 // flow) and refined into full ProviderAgreement records later.
@@ -563,6 +609,8 @@ export interface ProviderProfile {
   go_live_requested_at?: string;
   rejection_reason?: string;
   commission_rate?: number; // percent Healson takes on this provider's orders
+  bank_account?: ProviderBankAccount;
+  monthly_settlements?: MonthlySettlement[];
   agreements: ProviderAgreement[];
   consultation_types: ConsultationType[];
   exam_types: ExamType[];

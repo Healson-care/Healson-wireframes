@@ -4,8 +4,12 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
+  Legend,
   Line,
   LineChart,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -17,19 +21,21 @@ export interface ChartPoint {
   count: number;
 }
 
+const PIE_COLORS = ["#0d7d6f", "#c8973a", "#6366f1", "#e11d48", "#0ea5e9", "#a855f7"];
+
 function ChartTooltip({
   active,
   payload,
   label,
 }: {
   active?: boolean;
-  payload?: { value: number }[];
+  payload?: { value: number; name?: string }[];
   label?: string;
 }) {
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-md">
-      <p className="font-medium text-slate-700">{label}</p>
+      <p className="font-medium text-slate-700">{label ?? payload[0].name}</p>
       <p className="text-slate-500">{payload[0].value}</p>
     </div>
   );
@@ -69,6 +75,28 @@ export function LineChartSimple({ data, color = "#c8973a" }: { data: ChartPoint[
             activeDot={{ r: 5 }}
           />
         </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+export function PieChartSimple({ data, colors = PIE_COLORS }: { data: ChartPoint[]; colors?: string[] }) {
+  return (
+    <div className="h-44 w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+          <Tooltip content={<ChartTooltip />} />
+          <Legend
+            iconType="circle"
+            iconSize={8}
+            formatter={(value) => <span className="text-xs text-slate-600">{value}</span>}
+          />
+          <Pie data={data} dataKey="count" nameKey="label" innerRadius={32} outerRadius={52} paddingAngle={2}>
+            {data.map((entry, i) => (
+              <Cell key={entry.label} fill={colors[i % colors.length]} />
+            ))}
+          </Pie>
+        </PieChart>
       </ResponsiveContainer>
     </div>
   );

@@ -4,17 +4,76 @@ import { useMemo, useState } from "react";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useStore } from "@/lib/store";
 import { PageHeader, Avatar, OpenDecisionNote } from "@/components/ui/Misc";
-import { Badge } from "@/components/ui/Badge";
+import { Badge, ProviderStatusBadge, ProviderPublishedBadge } from "@/components/ui/Badge";
 import { Input, Select, Textarea } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { DataTable, DataTableColumn } from "@/components/ui/DataTable";
-import { DOCTOR_SUBTYPE_LABELS, ProviderProfile, PROVIDER_STATUS_LABELS, PROVIDER_TYPE_LABELS } from "@/types";
+import { DOCTOR_SUBTYPE_LABELS, ProviderProfile, PROVIDER_TYPE_LABELS } from "@/types";
 import { formatDateHe } from "@/lib/utils";
 import { ProviderForm, ProviderFormValues } from "@/components/admin/ProviderForm";
 import { ProviderJourneyStepper } from "@/components/provider/ProviderJourneyStepper";
 import { MonthlyReportSection } from "@/components/provider/MonthlyReportSection";
-import { Plus, Search, BadgeCheck, Stethoscope, Ban, ShieldCheck, PauseCircle, PlayCircle, ClipboardList, Rocket, TriangleAlert } from "lucide-react";
+import { Plus, Search, Stethoscope, Ban, ShieldCheck, PauseCircle, PlayCircle, ClipboardList, Rocket, TriangleAlert } from "lucide-react";
+
+// Canned reasons for the reject / request-changes dialogs — one click fills
+// the textarea, which stays editable so Ops can refine the wording.
+const REJECT_REASON_PRESETS = [
+  "קובץ הרישיון אינו קריא או חסר",
+  "פרטי הרישיון אינם תואמים את הרישום במשרד הבריאות",
+  "חסרים מסמכים נדרשים לסוג הספק",
+  "תחום העיסוק אינו נתמך כרגע בפלטפורמה",
+];
+
+const CHANGES_REASON_PRESETS = [
+  "יש להעלות קובץ רישיון עדכני וקריא",
+  "יש להשלים את קטלוג השירותים והמחירים",
+  "יש לשייך את כל השירותים למיקום פעיל",
+  "יש להשלים פרטי מיקום ושעות פעילות",
+];
+
+function ReasonPresets({ presets, onPick }: { presets: string[]; onPick: (reason: string) => void }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {presets.map((preset) => (
+        <button
+          key={preset}
+          type="button"
+          onClick={() => onPick(preset)}
+          className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600 hover:border-primary hover:bg-primary/5 hover:text-primary transition-colors"
+        >
+          {preset}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// What each row is waiting on, and since when — pending_review waits from
+// application submission; onboarding only becomes "waiting on Healson" once
+// the provider actually requested Go-Live.
+function waitingSince(p: ProviderProfile): string | undefined {
+  if (p.status === "pending_review") return p.application_submitted_at;
+  if (p.status === "onboarding" && p.go_live_requested_at) return p.go_live_requested_at;
+  return undefined;
+}
+
+// The /apply page promises review "עד 24 שעות" — anything older than 2 days
+// in the queue is flagged as overdue.
+const QUEUE_SLA_DAYS = 2;
+
+function WaitingIndicator({ provider }: { provider: ProviderProfile }) {
+  const since = waitingSince(provider);
+  if (!since) return <span className="text-xs text-slate-300">—</span>;
+  const days = Math.floor((Date.now() - new Date(since).getTime()) / (1000 * 60 * 60 * 24));
+  const breached = days > QUEUE_SLA_DAYS;
+  return (
+    <span className={`text-sm ${breached ? "font-semibold text-danger-text" : "text-slate-600"}`}>
+      {days === 0 ? "היום" : `${days} ימים`}
+      {breached && <Badge tone="danger" className="mr-1.5">חריגה</Badge>}
+    </span>
+  );
+}
 
 export default function ProvidersPage() {
   const providers = useStore((s) => s.providers);
@@ -36,6 +95,7 @@ export default function ProvidersPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [rejectTarget, setRejectTarget] = useState<ProviderProfile | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [rejectConfirmed, setRejectConfirmed] = useState(false);
   const [changesTarget, setChangesTarget] = useState<ProviderProfile | null>(null);
   const [changesReason, setChangesReason] = useState("");
   const [reviewTarget, setReviewTarget] = useState<ProviderProfile | null>(null);
@@ -65,6 +125,57 @@ export default function ProvidersPage() {
       variant: "success",
     });
   }
+
+  // A provider can hold a live session from the moment they register
+  // (PROV-REGISTRATION), before they've finished filling out / submitting
+  // their application — Ops shouldn't see those half-finished signups.
+  const visibleProviders = useMemo(
+    () => providers.filter((p) => !(p.status === "pending_review" && !p.application_submitted_at)),
+    [providers]
+  );
+
+  // Queue KPI tiles — live workload counts per stage; clicking a tile filters
+  // the table to that stage (clicking again clears back to "all").
+  const queueTiles = useMemo(
+    () => [
+      {
+        key: "pending_review",
+        label: "ממתינים לבדיקת רישיון",
+        count: visibleProviders.filter((p) => p.status === "pending_review").length,
+        activeClasses: "border-warning bg-warning-bg",
+        countClasses: "text-warning-text",
+      },
+      {
+        key: "onboarding",
+        label: "באונבורדינג",
+        count: visibleProviders.filter((p) => p.status === "onboarding").length,
+        activeClasses: "border-info bg-info-bg",
+        countClasses: "text-info-text",
+      },
+      {
+        key: "go_live_requested",
+        label: "ביקשו פרסום",
+        count: visibleProviders.filter((p) => p.status === "onboarding" && p.go_live_requested_at).length,
+        activeClasses: "border-accent bg-accent-bg",
+        countClasses: "text-accent-text",
+      },
+      {
+        key: "approved",
+        label: "מאושרים",
+        count: visibleProviders.filter((p) => p.status === "approved").length,
+        activeClasses: "border-success bg-success-bg",
+        countClasses: "text-success-text",
+      },
+      {
+        key: "suspended",
+        label: "מושהים",
+        count: visibleProviders.filter((p) => p.status === "suspended").length,
+        activeClasses: "border-danger bg-danger-bg",
+        countClasses: "text-danger-text",
+      },
+    ],
+    [visibleProviders]
+  );
 
   const filtered = useMemo(() => {
     return providers.filter((p) => {
@@ -96,6 +207,25 @@ export default function ProvidersPage() {
           </Button>
         }
       />
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-5">
+        {queueTiles.map((tile) => {
+          const active = statusFilter === tile.key;
+          return (
+            <button
+              key={tile.key}
+              type="button"
+              onClick={() => setStatusFilter(active ? "all" : tile.key)}
+              className={`rounded-xl border p-3 text-right transition-colors ${
+                active ? tile.activeClasses : "border-slate-200 bg-white hover:border-slate-300"
+              }`}
+            >
+              <p className={`text-2xl font-bold tabular-nums ${tile.countClasses}`}>{tile.count}</p>
+              <p className="text-xs text-slate-600 mt-0.5">{tile.label}</p>
+            </button>
+          );
+        })}
+      </div>
 
       <div className="flex flex-wrap gap-3 mb-5">
         <Input
@@ -147,20 +277,8 @@ export default function ProvidersPage() {
               header: "סטטוס",
               render: (p) => (
                 <div className="flex gap-1.5 flex-wrap">
-                  {p.status === "approved" ? (
-                    <Badge tone="green">
-                      <BadgeCheck className="h-3 w-3" /> מאושר
-                    </Badge>
-                  ) : p.status === "rejected" ? (
-                    <Badge tone="red">נדחה</Badge>
-                  ) : p.status === "suspended" ? (
-                    <Badge tone="slate">מושהה</Badge>
-                  ) : p.status === "onboarding" ? (
-                    <Badge tone="blue">{PROVIDER_STATUS_LABELS[p.status]}</Badge>
-                  ) : (
-                    <Badge tone="amber">{PROVIDER_STATUS_LABELS[p.status]}</Badge>
-                  )}
-                  {p.is_published && <Badge tone="blue">מפורסם</Badge>}
+                  <ProviderStatusBadge status={p.status} title={p.status === "rejected" ? p.rejection_reason : undefined} />
+                  {p.is_published && <ProviderPublishedBadge />}
                   {p.status === "onboarding" && p.go_live_requested_at ? (
                     <Badge tone="warning">⏳ ביקש פרסום — ממתין לאישור</Badge>
                   ) : (
@@ -169,6 +287,13 @@ export default function ProvidersPage() {
                   )}
                 </div>
               ),
+            },
+            {
+              key: "waiting",
+              header: "ממתין מזה",
+              sortable: true,
+              sortValue: (p) => waitingSince(p) ?? "",
+              render: (p) => <WaitingIndicator provider={p} />,
             },
             {
               key: "agreements",
@@ -581,21 +706,44 @@ export default function ProvidersPage() {
 
       <Dialog
         open={!!rejectTarget}
-        onClose={() => setRejectTarget(null)}
+        onClose={() => {
+          setRejectTarget(null);
+          setRejectReason("");
+          setRejectConfirmed(false);
+        }}
         title="דחיית ספק"
         description={rejectTarget ? `${rejectTarget.title ?? ""} ${rejectTarget.display_name}` : undefined}
       >
         <div className="flex flex-col gap-3">
+          <ReasonPresets presets={REJECT_REASON_PRESETS} onPick={setRejectReason} />
           <Textarea label="סיבת הדחייה" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} required />
+          {rejectReason.trim() && (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              <p className="mb-1 font-medium text-slate-500">כך זה יוצג לספק:</p>
+              <p className="text-slate-800">בקשתך נדחתה: {rejectReason.trim()}</p>
+            </div>
+          )}
+          <label className="flex items-start gap-2 rounded-lg border border-danger-border bg-danger-bg px-3 py-2.5 text-sm text-danger-text cursor-pointer">
+            <input
+              type="checkbox"
+              checked={rejectConfirmed}
+              onChange={(e) => setRejectConfirmed(e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 accent-[#dc2626]"
+            />
+            אני מבין/ה שדחייה היא סופית — הספק ייחסם מכניסה למערכת ויקבל את הסיבה שלמעלה
+          </label>
           <Button
             variant="destructive"
+            disabled={rejectReason.trim().length < 5 || !rejectConfirmed}
+            title={rejectReason.trim().length < 5 ? "יש להזין סיבת דחייה (לפחות 5 תווים)" : !rejectConfirmed ? "יש לאשר את הדחייה" : undefined}
             onClick={() => {
               if (rejectTarget) {
-                rejectProvider(rejectTarget.id, rejectReason);
+                rejectProvider(rejectTarget.id, rejectReason.trim());
                 showToast("הספק נדחה", { variant: "success" });
               }
               setRejectTarget(null);
               setRejectReason("");
+              setRejectConfirmed(false);
             }}
           >
             דחה ספק
@@ -610,11 +758,20 @@ export default function ProvidersPage() {
         description={changesTarget ? `${changesTarget.title ?? ""} ${changesTarget.display_name}` : undefined}
       >
         <div className="flex flex-col gap-3">
+          <ReasonPresets presets={CHANGES_REASON_PRESETS} onPick={setChangesReason} />
           <Textarea label="מה יש לתקן?" value={changesReason} onChange={(e) => setChangesReason(e.target.value)} required />
+          {changesReason.trim() && (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              <p className="mb-1 font-medium text-slate-500">כך זה יוצג לספק במסך האונבורדינג:</p>
+              <p className="text-slate-800">נדרשים תיקונים: {changesReason.trim()}</p>
+            </div>
+          )}
           <Button
+            disabled={changesReason.trim().length < 5}
+            title={changesReason.trim().length < 5 ? "יש לפרט מה יש לתקן (לפחות 5 תווים)" : undefined}
             onClick={() => {
               if (changesTarget) {
-                requestProviderChanges(changesTarget.id, changesReason);
+                requestProviderChanges(changesTarget.id, changesReason.trim());
                 showToast("נשלחה בקשת תיקונים לספק", { variant: "success" });
               }
               setChangesTarget(null);

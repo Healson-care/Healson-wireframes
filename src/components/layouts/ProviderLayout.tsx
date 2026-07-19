@@ -20,6 +20,7 @@ import { Logo } from "@/components/shared/Logo";
 import { DashboardSkeleton } from "@/components/ui/Skeleton";
 import { CommandPalette } from "@/components/ui/CommandPalette";
 import { DropdownMenu, DropdownMenuItem } from "@/components/ui/DropdownMenu";
+import { NotificationsBell, buildProviderNotifications } from "@/components/shared/NotificationsBell";
 import { Avatar } from "@/components/ui/Misc";
 import { useRequireRole } from "@/lib/useRequireRole";
 import { useCurrentProvider } from "@/lib/useCurrentPatient";
@@ -41,6 +42,8 @@ export function ProviderLayout({ children }: { children: ReactNode }) {
   const logout = useStore((s) => s.logout);
   const { ready, user } = useRequireRole("provider");
   const provider = useCurrentProvider();
+  const appointments = useStore((s) => s.appointments);
+  const notifications = buildProviderNotifications(provider, appointments);
 
   // Providers mid-onboarding get a limited-scope wizard only (INV-SCOPE-GATE-01)
   // — no calendar, patients, referrals, or lab access until Go-Live.
@@ -85,6 +88,7 @@ export function ProviderLayout({ children }: { children: ReactNode }) {
           </nav>
           <div className="flex items-center gap-2">
             <CommandPalette items={COMMAND_ITEMS} />
+            <NotificationsBell notifications={notifications} />
             <Link href="/" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" title="דף הבית">
               <Home className="h-4 w-4" />
             </Link>

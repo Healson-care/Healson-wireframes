@@ -29,12 +29,16 @@ export function ClinicsSection({
   allowedLocationTypes = ["clinic"],
   locationLabelSingular = "מרפאה",
   locationLabelPlural = "מרפאות",
+  linkedServices = [],
 }: {
   clinics: Clinic[];
   onChange: (clinics: Clinic[]) => void;
   allowedLocationTypes?: LocationType[];
   locationLabelSingular?: string;
   locationLabelPlural?: string;
+  /** The provider's catalog items — used to warn before deleting a location
+   * that services are linked to, so deletion never silently orphans them. */
+  linkedServices?: { name: string; linked_clinic_ids?: string[] }[];
 }) {
   const [open, setOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -174,6 +178,15 @@ export function ClinicsSection({
         open={!!deleteId}
         onClose={() => setDeleteId(null)}
         title={`מחיקת ${locationLabelSingular}`}
+        description={(() => {
+          if (!deleteId) return undefined;
+          const affected = linkedServices.filter((s) => s.linked_clinic_ids?.includes(deleteId));
+          if (affected.length === 0) return "פעולה זו אינה ניתנת לביטול.";
+          const names = affected.slice(0, 3).map((s) => s.name).join(", ");
+          return `שימו לב: ${affected.length} שירותים מקושרים למיקום זה (${names}${
+            affected.length > 3 ? " ועוד" : ""
+          }). לאחר המחיקה הם לא יופיעו בחיפוש עד שישויכו למיקום אחר. פעולה זו אינה ניתנת לביטול.`;
+        })()}
         destructive
         confirmLabel="מחק"
         onConfirm={() => {

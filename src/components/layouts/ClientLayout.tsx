@@ -75,6 +75,9 @@ export function ClientLayout({ children }: { children: ReactNode }) {
             ))}
           </nav>
           <div className="flex items-center gap-2">
+            <Link href="/" className="hidden sm:inline text-sm text-slate-500 hover:text-primary">
+              חזרה לדף הבית
+            </Link>
             <Badge tone={patient ? "success" : "warning"} title={patient ? "יש רשומת מטופל מלאה" : "מחובר/ת בלי רשומת מטופל — טרם הושלמה הרשמה"}>
               {patient ? "מטופל רשום" : "ליד"}
             </Badge>
@@ -82,7 +85,7 @@ export function ClientLayout({ children }: { children: ReactNode }) {
             <button
               onClick={() => {
                 logout();
-                router.push("/login");
+                router.push("/client/login");
               }}
               className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm text-slate-500 hover:bg-slate-100"
             >

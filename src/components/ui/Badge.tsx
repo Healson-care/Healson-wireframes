@@ -1,5 +1,7 @@
 import { HTMLAttributes } from "react";
+import { BadgeCheck, Ban, Clock3, FileSignature, PauseCircle, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ProviderStatus, PROVIDER_STATUS_LABELS } from "@/types";
 
 type Tone = "neutral" | "success" | "warning" | "danger" | "info" | "accent" | "purple" | "indigo";
 // Legacy raw-color aliases kept so existing call sites across the app keep working
@@ -79,6 +81,13 @@ const REFERRAL_TONE: Record<string, Tone> = {
   "שגיאה": "danger",
 };
 
+const PAYMENT_TONE: Record<string, Tone> = {
+  "ממתין": "warning",
+  "מקדמה שולמה": "info",
+  "שולם במלואו": "success",
+  "הוחזר": "neutral",
+};
+
 function toneFor(map: Record<string, Tone>, status: string): Tone {
   return map[status] ?? "neutral";
 }
@@ -89,7 +98,7 @@ export function StatusBadge({
   title,
 }: {
   status: string;
-  kind: "appointment" | "order" | "patient" | "lead" | "referral";
+  kind: "appointment" | "order" | "patient" | "lead" | "referral" | "payment";
   title?: string;
 }) {
   const map =
@@ -101,10 +110,40 @@ export function StatusBadge({
       ? PATIENT_TONE
       : kind === "lead"
       ? LEAD_TONE
+      : kind === "payment"
+      ? PAYMENT_TONE
       : REFERRAL_TONE;
   return (
     <Badge tone={toneFor(map, status)} title={title}>
       {status}
     </Badge>
   );
+}
+
+// Single source of truth for provider lifecycle badges — every surface
+// (provider dashboard hero, admin providers table, review dialog) renders the
+// same tone/icon/label per status, matching the journey-map legend:
+// pending=warning, onboarding=info, approved=success, rejected/suspended=danger.
+const PROVIDER_STATUS_META: Record<ProviderStatus, { tone: Tone; icon: LucideIcon }> = {
+  pending_review: { tone: "warning", icon: Clock3 },
+  onboarding: { tone: "info", icon: FileSignature },
+  approved: { tone: "success", icon: BadgeCheck },
+  rejected: { tone: "danger", icon: Ban },
+  suspended: { tone: "danger", icon: PauseCircle },
+};
+
+export function ProviderStatusBadge({ status, title }: { status: ProviderStatus; title?: string }) {
+  const meta = PROVIDER_STATUS_META[status];
+  const Icon = meta.icon;
+  return (
+    <Badge tone={meta.tone} title={title}>
+      <Icon className="h-3 w-3" /> {PROVIDER_STATUS_LABELS[status]}
+    </Badge>
+  );
+}
+
+/** Companion badge for the publish flag — one word ("מפורסם"), one tone,
+ * everywhere. */
+export function ProviderPublishedBadge() {
+  return <Badge tone="info">מפורסם</Badge>;
 }
