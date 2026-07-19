@@ -868,7 +868,7 @@ function AppointmentListCard({
                 {item.kind === "appointment" &&
                   item.data.status !== "בוטל" &&
                   item.data.status !== "בוצע" && (
-                    <AppointmentReminderPlan appointment={item.data} provider={provider} showTimeline={false} />
+                    <AppointmentReminderPlan appointment={item.data} provider={provider} />
                   )}
 
               </div>
