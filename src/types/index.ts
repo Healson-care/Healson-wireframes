@@ -651,6 +651,7 @@ export interface Appointment {
   provider_id?: string;
   provider_name: string;
   service_name: string;
+  clinic_id?: string; // which of the provider's clinic_locations this was booked at
   date: string; // yyyy-MM-dd
   time: string; // HH:mm
   duration_minutes: number;

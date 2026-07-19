@@ -545,6 +545,11 @@ function ClientAppointmentsPageContent() {
           {filteredItems.map((item, i) => {
             const isExpanded = !!expandedIds[item.data.id];
             const provider = providers.find((p) => p.id === item.data.provider_id);
+            const bookedClinicId = item.kind === "appointment" ? item.data.clinic_id : undefined;
+            const bookedClinic =
+              provider?.clinic_locations.find((c) => c.id === bookedClinicId) ??
+              provider?.clinic_locations.find((c) => c.is_primary) ??
+              provider?.clinic_locations[0];
             const linkedDocs = item.kind === "appointment" ? documents.filter((d) => d.appointment_id === item.data.id) : [];
             const pendingQuestionnaires = linkedDocs.filter(
               (d) => d.category === "questionnaire" && d.status === "ממתין למילוי"
@@ -713,13 +718,13 @@ function ClientAppointmentsPageContent() {
                             <span className="font-medium text-slate-800">{item.data.duration_minutes} דק׳</span>
                           </div>
                         )}
-                        {item.kind === "appointment" && provider?.clinic_locations[0] && (
+                        {item.kind === "appointment" && bookedClinic && (
                           <div className="flex items-start justify-between">
                             <span className="text-slate-500">סניף</span>
                             <span className="text-left">
-                              <span className="block font-medium text-slate-800">{provider.clinic_locations[0].name}</span>
+                              <span className="block font-medium text-slate-800">{bookedClinic.name}</span>
                               <span className="text-xs text-slate-400">
-                                {provider.clinic_locations[0].address}, {provider.clinic_locations[0].city}
+                                {bookedClinic.address}, {bookedClinic.city}
                               </span>
                             </span>
                           </div>
@@ -744,9 +749,9 @@ function ClientAppointmentsPageContent() {
                                 {provider.review_count !== undefined && ` (${provider.review_count} ביקורות)`}
                               </p>
                             )}
-                            {provider.clinic_locations[0]?.phone && (
+                            {bookedClinic?.phone && (
                               <p className="flex items-center gap-1 text-xs text-slate-500">
-                                <Phone className="h-3 w-3" /> {provider.clinic_locations[0].phone}
+                                <Phone className="h-3 w-3" /> {bookedClinic.phone}
                               </p>
                             )}
                           </div>

@@ -189,6 +189,9 @@ const provider2: ProviderProfile = {
 };
 
 const provider1ClinicId = generateId("clinic");
+// A second location for the same doctor (§location picker demo) — he splits
+// his week between the two, so each has different weekly hours.
+const provider1ClinicId2 = generateId("clinic");
 
 const provider1: ProviderProfile = {
   id: "prov_1",
@@ -230,7 +233,7 @@ const provider1: ProviderProfile = {
         { layer: "H", price: 450 },
       ],
       service_type: "consultation",
-      linked_clinic_ids: [provider1ClinicId],
+      linked_clinic_ids: [provider1ClinicId, provider1ClinicId2],
     },
     {
       id: generateId("ct"),
@@ -242,7 +245,7 @@ const provider1: ProviderProfile = {
         { layer: "H", price: 390 },
       ],
       service_type: "consultation",
-      linked_clinic_ids: [provider1ClinicId],
+      linked_clinic_ids: [provider1ClinicId, provider1ClinicId2],
     },
     // Unified into the single services list (no more separate "בדיקות"
     // tab/section) — see B2/B3 in the services-merge fix.
@@ -271,9 +274,26 @@ const provider1: ProviderProfile = {
         sunday: ["09:00", "17:00"],
         monday: ["09:00", "17:00"],
         tuesday: ["09:00", "17:00"],
-        wednesday: ["09:00", "17:00"],
+        wednesday: null,
         thursday: ["09:00", "17:00"],
         friday: ["09:00", "13:00"],
+        saturday: null,
+      },
+    },
+    {
+      id: provider1ClinicId2,
+      name: "מרפאת אורתופדיה תל אביב",
+      address: "דיזנגוף 150",
+      city: "תל אביב",
+      phone: "03-6669876",
+      is_primary: false,
+      hours: {
+        sunday: null,
+        monday: null,
+        tuesday: null,
+        wednesday: ["10:00", "18:00"],
+        thursday: null,
+        friday: null,
         saturday: null,
       },
     },

@@ -1,9 +1,10 @@
 // Real slot availability generator shared by every booking flow (§/book and
-// the client personal-area booking flow both call this once a provider is
-// picked). Slots are derived from the provider's primary clinic/location's
-// weekly hours (patients don't pick a location today, so that's the
-// authoritative calendar), minus any blocked dates and any time already
-// taken by an existing, non-cancelled appointment.
+// the client personal-area booking flow both call this once a provider —
+// and, if they have more than one clinic, a specific location — is picked).
+// Slots are derived from that clinic's weekly hours, minus any blocked
+// dates and any time already taken by an existing, non-cancelled
+// appointment (checked against the provider as a whole — a doctor can't be
+// double-booked across two locations at the same time either).
 import { Appointment, Clinic, DayKey, ProviderProfile } from "@/types";
 
 export interface DaySlots {
@@ -16,7 +17,7 @@ const DAY_KEYS: DayKey[] = ["sunday", "monday", "tuesday", "wednesday", "thursda
 
 const SLOT_STEP_MINUTES = 30;
 
-function primaryLocation(provider: ProviderProfile): Clinic | undefined {
+export function primaryLocation(provider: ProviderProfile): Clinic | undefined {
   return provider.clinic_locations.find((c) => c.is_primary) ?? provider.clinic_locations[0];
 }
 
@@ -90,8 +91,16 @@ export interface MonthDay {
 // collects the next N *available* business days) — the date grid needs every
 // day present so it can render a blank/no-indicator cell for days the
 // provider doesn't work, distinct from a grey "fully booked" cell.
-export function buildMonth(provider: ProviderProfile, appointments: Appointment[], monthDate: Date): MonthDay[] {
-  const location = primaryLocation(provider);
+// `clinic` is which of the provider's clinic_locations to build hours from
+// (a provider can offer the same service at more than one location, each
+// with its own weekly hours) — defaults to the primary one.
+export function buildMonth(
+  provider: ProviderProfile,
+  appointments: Appointment[],
+  monthDate: Date,
+  clinic: Clinic | undefined = primaryLocation(provider)
+): MonthDay[] {
+  const location = clinic;
   const blockedDates = new Set((provider.blocked_dates ?? []).map((b) => b.date));
   const occupied = new Set(
     appointments
