@@ -314,6 +314,8 @@ export interface Patient {
   email?: string;
   phone?: string;
   id_number?: string;
+  id_document_type?: "id" | "passport";
+  id_document_photo?: UploadedFile;
   date_of_birth?: string;
   address?: string;
   parent_name?: string;
@@ -676,8 +678,10 @@ export interface WaitlistEntry {
   provider_name: string;
   client_name: string;
   client_phone?: string;
-  date: string; // yyyy-MM-dd
-  time: string; // HH:mm
+  // Left undefined for a general "any time works" request, rather than one
+  // tied to a specific slot that turned out to be taken.
+  date?: string; // yyyy-MM-dd
+  time?: string; // HH:mm
   status: WaitlistStatus;
   created_by_id?: string; // patient id
   created_date: string;

@@ -22,6 +22,7 @@ import {
   SkillDomain,
   SkillSubdomain,
   ToastItem,
+  UploadedFile,
   User,
   VisitRecord,
   WaitlistEntry,
@@ -140,12 +141,16 @@ interface AuthState {
   loginAsDemo: (role: Role, patientVariant?: "new" | "existing") => void;
   completePatientRegistration: (
     userId: string,
-    data: { full_name: string; phone?: string; id_number: string; date_of_birth: string } & InsuranceProfileInput,
+    data: {
+      full_name: string;
+      phone?: string;
+      id_number: string;
+      id_document_type?: "id" | "passport";
+      id_document_photo?: UploadedFile;
+      date_of_birth: string;
+      parent_name?: string;
+    } & InsuranceProfileInput,
     consents: RegistrationConsents
-  ) => Patient;
-  quickRegisterPatient: (
-    data: { full_name: string; phone: string; email: string; id_number: string; date_of_birth: string } & Partial<InsuranceProfileInput>,
-    consents?: RegistrationConsents
   ) => Patient;
 }
 
@@ -320,7 +325,38 @@ export const useStore = create<Store>()(
           set({ currentUser: existing });
           return { ok: true };
         }
-        // Unknown email -> mock-create a new patient account on the fly.
+        // No User account yet — but a Patient record with this email may
+        // already exist (e.g. added by staff, never logged in online
+        // before). Treat that the same as an existing patient — link a
+        // User to it and require the double OTP — instead of silently
+        // spinning up a second, blank lead account for the same person.
+        const matchingPatient = get().patients.find(
+          (p) => p.email && p.email.toLowerCase() === email.toLowerCase()
+        );
+        if (matchingPatient) {
+          const linkedUser: User = {
+            id: generateId("user"),
+            email,
+            full_name: matchingPatient.full_name,
+            role: "patient",
+            phone: matchingPatient.phone,
+            created_date: new Date().toISOString(),
+          };
+          set((s) => ({ users: [...s.users, linkedUser] }));
+          if (!matchingPatient.user_id) {
+            get().updatePatient(matchingPatient.id, { user_id: linkedUser.id });
+          }
+          set({
+            pendingLoginVerification: {
+              userId: linkedUser.id,
+              smsOtp: "123456",
+              emailOtp: "654321",
+              smsVerified: false,
+            },
+          });
+          return { ok: true, requiresOtp: true };
+        }
+        // Truly unknown email -> mock-create a new patient account on the fly.
         const newUser: User = {
           id: generateId("user"),
           email,
@@ -543,7 +579,10 @@ export const useStore = create<Store>()(
           email: user?.email,
           phone: data.phone,
           id_number: data.id_number,
+          id_document_type: data.id_document_type,
+          id_document_photo: data.id_document_photo,
           date_of_birth: data.date_of_birth,
+          parent_name: data.parent_name,
           address: data.address,
           kupah: data.kupah,
           k_level: data.k_level,
@@ -556,64 +595,6 @@ export const useStore = create<Store>()(
         (Object.keys(consents) as ConsentType[]).forEach((type) => {
           if (consents[type]) get().grantConsent(patient.id, type, CONSENT_DOCUMENT_VERSION);
         });
-        return patient;
-      },
-
-      quickRegisterPatient: (data, consents) => {
-        const existingPatient = get().patients.find(
-          (p) => p.email && p.email.toLowerCase() === data.email.toLowerCase()
-        );
-        if (existingPatient) {
-          const existingUser = get().users.find((u) => u.id === existingPatient.user_id);
-          if (existingUser) set({ currentUser: existingUser });
-          if (data.kupah) {
-            get().updatePatient(existingPatient.id, {
-              id_number: data.id_number,
-              date_of_birth: data.date_of_birth,
-              kupah: data.kupah,
-              k_level: data.k_level,
-              has_b_insurance: data.has_b_insurance,
-              b_insurance_company: data.b_insurance_company,
-              b_policy_number: data.b_policy_number,
-              address: data.address,
-            });
-          }
-          if (consents) {
-            (Object.keys(consents) as ConsentType[]).forEach((type) => {
-              if (consents[type]) get().grantConsent(existingPatient.id, type, CONSENT_DOCUMENT_VERSION);
-            });
-          }
-          return existingPatient;
-        }
-        const newUser: User = {
-          id: generateId("user"),
-          email: data.email,
-          full_name: data.full_name,
-          role: "patient",
-          phone: data.phone,
-          created_date: new Date().toISOString(),
-        };
-        set((s) => ({ users: [...s.users, newUser], currentUser: newUser }));
-        const patient = get().addPatient({
-          full_name: data.full_name,
-          email: data.email,
-          phone: data.phone,
-          id_number: data.id_number,
-          date_of_birth: data.date_of_birth,
-          kupah: data.kupah ?? "כללית",
-          k_level: data.k_level,
-          has_b_insurance: data.has_b_insurance,
-          b_insurance_company: data.b_insurance_company,
-          b_policy_number: data.b_policy_number,
-          address: data.address,
-          status: "פעיל",
-          user_id: newUser.id,
-        });
-        if (consents) {
-          (Object.keys(consents) as ConsentType[]).forEach((type) => {
-            if (consents[type]) get().grantConsent(patient.id, type, CONSENT_DOCUMENT_VERSION);
-          });
-        }
         return patient;
       },
 
@@ -987,7 +968,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 13,
+      version: 14,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
       // records), the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER seed
       // account, the v3 -> v4 AppointmentStatus rename ("ממתין לאישור" ->
@@ -1012,11 +993,15 @@ export const useStore = create<Store>()(
       // linked_clinic_ids onto provider5/provider6's consultation_types —
       // without those, ProviderDiscovery's per-tab/specialty filtering
       // (which now reads services straight off each provider instead of a
-      // shared reference catalog) could never surface those two doctors —
-      // discard any state persisted under an earlier version so the app
-      // reseeds clean instead of silently keeping stale seed/demo/status/
-      // catalog data.
-      migrate: (persistedState, version) => (version < 13 ? ({} as Store) : (persistedState as Store)),
+      // shared reference catalog) could never surface those two doctors.
+      // v13 -> v14 spreads SEED_APPOINTMENTS across all 4 published demo
+      // providers instead of just provider1/provider2 — without any booked
+      // appointments, a provider's calendar can never show a fully-booked
+      // day or a waitlist-eligible slot, so the other two doctors could
+      // never demo that flow. Discard any state persisted under an earlier
+      // version so the app reseeds clean instead of silently keeping stale
+      // seed/demo/status/catalog data.
+      migrate: (persistedState, version) => (version < 14 ? ({} as Store) : (persistedState as Store)),
       // Uploaded files (photos/PDFs) are stored as base64 data URLs inside
       // this same persisted blob (no real backend — see file.ts). If a
       // single write ever still exceeds the browser's localStorage quota

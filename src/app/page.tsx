@@ -17,7 +17,8 @@ import {
   Users,
   Wallet,
   Rocket,
-  Lock,
+  LogOut,
+  Lock
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Button } from "@/components/ui/Button";
@@ -71,6 +72,7 @@ export default function LandingPage() {
   const router = useRouter();
   const currentUser = useStore((s) => s.currentUser);
   const loginAsDemo = useStore((s) => s.loginAsDemo);
+  const logout = useStore((s) => s.logout);
   const showToast = useStore((s) => s.showToast);
   const [secureLoginOpen, setSecureLoginOpen] = useState(false);
 
@@ -89,6 +91,7 @@ export default function LandingPage() {
       router.push("/login");
       return;
     }
+    loginAsDemo(role);
     setTimeout(() => router.push(homeForRole(role)), 50);
   }
 
@@ -110,12 +113,23 @@ export default function LandingPage() {
             <a href="#hospitals" className="hover:text-primary transition-colors">בתי חולים</a>
           </nav>
           <div className="flex items-center gap-2">
-            <Link href={currentUser ? homeForRole(currentUser.role) : "/login"}>
+            <Link href={currentUser ? homeForRole(currentUser.role) : "#entry"}>
               <Button variant={currentUser ? "primary" : "ghost"} size="sm">
-                אזור אישי
+                {currentUser ? "אזור אישי" : "הרשמה והתחברות"}
               </Button>
             </Link>
-            {!currentUser && (
+            {currentUser ? (
+              <button
+                type="button"
+                onClick={() => {
+                  logout();
+                  router.push(currentUser.role === "patient" ? "/client/login" : "/login");
+                }}
+                className="flex items-center gap-1 text-sm text-slate-500 hover:text-primary"
+              >
+                <LogOut className="h-3.5 w-3.5" /> התנתק
+              </button>
+            ) : (
               <Link href="/book">
                 <Button size="sm">קביעת תור</Button>
               </Link>
@@ -311,7 +325,7 @@ export default function LandingPage() {
         <section id="entry" className="mx-auto max-w-6xl px-4 py-14">
           <div className="text-center mb-8">
             <h2 className="text-2xl sm:text-3xl font-bold text-slate-900">כבר יש לכם תיק ב-HEALSON?</h2>
-            <p className="text-slate-500 mt-2">בחרו את סוג החשבון שלכם לכניסה לאזור האישי — מצב הדגמה, כניסה מיידית</p>
+            <p className="text-slate-500 mt-2">מטופלים עוברים להרשמה או התחברות מלאה. ספקים ומנהלים (צוות פנימי בלבד) נכנסים ישירות במצב הדגמה.</p>
           </div>
           <motion.div
             className="grid sm:grid-cols-3 gap-5"

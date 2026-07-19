@@ -78,6 +78,54 @@ export function buildDays(provider: ProviderProfile, appointments: Appointment[]
   return days;
 }
 
+export interface MonthDay {
+  date: string; // yyyy-MM-dd
+  dayOfMonth: number;
+  weekday: number; // 0 (Sunday) .. 6 (Saturday) — matches Date#getDay()
+  isPast: boolean; // today or earlier — never bookable
+  slots: { time: string; available: boolean }[];
+}
+
+// Every calendar day in the given month (unlike buildDays, which only
+// collects the next N *available* business days) — the date grid needs every
+// day present so it can render a blank/no-indicator cell for days the
+// provider doesn't work, distinct from a grey "fully booked" cell.
+export function buildMonth(provider: ProviderProfile, appointments: Appointment[], monthDate: Date): MonthDay[] {
+  const location = primaryLocation(provider);
+  const blockedDates = new Set((provider.blocked_dates ?? []).map((b) => b.date));
+  const occupied = new Set(
+    appointments
+      .filter((a) => a.provider_id === provider.id && a.status !== "בוטל")
+      .map((a) => `${a.date}T${a.time}`)
+  );
+
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const days: MonthDay[] = [];
+  for (let dayOfMonth = 1; dayOfMonth <= daysInMonth; dayOfMonth++) {
+    const d = new Date(year, month, dayOfMonth);
+    const isPast = d <= today;
+    const dayKey = DAY_KEYS[d.getDay()];
+    const date = `${year}-${String(month + 1).padStart(2, "0")}-${String(dayOfMonth).padStart(2, "0")}`;
+    const range = location?.hours[dayKey];
+    const isBlocked = blockedDates.has(date);
+
+    const times = isPast || !range || isBlocked ? [] : slotsForRange(range[0], range[1]);
+    const slots = times.map((time) => ({
+      time,
+      available: !occupied.has(`${date}T${time}`),
+    }));
+
+    days.push({ date, dayOfMonth, weekday: d.getDay(), isPast, slots });
+  }
+  return days;
+}
+
 // Deterministic (not random) "days until this provider's next opening" used
 // only to power the availability filter in ProviderDiscovery — there's no
 // real per-provider slot data at the search stage (slots are only generated
