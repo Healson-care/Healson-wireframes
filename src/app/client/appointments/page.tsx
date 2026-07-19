@@ -855,9 +855,12 @@ function AppointmentListCard({
                       </p>
                     )}
                     {bookedClinic?.phone && (
-                      <p className="flex items-center gap-1 text-xs text-slate-500">
+                      <a
+                        href={`tel:${bookedClinic.phone}`}
+                        className="flex items-center gap-1 text-xs text-primary hover:underline"
+                      >
                         <Phone className="h-3 w-3" /> {bookedClinic.phone}
-                      </p>
+                      </a>
                     )}
                   </div>
                 )}
