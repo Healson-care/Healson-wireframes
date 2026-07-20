@@ -44,21 +44,19 @@ const CATEGORY_ICON: Record<DocumentCategory, typeof FileText> = {
   other: FileText,
 };
 
-// Thin adapter over the shared FilterDropdown — this page stores "no
-// filter" as the "all" sentinel rather than null.
 function CategoryFilter({
-  activeCategory,
+  activeCategories,
   onChange,
 }: {
-  activeCategory: DocumentCategory | "all";
-  onChange: (category: DocumentCategory | "all") => void;
+  activeCategories: DocumentCategory[];
+  onChange: (categories: DocumentCategory[]) => void;
 }) {
   return (
     <FilterDropdown
-      value={activeCategory === "all" ? null : activeCategory}
+      values={activeCategories}
       options={DOCUMENT_CATEGORIES.map((c) => ({ value: c.id, label: c.label }))}
       allLabel="כל הקטגוריות"
-      onSelect={(value) => onChange((value as DocumentCategory) ?? "all")}
+      onChange={(values) => onChange(values as DocumentCategory[])}
     />
   );
 }
@@ -281,7 +279,7 @@ function ClientDocumentsPageContent() {
   const updateDocument = useStore((s) => s.updateDocument);
   const showToast = useStore((s) => s.showToast);
 
-  const [activeCategory, setActiveCategory] = useState<DocumentCategory | "all">("all");
+  const [activeCategories, setActiveCategories] = useState<DocumentCategory[]>([]);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -304,7 +302,8 @@ function ClientDocumentsPageContent() {
     [items]
   );
 
-  const categoryFilteredItems = activeCategory === "all" ? items : items.filter((i) => i.category === activeCategory);
+  const categoryFilteredItems =
+    activeCategories.length === 0 ? items : items.filter((i) => activeCategories.includes(i.category));
 
   // Primary grouping axis is the visit (appointment), not the category —
   // matches how patient portals like MyChart organize records, and answers
@@ -475,7 +474,7 @@ function ClientDocumentsPageContent() {
           )}
 
           <div className="mb-3">
-            <CategoryFilter activeCategory={activeCategory} onChange={setActiveCategory} />
+            <CategoryFilter activeCategories={activeCategories} onChange={setActiveCategories} />
           </div>
 
           {groups.length === 0 && generalItems.length === 0 ? (

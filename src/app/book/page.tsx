@@ -63,9 +63,6 @@ export default function BookPage() {
     price: number;
     icsUrl: string;
   } | null>(null);
-  const [pendingQuestionnaire, setPendingQuestionnaire] = useState<{ appointmentId: string; title: string } | null>(
-    null
-  );
 
   const consultation = selectedProvider?.consultation_types[0];
   const resolvedPrice =
@@ -212,7 +209,6 @@ export default function BookPage() {
             appointment_id: pendingAppointmentId,
             status: "ממתין למילוי",
           });
-          setPendingQuestionnaire({ appointmentId: pendingAppointmentId, title: questionnaireTitle });
         }
         for (const doc of consultation?.required_documents ?? []) {
           addDocument({
@@ -334,7 +330,6 @@ export default function BookPage() {
               homeHref="/client"
               homeLabel="לאזור האישי שלי"
               appointmentId={pendingAppointmentId}
-              pendingQuestionnaire={pendingQuestionnaire}
             />
           </motion.div>
         )}
