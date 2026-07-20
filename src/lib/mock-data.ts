@@ -66,7 +66,7 @@ export const DEMO_PROVIDER_USER: User = {
 export const DEMO_INSTITUTE_USER: User = {
   id: "user_provider_institute",
   email: "institute@demo.co.il",
-  full_name: "מכון אסותא ראשונים",
+  full_name: "מכון רפואי הדסה  ",
   role: "provider",
   phone: "03-5559090",
   created_date: isoDateDaysFromNow(-260),
@@ -767,8 +767,8 @@ const providerInstitute: ProviderProfile = {
   clinic_locations: [
     clinicWithSchedule({
       id: instituteClinicId,
-      name: "מכון אסותא ראשונים",
-      address: "הרצל 88",
+      name: "מכון רפואי הדסה ",
+      address: "רחוב הזית 8, עין כרם ירושלים ",
       city: "ראשון לציון",
       phone: "03-5559090",
       is_primary: true,
