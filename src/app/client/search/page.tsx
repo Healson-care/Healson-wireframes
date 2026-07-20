@@ -54,9 +54,6 @@ export default function ClientSearchPage() {
     price: number;
     icsUrl: string;
   } | null>(null);
-  const [pendingQuestionnaire, setPendingQuestionnaire] = useState<{ appointmentId: string; title: string } | null>(
-    null
-  );
 
   const consultation = selectedProvider?.consultation_types[0];
   const resolvedPrice =
@@ -121,7 +118,6 @@ export default function ClientSearchPage() {
     setHoldExpiresAt(null);
     setPendingAppointmentId(null);
     setConfirmation(null);
-    setPendingQuestionnaire(null);
   }
 
   function handlePay() {
@@ -179,7 +175,6 @@ export default function ClientSearchPage() {
             appointment_id: pendingAppointmentId,
             status: "ממתין למילוי",
           });
-          setPendingQuestionnaire({ appointmentId: pendingAppointmentId, title: questionnaireTitle });
         }
         for (const doc of consultation?.required_documents ?? []) {
           addDocument({
@@ -301,7 +296,6 @@ export default function ClientSearchPage() {
                   homeHref="/client/appointments"
                   homeLabel="התורים שלי"
                   appointmentId={pendingAppointmentId}
-                  pendingQuestionnaire={pendingQuestionnaire}
                 />
                 <div className="text-center mt-4">
                   <button onClick={handleReset} className="text-sm text-slate-400 hover:text-primary">

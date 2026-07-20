@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { AlertCircle, ArrowLeft, Calendar, CheckCircle2, FileText, PartyPopper, Receipt, Sparkles } from "lucide-react";
+import { AlertCircle, ArrowLeft, Calendar, CheckCircle2, Receipt } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useStore } from "@/lib/store";
 import { ProviderProfile } from "@/types";
@@ -43,7 +43,6 @@ export function BookingConfirmation({
   homeHref,
   homeLabel,
   appointmentId,
-  pendingQuestionnaire,
 }: {
   provider: ProviderProfile;
   selectedSlot: { date: string; time: string; label: string };
@@ -51,9 +50,14 @@ export function BookingConfirmation({
   homeHref: string;
   homeLabel: string;
   appointmentId: string;
-  pendingQuestionnaire?: { appointmentId: string; title: string } | null;
 }) {
-  const showToast = useStore((s) => s.showToast);
+  const documents = useStore((s) => s.documents);
+  // Everything still waiting on the patient for this specific appointment —
+  // the questionnaire (if any) plus any named required_documents checklist
+  // items (see ConsultationType.required_documents), not just the
+  // questionnaire alone.
+  const pendingDocs = documents.filter((d) => d.appointment_id === appointmentId && d.status === "ממתין למילוי");
+  const appointmentHref = `/client/appointments?appointment=${appointmentId}`;
 
   return (
     <div className="max-w-md mx-auto text-center">
@@ -87,17 +91,22 @@ export function BookingConfirmation({
         </Link>
       </div>
 
-      {pendingQuestionnaire && (
-        <div className="mt-5 flex items-center justify-between gap-3 rounded-xl border border-warning-border bg-warning-bg p-4 text-right">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="h-5 w-5 shrink-0 text-warning-text" />
-            <div>
-              <p className="text-sm font-semibold text-warning-text">יש למלא שאלון לפני התור</p>
-              <p className="text-xs text-warning-text/80 mt-0.5">{pendingQuestionnaire.title}</p>
-            </div>
-          </div>
-          <Link href={`/client/documents?appointment=${pendingQuestionnaire.appointmentId}`}>
-            <Button size="sm">מלא עכשיו</Button>
+      {pendingDocs.length > 0 && (
+        <div className="mt-5 rounded-xl border border-warning-border bg-warning-bg p-4 text-right">
+          <p className="flex items-center gap-2 text-sm font-semibold text-warning-text mb-2">
+            <AlertCircle className="h-5 w-5 shrink-0" /> מסמכים נדרשים לפני התור ({pendingDocs.length})
+          </p>
+          <ul className="flex flex-col gap-1 mb-3">
+            {pendingDocs.map((d) => (
+              <li key={d.id} className="text-xs text-warning-text/80">
+                {d.title}
+              </li>
+            ))}
+          </ul>
+          <Link href={appointmentHref}>
+            <Button size="sm" className="w-full">
+              השלימו עכשיו
+            </Button>
           </Link>
         </div>
       )}
@@ -108,40 +117,14 @@ export function BookingConfirmation({
             <Calendar className="h-4 w-4" /> הוסף ליומן
           </Button>
         </a>
-        <Button variant="outline" onClick={() => showToast("תזכורת נשלחה בוואטסאפ ובמייל", { variant: "success" })}>
-          <Sparkles className="h-4 w-4" /> שלחו לי תזכורת
-        </Button>
+        <Link href={appointmentHref}>
+          <Button variant="outline">לצפייה בתור</Button>
+        </Link>
         <Link href={homeHref}>
           <Button>
             {homeLabel} <ArrowLeft className="h-4 w-4" />
           </Button>
         </Link>
-      </div>
-
-      <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 text-right shadow-sm">
-        <p className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-3">
-          <FileText className="h-4 w-4 text-primary" /> מה קורה עכשיו
-        </p>
-        <ul className="flex flex-col gap-2.5 text-sm text-slate-500">
-          <li className="flex items-center justify-between">
-            <span>תזכורת + צ׳קליסט להגעה</span>
-            <span className="text-xs text-slate-400">24 שעות לפני</span>
-          </li>
-          <li className="flex items-center justify-between">
-            <span>תזכורת אחרונה + קישור להעלאת מסמכים</span>
-            <span className="text-xs text-slate-400">שעתיים לפני</span>
-          </li>
-          <li className="flex items-center justify-between">
-            <span>ביקור, תשלום וקבלה דיגיטלית</span>
-            <span className="text-xs text-slate-400 flex items-center gap-1">
-              <PartyPopper className="h-3 w-3" /> ביום התור
-            </span>
-          </li>
-          <li className="flex items-center justify-between">
-            <span>סיכום ביקור + דירוג חוויה</span>
-            <span className="text-xs text-slate-400">יומיים אחרי</span>
-          </li>
-        </ul>
       </div>
     </div>
   );

@@ -30,7 +30,6 @@ import {
   Clock,
   CreditCard,
   FileText,
-  Info,
   MapPin,
   Phone,
   ShieldCheck,
@@ -126,33 +125,15 @@ const WAITLIST_STATUS_DESCRIPTIONS: Record<WaitlistStatus, string> = {
   "בוטל": "בקשת ההמתנה בוטלה",
 };
 
-const LEGEND_TONE_DOT: Record<string, string> = {
-  warning: "bg-warning-text",
-  info: "bg-info-text",
-  success: "bg-success-text",
-  danger: "bg-danger-text",
-  purple: "bg-purple-500",
-};
-
-const APPOINTMENT_STATUS_TONE: Record<AppointmentStatus, string> = {
-  "ממתין לתשלום מקדמה": "warning",
-  "מאושר": "info",
-  "שולם במלואו": "purple",
-  "בוצע": "success",
-  "בוטל": "danger",
-};
-
-function StatusLegend() {
+function CancellationPolicy() {
   const [open, setOpen] = useState(false);
   return (
-    <Card className="p-4 mb-4">
+    <Card className="p-3 mb-4">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between gap-2 text-sm font-semibold text-slate-700"
+        className="flex w-full items-center justify-between gap-2 text-xs font-semibold text-slate-700"
       >
-        <span className="flex items-center gap-1.5">
-          <Info className="h-4 w-4 text-primary" /> מה המשמעות של כל סטטוס
-        </span>
+        מדיניות ביטול
         <ChevronDown className={cn("h-4 w-4 text-slate-400 transition-transform", open && "rotate-180")} />
       </button>
       <AnimatePresence initial={false}>
@@ -164,29 +145,9 @@ function StatusLegend() {
             transition={{ duration: 0.2 }}
             className="overflow-hidden"
           >
-            <div className="flex flex-col gap-2 pt-3">
-              {(Object.keys(APPOINTMENT_STATUS_DESCRIPTIONS) as AppointmentStatus[]).map((status) => (
-                <div key={status} className="flex items-start gap-2 text-xs">
-                  <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${LEGEND_TONE_DOT[APPOINTMENT_STATUS_TONE[status]]}`} />
-                  <span>
-                    <span className="font-medium text-slate-800">{status}</span>{" "}
-                    <span className="text-slate-500">— {APPOINTMENT_STATUS_DESCRIPTIONS[status]}</span>
-                  </span>
-                </div>
-              ))}
-              <div className="flex items-start gap-2 text-xs">
-                <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${LEGEND_TONE_DOT[WAITLIST_STATUS_TONE["ממתין"]]}`} />
-                <span>
-                  <span className="font-medium text-slate-800">{WAITLIST_STATUS_LABELS["ממתין"]}</span>{" "}
-                  <span className="text-slate-500">— {WAITLIST_STATUS_DESCRIPTIONS["ממתין"]}</span>
-                </span>
-              </div>
-            </div>
-            <div className="h-px bg-slate-100 my-3" />
-            <p className="text-xs text-slate-500 leading-relaxed">
-              <span className="font-medium text-slate-700">מדיניות ביטול:</span> ניתן לבטל תור ללא עלות עד לתשלום
-              המקדמה. עד 48 שעות ממועד תשלום המקדמה ניתן לבטל ולקבל החזר מקדמה בניכוי דמי טיפול (5% מסך העסקה או
-              ₪100 — הנמוך מביניהם). לאחר מכן לא ניתן לבטל את התור.
+            <p className="text-xs text-slate-500 leading-relaxed pt-2">
+              ניתן לבטל תור ללא עלות עד לתשלום המקדמה. עד 48 שעות ממועד תשלום המקדמה ניתן לבטל ולקבל החזר מקדמה
+              בניכוי דמי טיפול (5% מסך העסקה או ₪100 — הנמוך מביניהם). לאחר מכן לא ניתן לבטל את התור.
             </p>
           </motion.div>
         )}
@@ -680,16 +641,42 @@ function AppointmentListCard({
                   <span className="opacity-75">· לתשלום</span>
                 </button>
               ) : (
-                <StatusBadge
-                  status={item.data.status}
-                  kind="appointment"
-                  title={APPOINTMENT_STATUS_DESCRIPTIONS[item.data.status]}
-                />
+                <Popover
+                  align="end"
+                  trigger={
+                    <span className="inline-flex cursor-pointer underline decoration-dotted underline-offset-2">
+                      <StatusBadge
+                        status={item.data.status}
+                        kind="appointment"
+                        title={APPOINTMENT_STATUS_DESCRIPTIONS[item.data.status]}
+                      />
+                    </span>
+                  }
+                >
+                  {() => (
+                    <p className="text-xs leading-relaxed text-slate-600">
+                      {APPOINTMENT_STATUS_DESCRIPTIONS[item.data.status]}
+                    </p>
+                  )}
+                </Popover>
               )
             ) : (
-              <Badge tone={WAITLIST_STATUS_TONE[item.data.status]} title={WAITLIST_STATUS_DESCRIPTIONS[item.data.status]}>
-                {WAITLIST_STATUS_LABELS[item.data.status]}
-              </Badge>
+              <Popover
+                align="end"
+                trigger={
+                  <span className="inline-flex cursor-pointer underline decoration-dotted underline-offset-2">
+                    <Badge tone={WAITLIST_STATUS_TONE[item.data.status]} title={WAITLIST_STATUS_DESCRIPTIONS[item.data.status]}>
+                      {WAITLIST_STATUS_LABELS[item.data.status]}
+                    </Badge>
+                  </span>
+                }
+              >
+                {() => (
+                  <p className="text-xs leading-relaxed text-slate-600">
+                    {WAITLIST_STATUS_DESCRIPTIONS[item.data.status]}
+                  </p>
+                )}
+              </Popover>
             )}
           </div>
         </div>
@@ -921,25 +908,24 @@ function AppointmentSection({
   onCancel: (appointment: Appointment) => void;
   onReschedule: (appointment: Appointment) => void;
 }) {
-  const showToast = useStore((s) => s.showToast);
-  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [dateDialogOpen, setDateDialogOpen] = useState(false);
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
-      if (statusFilter && item.data.status !== statusFilter) return false;
+      if (statusFilter.length > 0 && !statusFilter.includes(item.data.status)) return false;
       if (dateFrom && item.data.date && item.data.date < dateFrom) return false;
       if (dateTo && item.data.date && item.data.date > dateTo) return false;
       return true;
     });
   }, [items, statusFilter, dateFrom, dateTo]);
 
-  const hasActiveFilters = !!statusFilter || !!dateFrom || !!dateTo;
+  const hasActiveFilters = statusFilter.length > 0 || !!dateFrom || !!dateTo;
 
   function clearFilters() {
-    setStatusFilter(null);
+    setStatusFilter([]);
     setDateFrom("");
     setDateTo("");
   }
@@ -959,14 +945,10 @@ function AppointmentSection({
         <>
           <div className="flex flex-wrap items-center gap-1.5 mb-3 mt-3">
             <FilterDropdown
-              value={statusFilter}
+              values={statusFilter}
               options={statusOptions.map((opt) => ({ value: opt.value, label: opt.label }))}
               allLabel="כל הסטטוסים"
-              onSelect={(value) => {
-                setStatusFilter(value);
-                const opt = value ? statusOptions.find((o) => o.value === value) : undefined;
-                if (opt) showToast(opt.label, { description: opt.description });
-              }}
+              onChange={setStatusFilter}
             />
 
             <button
@@ -1129,7 +1111,7 @@ function ClientAppointmentsPageContent() {
     <ClientLayout>
       <PageHeader title="התורים שלי" description="כל התורים ובקשות ההמתנה שלכם, לפי תאריך" />
 
-      <StatusLegend />
+      <CancellationPolicy />
 
       {historyItems.length === 0 ? (
         <EmptyState title="אין לך תורים" description="ניתן לקבוע תור חדש דרך מסך החיפוש" />
