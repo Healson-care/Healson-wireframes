@@ -26,7 +26,7 @@ import { SEED_SKILL_DOMAINS, SEED_SKILL_SUBDOMAINS } from "./medical-tree";
 import { scheduleToLegacyHours } from "./schedule";
 import { resolveCatalogPrice } from "./pricing";
 
-// ---------------------------------------------------------------------------
+// -------------------------------------------------------------------------
 // Demo accounts — used by the mock auth flow (see src/lib/store.ts).
 // Any email/password combination works; if the email matches one of these,
 // the matching role + record is used. Otherwise a new patient is created.
@@ -623,7 +623,7 @@ const providerInstitute: ProviderProfile = {
   id: "prov_institute",
   provider_type: "medical_institute",
   user_id: DEMO_INSTITUTE_USER.id,
-  display_name: "מכון אסותא ראשונים",
+  display_name: " מכון רפואי הדסה",
   contact_name: "רונית אלמוג",
   contact_phone: "03-5559090",
   contact_email: "info@asuta-demo.co.il",
