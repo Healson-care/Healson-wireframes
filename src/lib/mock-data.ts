@@ -19,6 +19,7 @@ import {
   ProviderProfile,
   User,
   VisitRecord,
+  emptyWeeklySchedule,
 } from "@/types";
 import { generateId, isoDateDaysFromNow, isoTimestampHoursFromNow } from "./utils";
 import { SEED_SKILL_DOMAINS, SEED_SKILL_SUBDOMAINS } from "./medical-tree";
@@ -550,11 +551,20 @@ function shift(id: string, start: string, end: string, extra: Partial<ScheduleSh
   return { id, start, end, ...extra };
 }
 
+/** A week with only the working days spelled out. */
+function weekly(days: Partial<WeeklySchedule>): WeeklySchedule {
+  return { ...emptyWeeklySchedule(), ...days };
+}
+
+// A medical unit is a single site — the unit IS the branch (§PRV-08), so there
+// is exactly one clinic record here, and the parallel queues are the מתקנים and
+// the doctors below.
 const instituteClinicId = "clinic_institute_1";
-const instituteClinicId2 = "clinic_institute_2";
 const instituteServiceIds = {
-  mri: "ct_inst_mri",
-  ct: "ct_inst_ct",
+  mriSpine: "ct_inst_mri",
+  mriHead: "ct_inst_mri_head",
+  ctAbdomen: "ct_inst_ct",
+  ctChest: "ct_inst_ct_chest",
   colono: "ct_inst_colono",
   homeBlood: "ct_inst_home_blood",
   surgeonPick: "ct_inst_surgeon",
@@ -627,7 +637,7 @@ const providerInstitute: ProviderProfile = {
   is_published: true,
   status: "approved",
   commission_rate: 11,
-  location_count: 2,
+  location_count: 1,
   created_date: isoDateDaysFromNow(-260),
   agreements: [
     { id: generateId("agr"), provider_id: "prov_institute", layer: "K" },
@@ -641,8 +651,8 @@ const providerInstitute: ProviderProfile = {
   private_insurance_companies: ["הראל", "מגדל"],
   consultation_types: [
     {
-      id: instituteServiceIds.mri,
-      name: "MRI עמוד שדרה",
+      id: instituteServiceIds.mriSpine,
+      name: "MRI עמוד שדרה מותני",
       duration_minutes: 45,
       prices: [
         { layer: "K", price: 390 },
@@ -650,12 +660,27 @@ const providerInstitute: ProviderProfile = {
       ],
       service_type: "imaging",
       service_category: "בדיקות",
+      moh_code: "54021",
       linked_clinic_ids: [instituteClinicId],
       requires_referral: true,
     },
     {
-      id: instituteServiceIds.ct,
-      name: "CT בטן עם חומר ניגוד",
+      id: instituteServiceIds.mriHead,
+      name: "MRI ראש ללא חומר ניגוד",
+      duration_minutes: 40,
+      prices: [
+        { layer: "K", price: 410 },
+        { layer: "H", price: 1520 },
+      ],
+      service_type: "imaging",
+      service_category: "בדיקות",
+      moh_code: "54010",
+      linked_clinic_ids: [instituteClinicId],
+      requires_referral: true,
+    },
+    {
+      id: instituteServiceIds.ctAbdomen,
+      name: "CT בטן ואגן עם חומר ניגוד",
       duration_minutes: 30,
       prices: [
         { layer: "K", price: 320 },
@@ -663,8 +688,23 @@ const providerInstitute: ProviderProfile = {
       ],
       service_type: "imaging",
       service_category: "בדיקות",
+      moh_code: "53020",
       linked_clinic_ids: [instituteClinicId],
       requires_contrast: true,
+      has_radiation: true,
+    },
+    {
+      id: instituteServiceIds.ctChest,
+      name: "CT חזה",
+      duration_minutes: 20,
+      prices: [
+        { layer: "K", price: 280 },
+        { layer: "H", price: 950 },
+      ],
+      service_type: "imaging",
+      service_category: "בדיקות",
+      moh_code: "53030",
+      linked_clinic_ids: [instituteClinicId],
       has_radiation: true,
     },
     {
@@ -677,7 +717,8 @@ const providerInstitute: ProviderProfile = {
       ],
       service_type: "procedure",
       service_category: "פעולות",
-      linked_clinic_ids: [instituteClinicId, instituteClinicId2],
+      moh_code: "31010",
+      linked_clinic_ids: [instituteClinicId],
       anesthesia_type: "sedation",
       requires_referral: true,
     },
@@ -691,7 +732,8 @@ const providerInstitute: ProviderProfile = {
       ],
       service_type: "test",
       service_category: "בדיקות עד הבית",
-      linked_clinic_ids: [instituteClinicId2],
+      moh_code: "20010",
+      linked_clinic_ids: [instituteClinicId],
       requires_fasting: true,
       sample_type: "דם ורידי",
     },
@@ -702,6 +744,7 @@ const providerInstitute: ProviderProfile = {
       prices: [{ layer: "H", price: 14500 }],
       service_type: "surgery",
       service_category: "בחירת מנתח",
+      moh_code: "41010",
       linked_clinic_ids: [instituteClinicId],
       anesthesia_type: "general",
       recovery_days: 14,
@@ -718,64 +761,26 @@ const providerInstitute: ProviderProfile = {
     },
   ],
   exam_types: [],
+  // One record — the unit itself. Its week is the unit's OPENING hours
+  // ("זמינות כללית"), shown to patients and used as a fallback for services not
+  // yet linked to a resource; the real queues live on the facilities/doctors.
   clinic_locations: [
     clinicWithSchedule({
       id: instituteClinicId,
-      name: "מכון אסותא — ראשון לציון",
+      name: "מכון אסותא ראשונים",
       address: "הרצל 88",
       city: "ראשון לציון",
       phone: "03-5559090",
       is_primary: true,
       location_type: "clinic",
-      // Split hours + a mid-shift break: mornings are imaging, the afternoon
-      // shift is reserved for procedures and surgery scheduling.
-      schedule: {
-        sunday: [
-          shift("sh_inst_sun_am", "07:00", "13:00", {
-            label: "משמרת בוקר — הדמיה",
-            slot_minutes: 30,
-            breaks: [{ id: "br_inst_sun", start: "10:00", end: "10:30", label: "הפסקת צוות" }],
-            service_ids: [instituteServiceIds.mri, instituteServiceIds.ct, instituteServiceIds.secondOpinion],
-          }),
-          shift("sh_inst_sun_pm", "15:00", "19:00", {
-            label: "משמרת אחה״צ — פעולות",
-            slot_minutes: 60,
-            service_ids: [instituteServiceIds.colono, instituteServiceIds.surgeonPick],
-          }),
-        ],
-        monday: [
-          shift("sh_inst_mon_am", "07:00", "13:00", {
-            label: "משמרת בוקר — הדמיה",
-            slot_minutes: 30,
-            service_ids: [instituteServiceIds.mri, instituteServiceIds.ct, instituteServiceIds.secondOpinion],
-          }),
-          shift("sh_inst_mon_pm", "15:00", "19:00", {
-            label: "משמרת אחה״צ — פעולות",
-            slot_minutes: 60,
-            service_ids: [instituteServiceIds.colono, instituteServiceIds.surgeonPick],
-          }),
-        ],
-        tuesday: [
-          shift("sh_inst_tue", "07:00", "15:00", {
-            label: "יום ארוך",
-            slot_minutes: 30,
-            breaks: [{ id: "br_inst_tue", start: "12:00", end: "12:45", label: "הפסקת צהריים" }],
-          }),
-        ],
-        wednesday: [
-          shift("sh_inst_wed_am", "07:00", "13:00", { label: "משמרת בוקר", slot_minutes: 30 }),
-        ],
-        thursday: [
-          shift("sh_inst_thu_am", "07:00", "13:00", { label: "משמרת בוקר", slot_minutes: 30 }),
-          shift("sh_inst_thu_pm", "15:00", "18:00", {
-            label: "משמרת אחה״צ — פעולות",
-            slot_minutes: 60,
-            service_ids: [instituteServiceIds.colono],
-          }),
-        ],
+      schedule: weekly({
+        sunday: [shift("sh_inst_sun", "07:00", "19:00", { label: "שעות פעילות", slot_minutes: 30 })],
+        monday: [shift("sh_inst_mon", "07:00", "19:00", { label: "שעות פעילות", slot_minutes: 30 })],
+        tuesday: [shift("sh_inst_tue", "07:00", "15:00", { label: "שעות פעילות", slot_minutes: 30 })],
+        wednesday: [shift("sh_inst_wed", "07:00", "19:00", { label: "שעות פעילות", slot_minutes: 30 })],
+        thursday: [shift("sh_inst_thu", "07:00", "18:00", { label: "שעות פעילות", slot_minutes: 30 })],
         friday: [shift("sh_inst_fri", "07:00", "11:30", { label: "בוקר מקוצר", slot_minutes: 30 })],
-        saturday: [],
-      },
+      }),
       schedule_exceptions: [
         {
           id: "exc_inst_1",
@@ -792,24 +797,82 @@ const providerInstitute: ProviderProfile = {
         },
       ],
     }),
-    clinicWithSchedule({
-      id: instituteClinicId2,
-      name: "מכון אסותא — סניף פתח תקווה",
-      address: "ז'בוטינסקי 35",
-      city: "פתח תקווה",
-      phone: "03-5559091",
-      is_primary: false,
-      location_type: "clinic",
-      schedule: {
-        sunday: [shift("sh_inst2_sun", "08:00", "16:00", { slot_minutes: 30 })],
-        monday: [shift("sh_inst2_mon", "08:00", "16:00", { slot_minutes: 30 })],
-        tuesday: [],
-        wednesday: [shift("sh_inst2_wed", "08:00", "16:00", { slot_minutes: 30 })],
-        thursday: [shift("sh_inst2_thu", "08:00", "16:00", { slot_minutes: 30 })],
-        friday: [],
-        saturday: [],
-      },
-    }),
+  ],
+  // The unit's parallel queues (§PRV-08): MRI 1 and CT 1 can both scan at
+  // 08:00, and the procedure room runs independently of both.
+  facilities: [
+    {
+      id: "fac_inst_mri_1",
+      name: "MRI 1",
+      kind: "mri",
+      model: "Siemens Magnetom Vida 3T",
+      room: "חדר 4, קומה -1",
+      is_active: true,
+      service_ids: [instituteServiceIds.mriSpine, instituteServiceIds.mriHead],
+      created_at: isoDateDaysFromNow(-255),
+      schedule: weekly({
+        sunday: [
+          shift("sh_mri1_sun", "07:00", "15:00", {
+            label: "משמרת הדמיה",
+            slot_minutes: 45,
+            breaks: [{ id: "br_mri1_sun", start: "11:00", end: "11:30", label: "כיול ותחזוקה" }],
+          }),
+        ],
+        monday: [shift("sh_mri1_mon", "07:00", "15:00", { label: "משמרת הדמיה", slot_minutes: 45 })],
+        tuesday: [shift("sh_mri1_tue", "07:00", "13:00", { label: "משמרת בוקר", slot_minutes: 45 })],
+        wednesday: [shift("sh_mri1_wed", "07:00", "15:00", { label: "משמרת הדמיה", slot_minutes: 45 })],
+        thursday: [
+          shift("sh_mri1_thu_am", "07:00", "13:00", { label: "משמרת בוקר", slot_minutes: 45 }),
+          // Evening shift on this machine is head-scans only — per-shift service
+          // scoping inside a single facility.
+          shift("sh_mri1_thu_pm", "16:00", "19:00", {
+            label: "משמרת ערב — MRI ראש",
+            slot_minutes: 40,
+            service_ids: [instituteServiceIds.mriHead],
+          }),
+        ],
+      }),
+    },
+    {
+      id: "fac_inst_ct_1",
+      name: "CT 1",
+      kind: "ct",
+      model: "GE Revolution CT",
+      room: "חדר 6, קומה -1",
+      is_active: true,
+      service_ids: [instituteServiceIds.ctAbdomen, instituteServiceIds.ctChest],
+      created_at: isoDateDaysFromNow(-255),
+      schedule: weekly({
+        sunday: [shift("sh_ct1_sun", "07:00", "17:00", { label: "משמרת CT", slot_minutes: 30 })],
+        monday: [shift("sh_ct1_mon", "07:00", "17:00", { label: "משמרת CT", slot_minutes: 30 })],
+        tuesday: [shift("sh_ct1_tue", "07:00", "15:00", { label: "משמרת CT", slot_minutes: 30 })],
+        wednesday: [shift("sh_ct1_wed", "07:00", "17:00", { label: "משמרת CT", slot_minutes: 30 })],
+        thursday: [shift("sh_ct1_thu", "07:00", "15:00", { label: "משמרת CT", slot_minutes: 30 })],
+        friday: [shift("sh_ct1_fri", "07:00", "11:00", { label: "בוקר מקוצר", slot_minutes: 30 })],
+      }),
+      schedule_exceptions: [
+        {
+          id: "exc_ct1_1",
+          date: isoDateDaysFromNow(4),
+          closed: true,
+          reason: "תחזוקה יזומה של המכשיר",
+        },
+      ],
+    },
+    {
+      id: "fac_inst_proc_1",
+      name: "חדר פעולות 1",
+      kind: "procedure_room",
+      room: "קומה 1",
+      is_active: true,
+      service_ids: [instituteServiceIds.colono],
+      created_at: isoDateDaysFromNow(-250),
+      schedule: weekly({
+        sunday: [shift("sh_proc1_sun", "15:00", "19:00", { label: "משמרת פעולות", slot_minutes: 60 })],
+        monday: [shift("sh_proc1_mon", "15:00", "19:00", { label: "משמרת פעולות", slot_minutes: 60 })],
+        thursday: [shift("sh_proc1_thu", "15:00", "18:00", { label: "משמרת פעולות", slot_minutes: 60 })],
+      }),
+    },
   ],
   referral_forms: [],
   affiliated_doctors: [
@@ -817,17 +880,29 @@ const providerInstitute: ProviderProfile = {
       id: "affdoc_inst_1",
       doctor_provider_id: instituteDoctor1.id,
       role: "מנהל היחידה להדמיה",
-      service_ids: [instituteServiceIds.mri, instituteServiceIds.ct, instituteServiceIds.secondOpinion],
+      // Consultation-type services are delivered by the doctor, so they hang
+      // off the doctor's own calendar rather than off a machine.
+      service_ids: [instituteServiceIds.secondOpinion],
       clinic_ids: [instituteClinicId],
       added_at: isoDateDaysFromNow(-240),
+      schedule: weekly({
+        sunday: [shift("sh_doc1_sun", "09:00", "13:00", { label: "פענוח וייעוץ", slot_minutes: 25 })],
+        tuesday: [shift("sh_doc1_tue", "09:00", "12:00", { label: "פענוח וייעוץ", slot_minutes: 25 })],
+        wednesday: [shift("sh_doc1_wed", "09:00", "13:00", { label: "פענוח וייעוץ", slot_minutes: 25 })],
+      }),
     },
     {
       id: "affdoc_inst_2",
       doctor_provider_id: instituteDoctor2.id,
       role: "מנתח בכיר",
       service_ids: [instituteServiceIds.colono, instituteServiceIds.surgeonPick],
-      clinic_ids: [instituteClinicId, instituteClinicId2],
+      clinic_ids: [instituteClinicId],
       added_at: isoDateDaysFromNow(-230),
+      schedule: weekly({
+        sunday: [shift("sh_doc2_sun", "15:00", "19:00", { label: "פעולות וניתוחים", slot_minutes: 60 })],
+        monday: [shift("sh_doc2_mon", "15:00", "19:00", { label: "פעולות וניתוחים", slot_minutes: 60 })],
+        thursday: [shift("sh_doc2_thu", "15:00", "18:00", { label: "פעולות", slot_minutes: 60 })],
+      }),
     },
   ],
 };
@@ -938,6 +1013,7 @@ const providerOutpatient: ProviderProfile = {
       ],
       service_type: "test",
       service_category: "אבחונים",
+      moh_code: "21040",
       linked_clinic_ids: [outpatientClinicId],
     },
     {
@@ -950,6 +1026,7 @@ const providerOutpatient: ProviderProfile = {
       ],
       service_type: "test",
       service_category: "בדיקות",
+      moh_code: "20010",
       linked_clinic_ids: [outpatientClinicId],
       requires_fasting: true,
     },
@@ -970,7 +1047,8 @@ const providerOutpatient: ProviderProfile = {
   clinic_locations: [
     clinicWithSchedule({
       id: outpatientClinicId,
-      name: "מרפאת חוץ — ירושלים מרכז",
+      // A unit's site carries the unit's own name — no second name (§PRV-08).
+      name: "מרפאות חוץ הדסה קהילה",
       address: "יפו 210",
       city: "ירושלים",
       phone: "02-5558080",
@@ -1012,6 +1090,40 @@ const providerOutpatient: ProviderProfile = {
       ],
     }),
   ],
+  // An outpatient clinic is a unit too — mostly doctor-driven, with a couple of
+  // rooms that hold their own queue (§PRV-08).
+  facilities: [
+    {
+      id: "fac_out_sampling_1",
+      name: "עמדת דגימות 1",
+      kind: "sampling_station",
+      room: "קומת כניסה",
+      is_active: true,
+      service_ids: [outpatientServiceIds.tests],
+      created_at: isoDateDaysFromNow(-205),
+      schedule: weekly({
+        sunday: [shift("sh_samp_sun", "07:00", "10:30", { label: "בדיקות דם בצום", slot_minutes: 10 })],
+        monday: [shift("sh_samp_mon", "07:00", "10:30", { label: "בדיקות דם בצום", slot_minutes: 10 })],
+        tuesday: [shift("sh_samp_tue", "07:00", "10:30", { label: "בדיקות דם בצום", slot_minutes: 10 })],
+        wednesday: [shift("sh_samp_wed", "07:00", "10:30", { label: "בדיקות דם בצום", slot_minutes: 10 })],
+        thursday: [shift("sh_samp_thu", "07:00", "10:30", { label: "בדיקות דם בצום", slot_minutes: 10 })],
+      }),
+    },
+    {
+      id: "fac_out_ergo_1",
+      name: "חדר ארגומטריה",
+      kind: "cardiology",
+      model: "Schiller CS-200",
+      room: "חדר 12",
+      is_active: true,
+      service_ids: [outpatientServiceIds.diagnostics],
+      created_at: isoDateDaysFromNow(-190),
+      schedule: weekly({
+        tuesday: [shift("sh_ergo_tue", "16:00", "20:00", { label: "מרפאת אבחונים", slot_minutes: 45 })],
+        wednesday: [shift("sh_ergo_wed", "09:00", "13:00", { label: "מרפאת אבחונים", slot_minutes: 45 })],
+      }),
+    },
+  ],
   referral_forms: [],
   affiliated_doctors: [
     {
@@ -1021,11 +1133,24 @@ const providerOutpatient: ProviderProfile = {
       service_ids: [
         outpatientServiceIds.consult,
         outpatientServiceIds.followUp,
-        outpatientServiceIds.tests,
         outpatientServiceIds.treatments,
       ],
       clinic_ids: [outpatientClinicId],
       added_at: isoDateDaysFromNow(-200),
+      schedule: weekly({
+        sunday: [
+          shift("sh_odoc1_sun_am", "08:00", "12:30", { label: "מרפאת בוקר", slot_minutes: 20 }),
+          shift("sh_odoc1_sun_pm", "16:00", "20:00", {
+            label: "מרפאת ערב",
+            slot_minutes: 20,
+            breaks: [{ id: "br_odoc1_sun", start: "18:00", end: "18:20", label: "הפסקה" }],
+          }),
+        ],
+        monday: [shift("sh_odoc1_mon", "08:00", "12:30", { label: "מרפאת בוקר", slot_minutes: 20 })],
+        wednesday: [shift("sh_odoc1_wed", "08:00", "15:00", { label: "יום רציף", slot_minutes: 20 })],
+        thursday: [shift("sh_odoc1_thu", "08:00", "12:30", { label: "מרפאת בוקר", slot_minutes: 20 })],
+        friday: [shift("sh_odoc1_fri", "08:00", "11:00", { label: "בוקר מקוצר", slot_minutes: 20 })],
+      }),
     },
     {
       // A doctor who already existed in the platform as a standalone provider
@@ -1033,9 +1158,12 @@ const providerOutpatient: ProviderProfile = {
       id: "affdoc_out_2",
       doctor_provider_id: "prov_2",
       role: "יועצת קרדיולוגית",
-      service_ids: [outpatientServiceIds.diagnostics, outpatientServiceIds.secondOpinion],
+      service_ids: [outpatientServiceIds.secondOpinion],
       clinic_ids: [outpatientClinicId],
       added_at: isoDateDaysFromNow(-120),
+      schedule: weekly({
+        tuesday: [shift("sh_odoc2_tue", "16:00", "20:00", { label: "מרפאת יועצים", slot_minutes: 30 })],
+      }),
     },
   ],
 };

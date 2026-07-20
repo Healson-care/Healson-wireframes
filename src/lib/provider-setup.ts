@@ -5,6 +5,7 @@
 // doesn't need 11 hand-built screens.
 import { LocationType, ProviderProfile, ProviderType } from "@/types";
 import { hasAnyAvailability } from "./schedule";
+import { getUnitResources, isUnitProvider } from "./unit-resources";
 
 export interface ProviderTypeSetupConfig {
   catalogLabel: string; // tab title, plural: "ייעוצים" / "מוצרים" / "בדיקות"
@@ -27,6 +28,13 @@ export interface ProviderTypeSetupConfig {
   // doctors — they get a "רופאים" section for managing the doctors affiliated
   // with them and which services each one delivers (§PRV-07).
   showAffiliatedDoctors?: boolean;
+  // Medical units (§PRV-08): the unit IS the site — it has exactly one address
+  // record and never sub-branches, so the locations screen becomes a single
+  // "פרטי היחידה" form rather than a list you can add to.
+  singleLocation?: boolean;
+  // Medical units: machines/rooms (MRI 1, CT 1, חדר פעולות) that hold their own
+  // queue and week, and that services are linked to.
+  showFacilities?: boolean;
 }
 
 const DURATION_FIELD = {
@@ -82,10 +90,12 @@ export const PROVIDER_SETUP_CONFIG: Record<ProviderType, ProviderTypeSetupConfig
     showExamsCatalog: false,
     showAgreements: true,
     locationTypes: ["clinic"],
-    locationLabelSingular: "מרפאה",
-    locationLabelPlural: "מרפאות",
+    locationLabelSingular: "היחידה",
+    locationLabelPlural: "פרטי היחידה",
     showAvailability: true,
     showAffiliatedDoctors: true,
+    singleLocation: true,
+    showFacilities: true,
   },
   medical_institute: {
     ...DURATION_FIELD,
@@ -95,10 +105,12 @@ export const PROVIDER_SETUP_CONFIG: Record<ProviderType, ProviderTypeSetupConfig
     showExamsCatalog: false,
     showAgreements: true,
     locationTypes: ["clinic"],
-    locationLabelSingular: "סניף",
-    locationLabelPlural: "סניפים",
+    locationLabelSingular: "היחידה",
+    locationLabelPlural: "פרטי היחידה",
     showAvailability: true,
     showAffiliatedDoctors: true,
+    singleLocation: true,
+    showFacilities: true,
   },
   hospital: {
     ...DURATION_FIELD,
@@ -180,12 +192,21 @@ export function isLocationsComplete(provider: ProviderProfile): boolean {
   return provider.clinic_locations.length > 0;
 }
 
+// A medical unit's availability lives on its resources (§PRV-08) — the unit is
+// "covered" once at least one מתקן or רופא has a week, even if the unit's own
+// general hours are still empty (and vice versa: general hours alone still
+// count, since services with no resource fall back to them).
 export function isAvailabilityComplete(provider: ProviderProfile): boolean {
-  return provider.clinic_locations.some(hasAnyAvailability);
+  if (provider.clinic_locations.some(hasAnyAvailability)) return true;
+  return isUnitProvider(provider) && getUnitResources(provider).some(hasAnyAvailability);
 }
 
 export function isAffiliatedDoctorsComplete(provider: ProviderProfile): boolean {
   return (provider.affiliated_doctors?.length ?? 0) > 0;
+}
+
+export function isFacilitiesComplete(provider: ProviderProfile): boolean {
+  return (provider.facilities?.length ?? 0) > 0;
 }
 
 export function isSetupReadyToPublish(provider: ProviderProfile): boolean {
@@ -207,6 +228,7 @@ export function getFirstIncompleteStepKey(provider: ProviderProfile): string | u
     ...(config.showAgreements ? [{ done: provider.agreements.length > 0, key: "agreements" }] : []),
     { done: isCatalogComplete(provider), key: "catalog" },
     ...(config.locationTypes.length > 0 ? [{ done: isLocationsComplete(provider), key: "locations" }] : []),
+    ...(config.showFacilities ? [{ done: isFacilitiesComplete(provider), key: "facilities" }] : []),
     ...(config.showAvailability ? [{ done: isAvailabilityComplete(provider), key: "availability" }] : []),
     ...(config.showAffiliatedDoctors ? [{ done: isAffiliatedDoctorsComplete(provider), key: "doctors" }] : []),
   ];
@@ -235,10 +257,17 @@ export function getNextProviderAction(provider: ProviderProfile): string | null 
       return `נשאר לך להוסיף ${config.catalogItemLabel} ראשון כדי להתחיל לקבל הזמנות.`;
     }
     if (config.locationTypes.length > 0 && !isLocationsComplete(provider)) {
-      return `נשאר לך להוסיף ${config.locationLabelSingular} ראשון/ה כדי להתחיל לקבל הזמנות.`;
+      return config.singleLocation
+        ? "נשאר להשלים את כתובת היחידה ופרטי ההתקשרות שלה."
+        : `נשאר לך להוסיף ${config.locationLabelSingular} ראשון/ה כדי להתחיל לקבל הזמנות.`;
+    }
+    if (config.showFacilities && !isFacilitiesComplete(provider)) {
+      return "הוסיפו את המתקנים של היחידה (MRI, CT, חדר פעולות…) — הזמינות והשירותים מוגדרים ברמת המתקן.";
     }
     if (config.showAvailability && !isAvailabilityComplete(provider)) {
-      return `חסרה זמינות פעילה עבור אחד ה${config.locationLabelPlural} שלך.`;
+      return config.showFacilities
+        ? "חסרה זמינות — הגדירו לוח זמנים לכל מתקן ולכל רופא/ה ביחידה."
+        : `חסרה זמינות פעילה עבור אחד ה${config.locationLabelPlural} שלך.`;
     }
     if (config.showAffiliatedDoctors && !isAffiliatedDoctorsComplete(provider)) {
       return "הוסיפו את הרופאים המשויכים ושייכו אותם לשירותי הייעוץ שלכם.";

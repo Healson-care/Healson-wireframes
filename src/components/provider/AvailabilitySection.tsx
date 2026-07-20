@@ -23,6 +23,7 @@ import {
 import { DAY_LABELS } from "@/lib/medical-tree";
 import {
   DAY_KEYS,
+  ScheduleHolder,
   formatShift,
   getWeeklySchedule,
   minutesToTime,
@@ -111,9 +112,11 @@ export function AvailabilitySection({
       )}
 
       {selected && (
-        <LocationSchedule
+        <ScheduleEditor
           key={selected.id}
-          clinic={selected}
+          holder={selected}
+          title={selected.name}
+          subtitle={LOCATION_TYPE_LABELS[selected.location_type ?? "clinic"]}
           services={services.filter(
             (s) => (s.linked_clinic_ids?.length ?? 0) === 0 || s.linked_clinic_ids!.includes(selected.id)
           )}
@@ -125,7 +128,11 @@ export function AvailabilitySection({
 }
 
 // ---------------------------------------------------------------------------
-// One location's week + exceptions
+// One schedule owner's week + exceptions.
+//
+// Deliberately generic over the owner: a location (Clinic), a unit's מתקן
+// (ProviderFacility) and an affiliated doctor all keep a week in the same
+// shape, so the same editor drives all three (§PRV-08).
 // ---------------------------------------------------------------------------
 
 interface ShiftDraft {
@@ -135,15 +142,27 @@ interface ShiftDraft {
   isNew: boolean;
 }
 
-function LocationSchedule({
-  clinic,
+export function ScheduleEditor<T extends ScheduleHolder>({
+  holder,
+  title,
+  subtitle,
   services,
   onChange,
+  emptyLabel = "לא הוגדרה זמינות",
+  serviceScopeLabel,
 }: {
-  clinic: Clinic;
+  holder: T;
+  title: string;
+  subtitle?: string;
+  /** Services that may be scoped per shift. */
   services: ConsultationType[];
-  onChange: (clinic: Clinic) => void;
+  onChange: (holder: T) => void;
+  emptyLabel?: string;
+  /** Label of the "every service" checkbox inside the shift dialog — the
+   * scope differs per owner ("כל השירותים במיקום זה" / "…של המתקן"). */
+  serviceScopeLabel?: string;
 }) {
+  const clinic = holder;
   const schedule = useMemo(() => getWeeklySchedule(clinic), [clinic]);
   const exceptions = useMemo(
     () => [...(clinic.schedule_exceptions ?? [])].sort((a, b) => a.date.localeCompare(b.date)),
@@ -246,14 +265,14 @@ function LocationSchedule({
         <div className="flex items-center gap-2 min-w-0">
           <CalendarClock className="h-4 w-4 shrink-0 text-slate-400" />
           <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-slate-900">{clinic.name}</p>
+            <p className="truncate text-sm font-medium text-slate-900">{title}</p>
             <p className="text-xs text-slate-500">
-              {LOCATION_TYPE_LABELS[clinic.location_type ?? "clinic"]} · {activeDays} ימי פעילות בשבוע ·{" "}
-              {weeklyHours.toFixed(1)} שעות נטו
+              {subtitle ? `${subtitle} · ` : ""}
+              {activeDays} ימי פעילות בשבוע · {weeklyHours.toFixed(1)} שעות נטו
             </p>
           </div>
         </div>
-        {activeDays === 0 && <Badge tone="warning">לא הוגדרה זמינות</Badge>}
+        {activeDays === 0 && <Badge tone="warning">{emptyLabel}</Badge>}
       </Card>
 
       {/* While the shift dialog is open the same error is shown inside it —
@@ -415,6 +434,7 @@ function LocationSchedule({
       <ShiftDialog
         draft={draft}
         services={services}
+        serviceScopeLabel={serviceScopeLabel}
         // Validation errors belong inside the dialog: the page-level banner
         // sits behind the modal backdrop, so a rejected save would look like
         // a dead button.
@@ -551,12 +571,14 @@ function ShiftChip({
 function ShiftDialog({
   draft,
   services,
+  serviceScopeLabel,
   error,
   onClose,
   onSave,
 }: {
   draft: ShiftDraft | null;
   services: ConsultationType[];
+  serviceScopeLabel?: string;
   error: string | null;
   onClose: () => void;
   onSave: (shift: ScheduleShift) => void;
@@ -578,7 +600,13 @@ function ShiftDialog({
               <span>{error}</span>
             </div>
           )}
-          <ShiftForm key={draft.shift.id} initial={draft.shift} services={services} onSave={onSave} />
+          <ShiftForm
+            key={draft.shift.id}
+            initial={draft.shift}
+            services={services}
+            serviceScopeLabel={serviceScopeLabel}
+            onSave={onSave}
+          />
         </div>
       )}
     </Dialog>
@@ -588,10 +616,12 @@ function ShiftDialog({
 function ShiftForm({
   initial,
   services,
+  serviceScopeLabel,
   onSave,
 }: {
   initial: ScheduleShift;
   services: ConsultationType[];
+  serviceScopeLabel?: string;
   onSave: (shift: ScheduleShift) => void;
 }) {
   const [start, setStart] = useState(initial.start);
@@ -705,7 +735,7 @@ function ShiftForm({
         </span>
         {services.length === 0 ? (
           <p className="mt-2 text-xs text-slate-400">
-            אין עדיין שירותים המשויכים למיקום זה — כל תור שייקבע יתאים לכל שירות עתידי.
+            אין עדיין שירותים משויכים — כל תור שייקבע יתאים לכל שירות עתידי.
           </p>
         ) : (
           <>
@@ -719,7 +749,7 @@ function ShiftForm({
                 }}
                 className="h-4 w-4 rounded border-slate-300 accent-primary"
               />
-              כל השירותים במיקום זה
+              {serviceScopeLabel ?? "כל השירותים במיקום זה"}
             </label>
             {!allServices && (
               <div className="mt-2 flex flex-wrap gap-1.5">

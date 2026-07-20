@@ -11,8 +11,22 @@
 // which services it hosts only yields slots for those, the location must
 // actually offer the service (ConsultationType.linked_clinic_ids), and slots
 // are sized to the service's own duration so a booking can't run past closing.
+//
+// Medical units (§PRV-08) are the exception to "one appointment at a time per
+// provider": a מכון has several independent queues (MRI 1, CT 1, each doctor),
+// so its slots are built per resource and a time stays available while ANY
+// resource that offers the service is still free — see src/lib/unit-resources.ts.
 import { Appointment, Clinic, ProviderProfile } from "@/types";
 import { slotTimesForDate } from "./schedule";
+import {
+  ResourceSlot,
+  UnitResource,
+  freeResourceIds,
+  getUnitResources,
+  resourcesForService,
+  unitSlotTimesForDate,
+  usesUnitResources,
+} from "./unit-resources";
 
 export function primaryLocation(provider: ProviderProfile): Clinic | undefined {
   return provider.clinic_locations.find((c) => c.is_primary) ?? provider.clinic_locations[0];
@@ -32,7 +46,14 @@ export interface MonthDay {
   dayOfMonth: number;
   weekday: number; // 0 (Sunday) .. 6 (Saturday) — matches Date#getDay()
   isPast: boolean; // today or earlier — never bookable
-  slots: { time: string; available: boolean }[];
+  slots: {
+    time: string;
+    available: boolean;
+    // Medical units only: the resource (מתקן / רופא) that would take this
+    // booking — the first one still free at that time. Stamped onto the
+    // Appointment so the next booking sees the machine as taken.
+    resourceId?: string;
+  }[];
 }
 
 // Every calendar day in the given month — the date grid needs every day
@@ -54,11 +75,19 @@ export function buildMonth(
   // service *this location* provides", not every service in the catalog.
   const offeredHere = !opts.serviceId || !location || serviceOfferedAt(provider, opts.serviceId, location.id);
   const blockedDates = new Set((provider.blocked_dates ?? []).map((b) => b.date));
+  const providerAppointments = appointments.filter((a) => a.provider_id === provider.id);
   const occupied = new Set(
-    appointments
-      .filter((a) => a.provider_id === provider.id && a.status !== "בוטל")
-      .map((a) => `${a.date}T${a.time}`)
+    providerAppointments.filter((a) => a.status !== "בוטל").map((a) => `${a.date}T${a.time}`)
   );
+
+  // Unit mode: the queues are the resources, not the site. `resources` is
+  // empty for every other provider type, which keeps the classic path below.
+  const unitMode = usesUnitResources(provider, opts.serviceId);
+  const unitResources: UnitResource[] = unitMode
+    ? opts.serviceId
+      ? resourcesForService(getUnitResources(provider), opts.serviceId)
+      : getUnitResources(provider)
+    : [];
 
   const year = monthDate.getFullYear();
   const month = monthDate.getMonth();
@@ -73,12 +102,21 @@ export function buildMonth(
     const isPast = d <= today;
     const date = `${year}-${String(month + 1).padStart(2, "0")}-${String(dayOfMonth).padStart(2, "0")}`;
     const isBlocked = blockedDates.has(date);
+    const closed = isPast || isBlocked;
 
-    const times = isPast || isBlocked || !offeredHere ? [] : slotTimesForDate(location, date, opts);
-    const slots = times.map((time) => ({
-      time,
-      available: !occupied.has(`${date}T${time}`),
-    }));
+    let slots: MonthDay["slots"];
+    if (unitMode) {
+      const resourceSlots: ResourceSlot[] = closed
+        ? []
+        : unitSlotTimesForDate(unitResources, date, opts);
+      slots = resourceSlots.map((slot) => {
+        const free = freeResourceIds(slot, providerAppointments, date);
+        return { time: slot.time, available: free.length > 0, resourceId: free[0] };
+      });
+    } else {
+      const times = closed || !offeredHere ? [] : slotTimesForDate(location, date, opts);
+      slots = times.map((time) => ({ time, available: !occupied.has(`${date}T${time}`) }));
+    }
 
     days.push({ date, dayOfMonth, weekday: d.getDay(), isPast, slots });
   }

@@ -239,6 +239,10 @@ interface EntitiesState {
     email?: string;
     full_name?: string;
   }) => ProviderProfile[];
+  // Free-text roster search, for the "חיפוש רופא/ה קיים/ת במערכת" path where
+  // the user is deliberately looking for someone rather than being warned about
+  // a duplicate: substring match on name / license / specialty / phone / email.
+  searchDoctors: (query: string) => ProviderProfile[];
   addAffiliatedDoctor: (
     organizationId: string,
     data: {
@@ -890,6 +894,23 @@ export const useStore = create<Store>()(
           if (name && norm(p.display_name) === name) return true;
           return false;
         });
+      },
+
+      searchDoctors: (query) => {
+        const q = query.trim().toLowerCase();
+        if (q.length < 2) return [];
+        const digits = q.replace(/\D/g, "");
+        return get()
+          .providers.filter((p) => !p.provider_type || p.provider_type === "doctor")
+          .filter((p) => {
+            const haystack = [p.display_name, p.license_number, p.specialty, p.contact_email]
+              .filter(Boolean)
+              .join(" ")
+              .toLowerCase();
+            if (haystack.includes(q)) return true;
+            return digits.length >= 3 && (p.contact_phone ?? "").replace(/\D/g, "").includes(digits);
+          })
+          .slice(0, 20);
       },
 
       addAffiliatedDoctor: (organizationId, data) => {

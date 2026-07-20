@@ -515,6 +515,11 @@ export interface ConsultationType {
   // set instead of relying on service_type alone for organization types whose
   // catalogue has its own vocabulary ("בדיקות עד הבית", "בחירת מנתח"…).
   service_category?: string;
+  // Ministry-of-Health procedure code (§PRV-09). Mandatory for the clinical
+  // service types that have an official code — test / imaging / procedure /
+  // surgery — chosen from the searchable code book in src/lib/moh-codes.ts.
+  // Consultations and internal/product-like entries have no MOH code.
+  moh_code?: string;
   linked_clinic_ids?: string[]; // Clinic ("calendar") ids this service can be booked against
   // Requires a referral/pre-authorization from the patient's kupah before
   // booking — relevant across every service_type, so kept ungated.
@@ -685,7 +690,99 @@ export interface AffiliatedDoctor {
   role?: string; // "רופא בכיר", "מנהל יחידה"… free text
   service_ids: string[]; // ConsultationType ids of the organization's catalog
   clinic_ids?: string[]; // organization locations the doctor works at
+  // The doctor's own week inside the unit (§PRV-08). In a medical unit
+  // availability is owned by the *resource* that delivers the service, not by
+  // the unit as a whole — a doctor with no schedule of their own simply has no
+  // bookable slots (their services fall back to the unit's general hours).
+  schedule?: WeeklySchedule;
+  schedule_exceptions?: ScheduleException[];
   added_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Medical units (§PRV-08) — מכון רפואי / מרפאת חוץ.
+//
+// A unit is a single site (the unit IS the branch — no sub-branches), and what
+// it sells is delivered by one of two kinds of *resource*:
+//   • מתקן  — a machine/room with its own queue: "MRI 1", "CT 1", "חדר פעולות".
+//   • רופא  — an affiliated doctor (see AffiliatedDoctor above).
+// Each resource keeps its own weekly schedule and the services linked to it
+// ("MRI ראש" and "MRI בטן" hang off MRI 1), and each resource is booked
+// independently — MRI 1, CT 1 and a doctor can all run at the same hour.
+// The unit-level week ("זמינות כללית") is the unit's opening hours plus the
+// combined picture of every resource — see src/lib/unit-resources.ts.
+// ---------------------------------------------------------------------------
+export const UNIT_PROVIDER_TYPES: ProviderType[] = ["medical_institute", "outpatient_clinic"];
+
+export function isUnitProviderType(type?: ProviderType): boolean {
+  return !!type && UNIT_PROVIDER_TYPES.includes(type);
+}
+
+export type FacilityKind =
+  | "mri"
+  | "ct"
+  | "ultrasound"
+  | "xray"
+  | "mammography"
+  | "pet_ct"
+  | "bone_density"
+  | "endoscopy"
+  | "cardiology"
+  | "treatment_room"
+  | "procedure_room"
+  | "operating_room"
+  | "sampling_station"
+  | "other";
+
+export const FACILITY_KINDS: FacilityKind[] = [
+  "mri",
+  "ct",
+  "ultrasound",
+  "xray",
+  "mammography",
+  "pet_ct",
+  "bone_density",
+  "endoscopy",
+  "cardiology",
+  "treatment_room",
+  "procedure_room",
+  "operating_room",
+  "sampling_station",
+  "other",
+];
+
+export const FACILITY_KIND_LABELS: Record<FacilityKind, string> = {
+  mri: "MRI",
+  ct: "CT",
+  ultrasound: "אולטרסאונד",
+  xray: "רנטגן",
+  mammography: "ממוגרפיה",
+  pet_ct: "PET-CT",
+  bone_density: "צפיפות עצם",
+  endoscopy: "אנדוסקופיה",
+  cardiology: "מכשור קרדיולוגי",
+  treatment_room: "חדר טיפולים",
+  procedure_room: "חדר פעולות",
+  operating_room: "חדר ניתוח",
+  sampling_station: "עמדת דגימות",
+  other: "אחר",
+};
+
+/** A bookable machine/room inside a medical unit — its own queue, its own
+ * week, and the services performed on it. */
+export interface ProviderFacility {
+  id: string;
+  name: string; // "MRI 1" — free text, this is what the schedule is labelled by
+  kind: FacilityKind;
+  model?: string; // "Siemens Magnetom Vida 3T"
+  room?: string; // "חדר 4, קומה -1"
+  is_active: boolean;
+  // ConsultationType ids performed on this facility ("MRI ראש", "MRI בטן"…).
+  // Empty means the facility exists but nothing is bookable on it yet.
+  service_ids: string[];
+  schedule?: WeeklySchedule;
+  schedule_exceptions?: ScheduleException[];
+  created_at: string;
 }
 
 // Provider types a member (child) provider belongs to — excludes
@@ -745,6 +842,10 @@ export interface ProviderProfile {
   // Organization only (outpatient_clinic / medical_institute) — doctors
   // working under this organization and the services each one delivers.
   affiliated_doctors?: AffiliatedDoctor[];
+  // Medical units only (§PRV-08) — the unit's machines/rooms, each with its own
+  // queue and week. Together with affiliated_doctors these are the unit's
+  // bookable resources.
+  facilities?: ProviderFacility[];
   // Doctor only — organizations this doctor is affiliated with (the inverse
   // of affiliated_doctors, kept in sync by the store so a doctor's own
   // profile can show where they practice).
@@ -807,6 +908,12 @@ export interface Appointment {
   provider_name: string;
   service_name: string;
   clinic_id?: string; // which of the provider's clinic_locations this was booked at
+  // For medical units (§PRV-08): which resource — a facility (MRI-1, CT-1) or an
+  // affiliated doctor — actually holds this appointment. Capacity is counted per
+  // resource, so two appointments at the same time on different resources are
+  // legitimate. Undefined on unit appointments booked before the resource model
+  // existed (and on every non-unit provider, which has a single calendar).
+  resource_id?: string;
   date: string; // yyyy-MM-dd
   time: string; // HH:mm
   duration_minutes: number;
