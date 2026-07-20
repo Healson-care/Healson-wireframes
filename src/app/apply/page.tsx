@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Mail, Lock, Phone, User as UserIcon, CheckCircle2, Clock, ShieldCheck, FileText, Rocket, X } from "lucide-react";
+// `Lock` doubles as the password-field icon and the locked-step marker.
 import { Logo } from "@/components/shared/Logo";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
@@ -13,13 +14,13 @@ import { useStore } from "@/lib/store";
 // The join timeline — deliberately a compact single-column list rather than a
 // stack of cards: the whole page has to fit one 100%-zoom viewport, and the
 // form column (ending in the Google button) is what must never be cut off.
-const JOIN_STEPS: { icon: React.ReactNode; title: string; description: string; done?: boolean }[] = [
-  { icon: <UserIcon className="h-4 w-4" />, title: "יצירת חשבון", description: "נפתח בשנייה, נכנסים מיד" },
-  { icon: <FileText className="h-4 w-4" />, title: "מילוי פרטים", description: "בוחרים סוג ספק ומשלימים את הטופס" },
+const JOIN_STEPS: { icon: React.ReactNode; title: string; description: string; locked?: boolean }[] = [
+  { icon: <UserIcon className="h-4 w-4" />, title: "יצירת חשבון", description: "נפתח בשנייה, נכנסים מיד לפורטל" },
+  { icon: <FileText className="h-4 w-4" />, title: "מילוי פרטי הבקשה", description: "בקצב שלכם — נשמר, אפשר לעצור ולחזור" },
   { icon: <Clock className="h-4 w-4" />, title: "בדיקת רישיון", description: "צוות Healson בודק — עד 24 שעות" },
-  { icon: <ShieldCheck className="h-4 w-4" />, title: "חתימת הסכם", description: "הסכם שירותים מול Healson" },
-  { icon: <Rocket className="h-4 w-4" />, title: "הגדרת קטלוג וזמינות", description: "שירותים, מיקומים ולוח זמנים" },
-  { icon: <CheckCircle2 className="h-4 w-4" />, title: "פעיל בפלטפורמה", description: "הפרופיל חי ומקבל הזמנות", done: true },
+  { icon: <ShieldCheck className="h-4 w-4" />, title: "חתימת הסכם", description: "נפתח אחרי אישור הרישיון", locked: true },
+  { icon: <Rocket className="h-4 w-4" />, title: "קטלוג, מיקומים וזמינות", description: "נפתח אחרי אישור הרישיון", locked: true },
+  { icon: <CheckCircle2 className="h-4 w-4" />, title: "פעיל בפלטפורמה", description: "הפרופיל חי ומקבל הזמנות", locked: true },
 ];
 
 export default function ProviderApplyPage() {
@@ -49,7 +50,11 @@ export default function ProviderApplyPage() {
         setError(result.error ?? "שגיאה ביצירת החשבון");
         return;
       }
-      router.push("/provider/register");
+      // Land in the portal HOME, not straight in the form — the dashboard's
+      // ProviderJourney is the "your account exists, here's the whole path,
+      // fill it at your pace" moment that a silent jump into a long form
+      // never delivered.
+      router.push("/provider/dashboard");
     }, 300);
   }
 
@@ -157,20 +162,23 @@ export default function ProviderApplyPage() {
               <li key={step.title} className="flex items-start gap-2.5">
                 <span
                   className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${
-                    step.done ? "bg-success-bg text-success-text" : "bg-primary/10 text-primary"
+                    step.locked ? "bg-slate-100 text-slate-400" : "bg-primary/10 text-primary"
                   }`}
                 >
-                  {step.done ? step.icon : i + 1}
+                  {step.locked ? <Lock className="h-3 w-3" /> : i + 1}
                 </span>
                 <div className="min-w-0">
-                  <p className="text-xs font-medium text-slate-900">{step.title}</p>
+                  <p className={`text-xs font-medium ${step.locked ? "text-slate-400" : "text-slate-900"}`}>
+                    {step.title}
+                  </p>
                   <p className="text-[11px] leading-snug text-slate-500">{step.description}</p>
                 </div>
               </li>
             ))}
           </ol>
           <p className="mt-3 rounded-lg border border-primary/20 bg-primary/5 p-2.5 text-[11px] leading-snug text-slate-600">
-            <strong>💡 טיפ:</strong> רק יצירת החשבון נדרשת עכשיו — שאר השלבים מחכים לכם בפורטל, בזמנכם.
+            <strong>💡 טיפ:</strong> רק יצירת החשבון נדרשת עכשיו. מיד אחריה תהיו בתוך הפורטל, ואת פרטי הבקשה
+            אפשר למלא בכמה פעימות — הכול נשמר עד שתחליטו לשלוח לבדיקה.
           </p>
         </aside>
       </div>

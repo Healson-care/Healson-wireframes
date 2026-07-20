@@ -35,8 +35,10 @@ export function ProviderGoogleSignIn({ label = "המשך עם Google" }: { label
     setWelcomeOpen(true);
   }
 
-  function goToApplication() {
-    router.push("/provider/register");
+  // Straight to the portal home — the dashboard is where every stage of the
+  // journey is driven from, including picking a provider type.
+  function goToPortal() {
+    router.push("/provider/dashboard");
   }
 
   return (
@@ -52,19 +54,19 @@ export function ProviderGoogleSignIn({ label = "המשך עם Google" }: { label
 
       {/* Not dismissible into limbo: closing (X / backdrop) still continues to
           the application, since the account already exists and is signed in. */}
-      <Dialog open={welcomeOpen} onClose={goToApplication}>
+      <Dialog open={welcomeOpen} onClose={goToPortal}>
         <div className="flex flex-col items-center text-center">
           <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-accent text-white shadow-md">
             <Sparkles className="h-7 w-7" />
           </span>
           <h2 className="text-xl font-bold text-slate-900">ברוכים הבאים ל-Healson!</h2>
-          <p className="mt-2 text-sm text-slate-500">החשבון שלך נוצר בהצלחה.</p>
+          <p className="mt-2 text-sm text-slate-500">החשבון שלך נוצר ואתם כבר מחוברים.</p>
           <p className="mt-3 max-w-sm text-sm leading-relaxed text-slate-600">
-            השלב הבא הוא מילוי בקשת ההצטרפות — בחירת סוג הספק, פרטי ההתמחות והעלאת המסמכים. לאחר אישור הבקשה
-            תמשיכו לשלבי ההגדרה והפרסום.
+            נכנסים ישירות לפורטל שלכם. שם תבחרו את סוג הספק ותשלימו את פרטי הבקשה — בקצב שלכם, הכול נשמר,
+            ושום דבר לא נשלח לבדיקה עד שתחליטו.
           </p>
-          <Button className="mt-6 w-full" onClick={goToApplication}>
-            המשך לבקשת ההצטרפות
+          <Button className="mt-6 w-full" onClick={goToPortal}>
+            כניסה לפורטל
             <ArrowLeft className="h-4 w-4" />
           </Button>
         </div>
