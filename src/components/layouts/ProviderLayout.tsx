@@ -52,33 +52,35 @@ export function ProviderLayout({ children }: { children: ReactNode }) {
   const isOnboarding = ready && status === "onboarding";
   const isApproved = ready && status === "approved";
 
-  // The whole provider journey lives inside this one portal shell. Pre-approval
-  // stages are pinned to their pages: an application (pending_review → only
-  // /provider/register) and onboarding (→ the dashboard + the profile-config
-  // pages, where setup happens). The operational nav (patients/appointments/
-  // referrals) only unlocks once approved (INV-SCOPE-GATE-01). A freshly
-  // registered provider (PROV-REGISTRATION) already has a real session while
-  // their license is reviewed, so they see the portal, not a standalone wizard.
+  // The whole provider journey lives inside this one portal shell, and every
+  // stage keeps the dashboard as its home: pending_review gets the dashboard
+  // (where ProviderJourney shows the whole path) plus the application form,
+  // onboarding gets the dashboard plus the profile-config pages where setup
+  // happens. Crucially the setup pages (services/locations/availability) stay
+  // unreachable until Healson verifies the license, and the operational nav
+  // (patients/appointments/referrals) until approval (INV-SCOPE-GATE-01). A
+  // freshly registered provider (PROV-REGISTRATION) already has a real session
+  // while their license is reviewed, so they see the portal, not a wizard.
   const onDashboard = pathname === "/provider/dashboard";
   const onRegister = pathname === "/provider/register";
   const onProfile = pathname.startsWith("/provider/profile");
-  const redirectingPending = isPendingReview && !onRegister;
+  const redirectingPending = isPendingReview && !onRegister && !onDashboard;
   const redirectingOnboarding = isOnboarding && !onDashboard && !onProfile;
 
   useEffect(() => {
-    if (redirectingPending) router.replace("/provider/register");
-    else if (redirectingOnboarding) router.replace("/provider/dashboard");
+    if (redirectingPending || redirectingOnboarding) router.replace("/provider/dashboard");
   }, [redirectingPending, redirectingOnboarding, router]);
 
   if (!ready || !user || redirectingPending || redirectingOnboarding) {
     return <DashboardSkeleton />;
   }
 
-  // Operational nav: everything once approved, just the dashboard during
-  // onboarding (setup is reached via the profile menu), nothing before that.
+  // Operational nav: everything once approved, just the dashboard for the two
+  // pre-approval stages — it's their home, and the only way back out of the
+  // application form / setup pages.
   const operationalItems = isApproved
     ? OPERATIONAL_NAV
-    : isOnboarding
+    : isOnboarding || isPendingReview
     ? OPERATIONAL_NAV.filter((i) => i.href === "/provider/dashboard")
     : [];
   // The full profile-management menu is for AFTER go-live — an approved
@@ -96,7 +98,17 @@ export function ProviderLayout({ children }: { children: ReactNode }) {
     ...(showProfileMenu ? [{ href: "/provider/profile", label: "פרופיל", icon: UserRound }] : []),
   ];
 
-  const stageBadge = isPendingReview ? "בקשה בבדיקה" : isOnboarding ? "השלמת הצטרפות" : "ספק";
+  // Before the application is sent the request is a DRAFT — saying "בבדיקה"
+  // there would be a lie (nothing was submitted yet) and is exactly what made
+  // the stage confusing. `application_submitted_at` is the real divider.
+  const applicationSubmitted = !!provider?.application_submitted_at;
+  const stageBadge = isPendingReview
+    ? applicationSubmitted
+      ? "בקשה בבדיקה"
+      : "בקשה בהכנה"
+    : isOnboarding
+    ? "השלמת הצטרפות"
+    : "ספק";
   const stageBadgeClass = isApproved ? "bg-amber-100 text-amber-700" : "bg-info-bg text-info-text";
 
   return (

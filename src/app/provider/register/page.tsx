@@ -30,7 +30,11 @@ import {
   Rocket,
   XCircle,
   Clock,
+  Save,
+  Lock,
+  ArrowRight,
 } from "lucide-react";
+import Link from "next/link";
 import { ProviderLayout } from "@/components/layouts/ProviderLayout";
 import { Input, Select, Textarea } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
@@ -39,6 +43,13 @@ import { useStore } from "@/lib/store";
 import { useRequireRole } from "@/lib/useRequireRole";
 import { useCurrentProvider } from "@/lib/useCurrentPatient";
 import { fileToDataUrl } from "@/lib/file";
+import {
+  PROVIDER_CATEGORIES,
+  PROVIDER_TYPE_ICONS,
+  ProviderCategory,
+  categoryForType,
+  getCategory,
+} from "@/lib/provider-categories";
 import {
   DOCTOR_SUBTYPES,
   DOCTOR_SUBTYPE_LABELS,
@@ -463,44 +474,6 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
   },
 };
 
-type ProviderCategory = "individual" | "organization" | "store";
-
-const CATEGORY_CONFIG: Record<ProviderCategory, { label: string; description: string; icon: React.ReactNode }> = {
-  individual: {
-    label: "ספק יחיד",
-    description: "רופא/ה או מטפל/ת עצמאי/ת",
-    icon: <UserIcon className="h-5 w-5" />,
-  },
-  organization: {
-    label: "יחידה רפואית",
-    description: "גוף המפעיל מספר מחלקות, סניפים או שירותים",
-    icon: <Network className="h-5 w-5" />,
-  },
-  store: {
-    label: "חנות לממכר מוצרי בריאות",
-    description: "חנות מוצרי בריאות, ציוד רפואי, אופטיקה ומוצרי טיפוח רפואי",
-    icon: <Store className="h-5 w-5" />,
-  },
-};
-
-// individual/organization gather several ProviderTypes behind an extra
-// "type" sub-step; "store" maps to exactly one ProviderType,
-// so selecting the category (selectCategory below) skips straight to the
-// form instead of showing a sub-step with a single, redundant option.
-const CATEGORY_TYPES: Record<ProviderCategory, ProviderType[]> = {
-  individual: ["doctor", "caregiver"],
-  organization: ["hospital", "outpatient_clinic", "medical_institute", "lab", "medical_call_center", "insurance_agency"],
-  store: ["store"],
-};
-
-function categoryForType(type: ProviderType): ProviderCategory {
-  return (
-    (Object.entries(CATEGORY_TYPES) as [ProviderCategory, ProviderType[]][]).find(([, types]) =>
-      types.includes(type)
-    )?.[0] ?? "individual"
-  );
-}
-
 const REGISTER_STEPS: { key: string; label: string; icon: ReactNode }[] = [
   { key: "type", label: "סוג ספק", icon: <Layers className="h-4 w-4" /> },
   { key: "form", label: "פרטי הבקשה", icon: <ClipboardPlus className="h-4 w-4" /> },
@@ -562,36 +535,69 @@ function RegisterStepper({ phase }: { phase: Phase }) {
 // this stage is presented as a pending request within the portal, not as a
 // standalone signup wizard. ProviderLayout supplies the header + stage badge
 // ("בקשה בבדיקה") and keeps the operational nav locked until approval.
-function RegisterShell({ phase, wide, children }: { phase: Phase; wide?: boolean; children: ReactNode }) {
+function RegisterShell({
+  phase,
+  wide,
+  side,
+  children,
+}: {
+  phase: Phase;
+  wide?: boolean;
+  /** Optional context rail (form phase) — turns the card into a real page. */
+  side?: ReactNode;
+  children: ReactNode;
+}) {
+  const card = (
+    <div
+      className={`w-full rounded-2xl border border-slate-200 p-6 shadow-lg transition-[max-width] duration-300 sm:p-8 ${
+        // The form phase nests white section cards, so its shell goes soft-grey
+        // for contrast; the standalone phases stay a plain white card.
+        side ? "bg-slate-50/80" : wide ? "max-w-3xl bg-white" : "max-w-md bg-white"
+      }`}
+    >
+      <RegisterStepper phase={phase} />
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={phase}
+          initial={{ opacity: 0, x: 14 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -14 }}
+          transition={{ duration: 0.25, ease: "easeOut" }}
+        >
+          {children}
+        </motion.div>
+      </AnimatePresence>
+    </div>
+  );
   return (
     <ProviderLayout>
-      <div className="flex flex-col items-center">
+      <div className="mx-auto flex w-full max-w-5xl flex-col items-center">
         {phase !== "otp" && phase !== "success" && (
-          <div className="mb-5 w-full max-w-2xl rounded-xl border border-info-border bg-info-bg px-4 py-3 text-sm text-info-text">
-            <p className="font-medium">בקשת הצטרפות כספק</p>
+          <div className="mb-5 w-full rounded-xl border border-info-border bg-info-bg px-4 py-3 text-sm text-info-text">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <p className="font-medium">שלב 2 בהצטרפות · פרטי הבקשה</p>
+              <Link
+                href="/provider/dashboard"
+                className="flex items-center gap-1 text-xs font-medium hover:underline"
+              >
+                <ArrowRight className="h-3.5 w-3.5" />
+                חזרה ללוח ההצטרפות
+              </Link>
+            </div>
             <p className="mt-0.5 text-xs text-info-text/80">
-              החשבון שלך נוצר. השלם/י את פרטי הבקשה לבדיקת צוות Healson — לאחר האישור ייפתח שלב ההצטרפות בפורטל.
+              החשבון שלך כבר נוצר ואת/ה בתוך הפורטל. אין צורך למלא הכול עכשיו — מה שתמלא/י נשמר, ואפשר לחזור
+              ולהמשיך מתי שנוח. רק בסיום נשלחת הבקשה לבדיקת הרישיון של צוות Healson.
             </p>
           </div>
         )}
-        <div
-          className={`w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-lg transition-[max-width] duration-300 sm:p-8 ${
-            wide ? "max-w-2xl" : "max-w-md"
-          }`}
-        >
-          <RegisterStepper phase={phase} />
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={phase}
-              initial={{ opacity: 0, x: 14 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -14 }}
-              transition={{ duration: 0.25, ease: "easeOut" }}
-            >
-              {children}
-            </motion.div>
-          </AnimatePresence>
-        </div>
+        {side ? (
+          <div className="grid w-full gap-4 lg:grid-cols-[minmax(0,1fr)_290px] lg:items-start">
+            {card}
+            <aside className="lg:sticky lg:top-20">{side}</aside>
+          </div>
+        ) : (
+          card
+        )}
       </div>
     </ProviderLayout>
   );
@@ -662,9 +668,9 @@ function FormSection({
   children: ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
-      <div className="mb-3 flex items-center gap-2">
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+      <div className="mb-4 flex items-center gap-2.5 border-b border-slate-100 pb-3">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/15 to-accent-bg text-primary">
           {icon}
         </div>
         <div className="min-w-0">
@@ -672,7 +678,7 @@ function FormSection({
           {description && <p className="text-xs text-slate-500">{description}</p>}
         </div>
       </div>
-      <div className="flex flex-col gap-3">{children}</div>
+      <div className="flex flex-col gap-3.5">{children}</div>
     </div>
   );
 }
@@ -844,25 +850,13 @@ export default function ProviderRegisterPage() {
     return null;
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!providerType || !config || !provider) return;
-    setError("");
-    if (currentFormStepKey === "details" || isLastFormStep) {
-      const stepError = detailsStepError();
-      if (stepError) {
-        setError(stepError);
-        return;
-      }
-    }
-    // Not on the last sub-step yet — advance instead of submitting (native
-    // `required` validation already ran on the visible fields).
-    if (!isLastFormStep) {
-      setFormStep(safeFormStep + 1);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      return;
-    }
-    setLoading(true);
+  // Everything typed so far is written to the profile as a DRAFT — on every
+  // sub-step advance, and on "שמירה והמשך מאוחר יותר". Nothing here submits
+  // the application (that's submitProviderApplication, from the last step
+  // only), so the applicant can stop at any point and come back without
+  // losing work — which is what the portal promises them.
+  async function persistDraft(): Promise<boolean> {
+    if (!providerType || !config || !provider) return false;
     let licenseFileRecord: UploadedFile | undefined;
     let medicalResumeFileRecord: UploadedFile | undefined;
     try {
@@ -882,8 +876,7 @@ export default function ProviderRegisterPage() {
         : provider.medical_resume_file;
     } catch (err) {
       setError(err instanceof Error ? err.message : "שגיאה בהעלאת הקובץ");
-      setLoading(false);
-      return;
+      return false;
     }
     upsertProviderProfile(provider.user_id, {
       provider_type: providerType,
@@ -916,6 +909,34 @@ export default function ProviderRegisterPage() {
       full_name: nameIsPerson ? fullName : contactName || user?.full_name,
       phone: accountPhone,
     });
+    return true;
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!providerType || !config || !provider) return;
+    setError("");
+    if (currentFormStepKey === "details" || isLastFormStep) {
+      const stepError = detailsStepError();
+      if (stepError) {
+        setError(stepError);
+        return;
+      }
+    }
+    setLoading(true);
+    const saved = await persistDraft();
+    if (!saved) {
+      setLoading(false);
+      return;
+    }
+    // Not on the last sub-step yet — advance instead of submitting (native
+    // `required` validation already ran on the visible fields).
+    if (!isLastFormStep) {
+      setLoading(false);
+      setFormStep(safeFormStep + 1);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
     const result = submitProviderApplication(provider.id);
     setLoading(false);
     if (!result.ok) {
@@ -924,6 +945,19 @@ export default function ProviderRegisterPage() {
     }
     setPhase("otp");
     showToast("קוד אימות נשלח", { description: `קוד הדגמה: ${result.otpHint}`, variant: "success" });
+  }
+
+  async function handleSaveAndExit() {
+    setError("");
+    setLoading(true);
+    const saved = await persistDraft();
+    setLoading(false);
+    if (!saved) return;
+    showToast("הפרטים נשמרו", {
+      description: "אפשר להמשיך מהמקום שבו עצרת בכל זמן — הבקשה עדיין לא נשלחה ל-Healson.",
+      variant: "success",
+    });
+    router.push("/provider/dashboard");
   }
 
   function handleVerify(e: React.FormEvent) {
@@ -971,7 +1005,7 @@ export default function ProviderRegisterPage() {
 
   function selectCategory(c: ProviderCategory) {
     setCategory(c);
-    const types = CATEGORY_TYPES[c];
+    const types = getCategory(c).types;
     if (types.length === 1) {
       // "store" maps to exactly one ProviderType — skip the
       // redundant "type" sub-step and go straight to the form.
@@ -1017,39 +1051,42 @@ export default function ProviderRegisterPage() {
           <h1 className="text-lg font-semibold text-slate-900">ברוך/ה הבא/ה, {fullName || user.full_name}</h1>
           <p className="text-xs text-slate-500 mt-1">בחר/י את סוג הספק כדי להמשיך — לכל סוג יש פרטים שונים שנדרשים לאישור ראשוני</p>
         </div>
-        <div className="grid sm:grid-cols-2 gap-3">
-          {(Object.entries(CATEGORY_CONFIG) as [ProviderCategory, (typeof CATEGORY_CONFIG)[ProviderCategory]][]).map(
-            ([value, cfg], i) => (
-              <motion.button
-                key={value}
-                type="button"
-                onClick={() => selectCategory(value)}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.05, duration: 0.25 }}
-                whileHover={{ scale: 1.02, y: -2 }}
-                whileTap={{ scale: 0.985 }}
-                className="group flex items-center gap-3 rounded-xl border border-slate-200 px-4 py-4 text-right hover:border-primary hover:bg-primary/5 hover:shadow-md transition-all"
-              >
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-amber-100 to-amber-200 text-amber-700">
-                  {cfg.icon}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-slate-900">{cfg.label}</p>
-                  <p className="text-xs text-slate-500">{cfg.description}</p>
-                </div>
-                <ChevronRight className="h-4 w-4 shrink-0 text-slate-400 rtl:rotate-180 transition-transform group-hover:-translate-x-0.5" />
-              </motion.button>
-            )
-          )}
+        <div className="grid gap-3 sm:grid-cols-3">
+          {PROVIDER_CATEGORIES.map((cfg, i) => (
+            <motion.button
+              key={cfg.key}
+              type="button"
+              onClick={() => selectCategory(cfg.key)}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.06, duration: 0.25 }}
+              whileHover={{ y: -3 }}
+              whileTap={{ scale: 0.985 }}
+              className="group flex flex-col rounded-2xl border border-slate-200 bg-white p-5 text-right shadow-sm transition-all hover:border-primary hover:shadow-md"
+            >
+              <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/15 to-accent-bg text-primary shadow-inner">
+                <cfg.icon className="h-6 w-6" />
+              </span>
+              <span className="text-sm font-bold text-slate-900">{cfg.label}</span>
+              <span className="mt-1 text-xs leading-relaxed text-slate-500">{cfg.description}</span>
+              <span className="mt-3 border-t border-dashed border-slate-200 pt-2.5 text-[11px] leading-relaxed text-slate-400">
+                {cfg.examples}
+              </span>
+              <span className="mt-3 flex items-center gap-1 text-xs font-semibold text-primary">
+                בחירה
+                <ChevronRight className="h-3.5 w-3.5 rtl:rotate-180 transition-transform group-hover:-translate-x-0.5" />
+              </span>
+            </motion.button>
+          ))}
         </div>
       </RegisterShell>
     );
   }
 
   if (phase === "type" && category) {
+    const CategoryIcon = getCategory(category).icon;
     return (
-      <RegisterShell phase={phase}>
+      <RegisterShell phase={phase} wide>
         <div className="mb-4 flex items-center gap-2">
           <button
             type="button"
@@ -1057,13 +1094,13 @@ export default function ProviderRegisterPage() {
               setCategory(null);
               setPhase("category");
             }}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/15 to-accent-bg text-primary"
             aria-label="חזרה לבחירת קטגוריה"
           >
-            {CATEGORY_CONFIG[category].icon}
+            <CategoryIcon className="h-5 w-5" />
           </button>
           <div className="min-w-0 flex-1">
-            <h1 className="text-lg font-semibold text-slate-900">{CATEGORY_CONFIG[category].label}</h1>
+            <h1 className="text-lg font-semibold text-slate-900">{getCategory(category).label}</h1>
             <p className="text-xs text-slate-500">בחר/י את סוג הספק המדויק כדי להמשיך</p>
           </div>
           <button
@@ -1077,9 +1114,10 @@ export default function ProviderRegisterPage() {
             שינוי קטגוריה
           </button>
         </div>
-        <div className="flex flex-col gap-2">
-          {CATEGORY_TYPES[category].map((value, i) => {
+        <div className="grid gap-2.5 sm:grid-cols-2">
+          {getCategory(category).types.map((value, i) => {
             const cfg = TYPE_CONFIG[value]!;
+            const Icon = PROVIDER_TYPE_ICONS[value];
             return (
               <motion.button
                 key={value}
@@ -1087,19 +1125,19 @@ export default function ProviderRegisterPage() {
                 onClick={() => selectType(value)}
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.05, duration: 0.25 }}
-                whileHover={{ scale: 1.015 }}
+                transition={{ delay: i * 0.04, duration: 0.2 }}
+                whileHover={{ y: -2 }}
                 whileTap={{ scale: 0.985 }}
-                className="group flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-3 text-right hover:border-primary hover:bg-primary/5 hover:shadow-sm transition-colors"
+                className="group flex items-start gap-3.5 rounded-2xl border border-slate-200 bg-white p-4 text-right shadow-sm transition-all hover:border-primary hover:shadow-md"
               >
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-amber-100 to-amber-200 text-amber-700">
-                  {cfg.icon}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-slate-900">{cfg.label}</p>
-                  <p className="text-xs text-slate-500 truncate">{cfg.description}</p>
-                </div>
-                <ChevronRight className="h-4 w-4 shrink-0 text-slate-400 rtl:rotate-180 transition-transform group-hover:-translate-x-0.5" />
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/15 to-accent-bg text-primary">
+                  <Icon className="h-5 w-5" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold text-slate-900">{cfg.label}</span>
+                  <span className="mt-0.5 block text-xs leading-relaxed text-slate-500">{cfg.description}</span>
+                </span>
+                <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-slate-300 rtl:rotate-180 transition-transform group-hover:-translate-x-0.5 group-hover:text-primary" />
               </motion.button>
             );
           })}
@@ -1222,17 +1260,24 @@ export default function ProviderRegisterPage() {
             </div>
           </div>
 
-          {!rejected && (
-            <div className="mt-4 w-full rounded-xl border border-info-border bg-info-bg p-4 text-right">
-              <p className="text-xs font-semibold text-info-text mb-2">📋 מה עכשיו?</p>
-              <ol className="text-xs text-info-text space-y-1.5 text-right">
-                <li><strong>1.</strong> חתום על הסכם השירותים עם Healson</li>
-                <li><strong>2.</strong> בחרו הסדרי ביטוח (קופות, ביטוח פרטי)</li>
-                <li><strong>3.</strong> הוסיפו את השירותים/מוצרים שלכם</li>
-                <li><strong>4.</strong> הוסיפו מיקום (מרפאה, סניף, וכו&apos;)</li>
-                <li><strong>5.</strong> קבעו זמינות (שעות פעילות)</li>
-                <li><strong>6.</strong> שלחו בקשה לפרסום סופי</li>
-              </ol>
+          {/* Deliberately NOT a to-do list: none of these are actionable until
+              Ops verifies the license, so they're presented as locked. */}
+          {!rejected && !approved && (
+            <div className="mt-4 w-full rounded-xl border border-dashed border-slate-300 bg-slate-50/60 p-4 text-right">
+              <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-slate-500">
+                <Lock className="h-3.5 w-3.5" /> מה ייפתח אחרי אישור הרישיון
+              </p>
+              <ul className="space-y-1.5 text-right text-xs text-slate-500">
+                <li>· חתימה על הסכם השירותים מול Healson</li>
+                <li>· הסדרי ביטוח (קופות, ביטוח פרטי)</li>
+                <li>· השירותים או המוצרים שלכם</li>
+                <li>· מיקומים (מרפאה, סניף וכו&apos;)</li>
+                <li>· זמינות ושעות פעילות</li>
+                <li>· בקשת פרסום סופית</li>
+              </ul>
+              <p className="mt-2.5 text-[11px] text-slate-400">
+                אין צורך להתעסק בהם עכשיו — הם ייפתחו אוטומטית בלוח ההצטרפות ברגע שהבדיקה תסתיים.
+              </p>
             </div>
           )}
 
@@ -1257,9 +1302,14 @@ export default function ProviderRegisterPage() {
           )}
 
           {!rejected && !approved && (
-            <div className="mt-2 flex items-center gap-2 text-sm text-slate-500">
-              <Clock className="h-4 w-4 animate-pulse" /> ממתינים לבדיקת הרישיון מול צוות Healson…
-            </div>
+            <>
+              <div className="mt-2 flex items-center gap-2 text-sm text-slate-500">
+                <Clock className="h-4 w-4 animate-pulse" /> ממתינים לבדיקת הרישיון מול צוות Healson…
+              </div>
+              <Button variant="outline" onClick={() => router.push("/provider/dashboard")}>
+                <ArrowRight className="h-4 w-4" /> חזרה ללוח ההצטרפות
+              </Button>
+            </>
           )}
 
           {approved && (
@@ -1274,32 +1324,91 @@ export default function ProviderRegisterPage() {
 
   if (!config || !providerType) return null;
 
+  const TypeIcon = PROVIDER_TYPE_ICONS[providerType];
+  // The context rail: where you are in the form, what to have ready, and the
+  // standing promise that nothing is sent until you say so.
+  const formSide = (
+    <div className="flex flex-col gap-3">
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <p className="mb-3 text-xs font-semibold text-slate-500">שלבי הטופס</p>
+        <ol className="flex flex-col gap-2.5">
+          {formSteps.map((step, i) => (
+            <li key={step.key} className="flex items-center gap-2">
+              <span
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${
+                  i < safeFormStep
+                    ? "bg-success-bg text-success-text"
+                    : i === safeFormStep
+                    ? "bg-primary text-white"
+                    : "bg-slate-100 text-slate-400"
+                }`}
+              >
+                {i < safeFormStep ? <CheckCircle2 className="h-3.5 w-3.5" /> : i + 1}
+              </span>
+              <span
+                className={`text-xs ${
+                  i === safeFormStep ? "font-semibold text-slate-900" : "text-slate-500"
+                }`}
+              >
+                {step.label}
+              </span>
+            </li>
+          ))}
+        </ol>
+      </div>
+
+      <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4">
+        <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+          <Save className="h-3.5 w-3.5 text-primary" /> נשמר אוטומטית
+        </p>
+        <p className="text-[11px] leading-relaxed text-slate-600">
+          כל מה שמילאת נשמר בכל מעבר בין שלבים, ואפשר לצאת ולחזור מתי שנוח. הבקשה נשלחת לצוות Healson רק
+          בלחיצה על ״שליחת בקשה״.
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+          <Upload className="h-3.5 w-3.5 text-slate-400" /> מה כדאי להכין
+        </p>
+        <ul className="flex flex-col gap-1.5 text-[11px] leading-relaxed text-slate-500">
+          {config.licenseFileRequired !== false && <li>· {config.licenseFileLabel.replace(/\s*\(.*\)$/, "")}</li>}
+          {config.showMedicalResume && extraFieldsGate && <li>· קורות חיים / תעודות</li>}
+          {config.showLicenseNumber !== false && <li>· מספר רישיון בתוקף</li>}
+          {config.showBusinessRegNumber && <li>· ח״פ / ע״מ של העסק</li>}
+          {isSurgeon && <li>· בית החולים שבו יש הרשאת ניתוח</li>}
+        </ul>
+      </div>
+    </div>
+  );
+
   return (
-    <RegisterShell phase={phase} wide>
-      <div className="mb-4 flex items-center gap-2">
+    <RegisterShell phase={phase} side={formSide}>
+      <div className="mb-5 flex items-center gap-3">
         <button
           type="button"
           onClick={() => setPhase("type")}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/15 to-accent-bg text-primary transition-transform hover:scale-105"
           aria-label="חזרה לבחירת סוג ספק"
         >
-          {config.icon}
+          <TypeIcon className="h-5 w-5" />
         </button>
         <div className="min-w-0 flex-1">
-          <h1 className="text-lg font-semibold text-slate-900">הצטרפות כ{config.label}</h1>
-          <p className="text-xs text-slate-500">הפרטים הבאים נדרשים לאישור ראשוני מול הצוות</p>
+          <h1 className="text-lg font-bold text-slate-900">הצטרפות כ{config.label}</h1>
+          <p className="text-xs text-slate-500">אלה הפרטים שצוות Healson צריך כדי לאמת את הרישיון שלך</p>
         </div>
         <button
           type="button"
           onClick={() => setPhase("type")}
-          className="shrink-0 text-xs font-medium text-primary hover:underline"
+          className="shrink-0 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-primary hover:text-primary"
         >
           שינוי סוג
         </button>
       </div>
 
+      {/* Mobile echo of the side rail's step list (the rail stacks below). */}
       {formSteps.length > 1 && (
-        <div className="mb-4 flex flex-wrap items-center gap-1.5">
+        <div className="mb-4 flex flex-wrap items-center gap-1.5 lg:hidden">
           {formSteps.map((step, i) => (
             <span
               key={step.key}
@@ -1729,6 +1838,22 @@ export default function ProviderRegisterPage() {
           <Button type="submit" loading={loading} className="flex-1">
             {isLastFormStep ? "שליחת בקשה" : "המשך"}
           </Button>
+        </div>
+
+        {/* The escape hatch that makes "you don't have to finish now" real. */}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
+          <p className="flex items-center gap-1.5 text-xs text-slate-500">
+            <Save className="h-3.5 w-3.5" />
+            הפרטים נשמרים אוטומטית בכל שלב — הבקשה נשלחת ל-Healson רק בלחיצה על ״שליחת בקשה״.
+          </p>
+          <button
+            type="button"
+            onClick={handleSaveAndExit}
+            disabled={loading}
+            className="text-xs font-medium text-primary hover:underline disabled:opacity-50"
+          >
+            שמירה והמשך מאוחר יותר
+          </button>
         </div>
       </form>
     </RegisterShell>

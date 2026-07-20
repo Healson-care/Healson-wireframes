@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/Button";
 import { Avatar, EmptyState, StatCard } from "@/components/ui/Misc";
 import { CardListSkeleton, Skeleton } from "@/components/ui/Skeleton";
 import { OnboardingProgress } from "@/components/provider/OnboardingProgress";
+import { ProviderJourney } from "@/components/provider/ProviderJourney";
 import { ProviderApplicationSummary } from "@/components/provider/ProviderApplicationSummary";
 import {
   Users,
@@ -59,6 +60,11 @@ export default function ProviderDashboardPage() {
   }
 
   const setupConfig = getProviderSetupConfig(provider.provider_type);
+  const isPendingReview = provider.status === "pending_review";
+  const applicationSubmitted = !!provider.application_submitted_at;
+  // Brand-new account: ProviderJourney renders its own welcome hero (which is
+  // the greeting), so the operational header would just repeat it.
+  const showWelcomeHero = isPendingReview && !provider.provider_type;
   const isOnboarding = provider.status === "onboarding";
   const isApproved = provider.status === "approved";
   const isLive = provider.status === "approved" && provider.is_published;
@@ -178,7 +184,7 @@ export default function ProviderDashboardPage() {
     <ProviderLayout>
       {/* Greeting / operational header — identity, status and the primary
           publish action. Profile configuration lives under the פרופיל menu. */}
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+      <div className={`mb-6 flex-wrap items-center justify-between gap-4 ${showWelcomeHero ? "hidden" : "flex"}`}>
         <div className="flex items-center gap-3">
           <Avatar
             name={provider.display_name || currentUser.full_name}
@@ -188,12 +194,21 @@ export default function ProviderDashboardPage() {
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-lg sm:text-xl font-bold text-slate-900">
-                שלום, {provider.title} {provider.display_name}
+                שלום, {provider.title} {provider.display_name || currentUser.full_name}
               </h1>
-              <ProviderStatusBadge
-                status={provider.status}
-                title={provider.status === "rejected" ? provider.rejection_reason : undefined}
-              />
+              {/* A pending_review provider who hasn't sent the application yet
+                  is a DRAFT, not something waiting on Healson — the generic
+                  "ממתין לבדיקת רישיון" label would be wrong there. */}
+              {isPendingReview && !applicationSubmitted ? (
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                  בקשה בהכנה
+                </span>
+              ) : (
+                <ProviderStatusBadge
+                  status={provider.status}
+                  title={provider.status === "rejected" ? provider.rejection_reason : undefined}
+                />
+              )}
               {provider.is_published && <ProviderPublishedBadge />}
             </div>
             <div className="mt-0.5 flex flex-wrap items-center gap-3">
@@ -220,11 +235,18 @@ export default function ProviderDashboardPage() {
       </div>
 
       <div className="flex flex-col gap-6">
-        {/* Onboarding stage — the progress meter stays at the top throughout,
-            with the application recap right below it. Both vanish once past
-            onboarding; the operational home takes over. */}
+        {/* Pre-approval stages — the dashboard IS the home for both of them.
+            Before the license is verified ProviderJourney shows the whole path
+            with the setup steps locked; after it, OnboardingProgress unlocks
+            the same steps. Both vanish once approved and the operational home
+            takes over. */}
+        {isPendingReview && (
+          <ProviderJourney provider={provider} displayName={provider.display_name || currentUser.full_name} />
+        )}
         {isOnboarding && <OnboardingProgress provider={provider} />}
-        {isOnboarding && <ProviderApplicationSummary provider={provider} />}
+        {(isOnboarding || (isPendingReview && applicationSubmitted)) && (
+          <ProviderApplicationSummary provider={provider} />
+        )}
 
         {/* Alerts & notifications. */}
         {alerts.length > 0 && (
