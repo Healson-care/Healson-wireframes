@@ -13,6 +13,7 @@ import { isValidIsraeliId } from "@/lib/utils";
 import { fileToDataUrl } from "@/lib/file";
 import { homeForRole } from "@/lib/useRequireRole";
 import { cn } from "@/lib/utils";
+import { POST_REGISTER_REDIRECT_KEY } from "@/lib/constants";
 import { UploadedFile } from "@/types";
 import {
   ConsentCheckboxes,
@@ -67,6 +68,22 @@ function calcAge(dob: string): number | null {
   const diffMs = Date.now() - d.getTime();
   if (diffMs < 0) return null;
   return Math.floor(diffMs / (365.25 * 24 * 3600 * 1000));
+}
+
+// Local to this page only — adds a "back to home" link without touching the
+// shared AuthLayout used by /login, /register, /forgot-password, etc.
+function PageShell({ children }: { children: React.ReactNode }) {
+  return (
+    <>
+      <Link
+        href="/"
+        className="fixed top-4 right-4 z-10 text-sm text-slate-500 hover:text-primary"
+      >
+        חזרה לדף הבית
+      </Link>
+      <AuthLayout>{children}</AuthLayout>
+    </>
+  );
 }
 
 export default function ClientLoginPage() {
@@ -142,6 +159,15 @@ export default function ClientLoginPage() {
       setExistingPhone(GOOGLE_DEMO_EXISTING.phone);
       setExistingPassword(GOOGLE_DEMO_EXISTING.password);
     }
+  }
+
+  // If something (e.g. /book, blocked mid-flow behind the auth-required
+  // popup) stashed a return path before sending the user here, resume there
+  // once they finish — otherwise fall back to the normal post-auth home.
+  function goAfterAuth(fallback: string) {
+    const redirectTo = sessionStorage.getItem(POST_REGISTER_REDIRECT_KEY);
+    sessionStorage.removeItem(POST_REGISTER_REDIRECT_KEY);
+    router.push(redirectTo || fallback);
   }
 
   function handleCredentialsSubmit(e: React.FormEvent) {
@@ -231,7 +257,7 @@ export default function ClientLoginPage() {
       consents
     );
     showToast("ההרשמה הושלמה", { description: "ברוכים הבאים ל-HEALSON", variant: "success" });
-    router.push("/client");
+    goAfterAuth("/client");
   }
 
   function handleExistingSubmit(e: React.FormEvent) {
@@ -252,7 +278,7 @@ export default function ClientLoginPage() {
         return;
       }
       const user = useStore.getState().currentUser;
-      router.push(user ? homeForRole(user.role) : "/login");
+      goAfterAuth(user ? homeForRole(user.role) : "/login");
     }, 300);
   }
 
@@ -294,7 +320,7 @@ export default function ClientLoginPage() {
           return;
         }
         const user = useStore.getState().currentUser;
-        router.push(user ? homeForRole(user.role) : "/login");
+        goAfterAuth(user ? homeForRole(user.role) : "/login");
       }
     }, 300);
   }
@@ -344,7 +370,7 @@ export default function ClientLoginPage() {
   if (phase === "otp-sms" || phase === "otp-email") {
     const stepIdx = mode === "new" ? NEW_PHASE_INDEX[phase] : undefined;
     return (
-      <AuthLayout>
+      <PageShell>
         {mode === "new" && stepIdx !== undefined && (
           <>
             <Stepper steps={NEW_STEPS} step={stepIdx} />
@@ -402,14 +428,14 @@ export default function ClientLoginPage() {
             </form>
           </>
         )}
-      </AuthLayout>
+      </PageShell>
     );
   }
 
   // ---- New-patient step 2: personal details ----
   if (phase === "new-profile") {
     return (
-      <AuthLayout>
+      <PageShell>
         <Stepper steps={NEW_STEPS} step={NEW_PHASE_INDEX["new-profile"]!} />
         <p className="text-xs text-slate-400 mb-4">{NEW_STEPS[1]}</p>
         <button onClick={() => setPhase("new-credentials")} className="text-sm text-primary mb-3 flex items-center gap-1">
@@ -490,14 +516,14 @@ export default function ClientLoginPage() {
             המשך לפרופיל ביטוחי
           </Button>
         </form>
-      </AuthLayout>
+      </PageShell>
     );
   }
 
   // ---- New-patient step 3: insurance profile ----
   if (phase === "new-insurance") {
     return (
-      <AuthLayout>
+      <PageShell>
         <Stepper steps={NEW_STEPS} step={NEW_PHASE_INDEX["new-insurance"]!} />
         <p className="text-xs text-slate-400 mb-4">{NEW_STEPS[2]}</p>
         <button onClick={() => setPhase("new-profile")} className="text-sm text-primary mb-3 flex items-center gap-1">
@@ -509,7 +535,7 @@ export default function ClientLoginPage() {
             המשך להסכמות
           </Button>
         </form>
-      </AuthLayout>
+      </PageShell>
     );
   }
 
@@ -517,7 +543,7 @@ export default function ClientLoginPage() {
   if (phase === "new-consent") {
     const canFinish = areRequiredConsentsChecked(consents);
     return (
-      <AuthLayout>
+      <PageShell>
         <Stepper steps={NEW_STEPS} step={NEW_PHASE_INDEX["new-consent"]!} />
         <p className="text-xs text-slate-400 mb-4">{NEW_STEPS[3]}</p>
         <button onClick={() => setPhase("new-insurance")} className="text-sm text-primary mb-3 flex items-center gap-1">
@@ -527,13 +553,13 @@ export default function ClientLoginPage() {
         <Button className="w-full mt-4" disabled={!canFinish} onClick={handleStartFinalVerification}>
           המשך לאימות
         </Button>
-      </AuthLayout>
+      </PageShell>
     );
   }
 
   // ---- Default: mode toggle + step 1 (new) or the single existing-patient form ----
   return (
-    <AuthLayout>
+    <PageShell>
       {modeToggle}
 
       {mode === "new" && (
@@ -628,6 +654,6 @@ export default function ClientLoginPage() {
           הגישו בקשת הצטרפות כספק
         </Link>
       </p>
-    </AuthLayout>
+    </PageShell>
   );
 }

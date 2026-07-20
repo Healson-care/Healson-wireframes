@@ -3,10 +3,11 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Mail, Lock, Phone, User as UserIcon, CheckCircle2, Clock, ShieldCheck, FileText } from "lucide-react";
+import { Mail, Lock, Phone, User as UserIcon, CheckCircle2, Clock, ShieldCheck, FileText, X } from "lucide-react";
 import { Logo } from "@/components/shared/Logo";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
+import { ProviderGoogleSignIn } from "@/components/shared/ProviderGoogleSignIn";
 import { useStore } from "@/lib/store";
 
 export default function ProviderApplyPage() {
@@ -41,11 +42,17 @@ export default function ProviderApplyPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-primary/5 via-slate-50 to-amber-50 p-4">
+    <div className="relative flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-primary/5 via-slate-50 to-amber-50 p-4">
+      <Link
+        href="/"
+        className="absolute top-4 left-4 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-slate-400 hover:bg-white/60 hover:text-slate-600"
+      >
+        <X className="h-4 w-4" /> <span className="hidden sm:inline">חזרה לדף הבית</span>
+      </Link>
       <div className="mb-6">
         <Logo size={40} className="text-xl" />
       </div>
-      
+
       <div className="grid md:grid-cols-2 gap-6 w-full max-w-4xl">
         {/* Form Section */}
         <div className="w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-lg sm:p-8">
@@ -110,6 +117,14 @@ export default function ProviderApplyPage() {
             </Button>
           </form>
 
+          <div className="my-5 flex items-center gap-3">
+            <span className="h-px flex-1 bg-slate-200" />
+            <span className="text-xs text-slate-400">או</span>
+            <span className="h-px flex-1 bg-slate-200" />
+          </div>
+
+          <ProviderGoogleSignIn label="הצטרפות מהירה עם Google" />
+
           <p className="mt-5 text-center text-sm text-slate-500">
             כבר יש לך חשבון?{" "}
             <Link href="/login" className="text-primary font-medium hover:underline">
@@ -173,7 +188,7 @@ export default function ProviderApplyPage() {
           </div>
 
           <div className="mt-6 rounded-xl bg-primary/5 border border-primary/20 p-4">
-            <p className="text-xs text-slate-600"><strong>💡 טיפ:</strong> כל שלב עוד מה שלוש שעות — יצירת החשבון רק דקה!</p>
+            <p className="text-xs text-slate-600"><strong>💡 טיפ:</strong> יצירת החשבון לוקחת פחות מדקה — שאר השלבים מטופלים בהמשך, בזמנכם</p>
           </div>
         </div>
       </div>

@@ -2,7 +2,6 @@
 
 import { Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { motion } from "framer-motion";
 import {
   AlertCircle,
   ArrowLeft,
@@ -22,12 +21,13 @@ import { ClientLayout } from "@/components/layouts/ClientLayout";
 import { useStore } from "@/lib/store";
 import { useCurrentPatient } from "@/lib/useCurrentPatient";
 import { PageHeader, EmptyState } from "@/components/ui/Misc";
-import { Badge, StatusBadge } from "@/components/ui/Badge";
-import { Card } from "@/components/ui/Card";
+import { StatusBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { Input } from "@/components/ui/Input";
-import { fileToDataUrl } from "@/lib/file";
+import { FilterDropdown } from "@/components/ui/FilterDropdown";
+import { FileDropzone } from "@/components/ui/FileDropzone";
+import { fileToDataUrl, validateDocumentFile } from "@/lib/file";
 import { formatDateHe, cn } from "@/lib/utils";
 import { Appointment, DOCUMENT_CATEGORIES, DocumentCategory, LabReferral, PatientDocument } from "@/types";
 
@@ -41,40 +41,51 @@ const CATEGORY_ICON: Record<DocumentCategory, typeof FileText> = {
   visit_summary: ClipboardList,
   questionnaire: ListChecks,
   lab_result: FlaskConical,
+  other: FileText,
 };
 
-function FilterChip({
-  active,
-  onClick,
-  children,
+// Thin adapter over the shared FilterDropdown — this page stores "no
+// filter" as the "all" sentinel rather than null.
+function CategoryFilter({
+  activeCategory,
+  onChange,
 }: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
+  activeCategory: DocumentCategory | "all";
+  onChange: (category: DocumentCategory | "all") => void;
 }) {
   return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
-        active ? "bg-primary text-white" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
-      )}
-    >
-      {children}
-    </button>
+    <FilterDropdown
+      value={activeCategory === "all" ? null : activeCategory}
+      options={DOCUMENT_CATEGORIES.map((c) => ({ value: c.id, label: c.label }))}
+      allLabel="כל הקטגוריות"
+      onSelect={(value) => onChange((value as DocumentCategory) ?? "all")}
+    />
   );
 }
 
 // A single, compact row used inside an appointment's document group — dense
 // on purpose, since a visit can have 2-3 linked documents and the group
 // header already carries the visit context (date/provider/status).
-function DocRow({ item, onFill, onDownload }: { item: DocItem; onFill: () => void; onDownload: () => void }) {
+// Pending rows are this visit's checklist: a questionnaire is "filled" in
+// place (no file), anything else is fulfilled by actually attaching a file —
+// mirrors the same distinction on /client/appointments.
+function DocRow({
+  item,
+  onFill,
+  onUploadFile,
+  onDownload,
+}: {
+  item: DocItem;
+  onFill: () => void;
+  onUploadFile: (file: File | null) => void;
+  onDownload: () => void;
+}) {
   const categoryLabel = DOCUMENT_CATEGORIES.find((c) => c.id === item.category)?.label;
   const Icon = CATEGORY_ICON[item.category];
   const isPending = item.data.status === "ממתין למילוי";
 
   return (
-    <div className={cn("flex items-center justify-between gap-3 px-4 py-2.5", isPending && "bg-warning-bg")}>
+    <div className={cn("flex items-center justify-between gap-3 px-3.5 py-2", isPending && "bg-warning-bg")}>
       <div className="flex items-center gap-2.5 min-w-0">
         <Icon className={cn("h-4 w-4 shrink-0", isPending ? "text-warning-text" : "text-slate-400")} />
         <div className="min-w-0">
@@ -88,15 +99,116 @@ function DocRow({ item, onFill, onDownload }: { item: DocItem; onFill: () => voi
       </div>
       <div className="shrink-0">
         {isPending ? (
-          <Button size="sm" onClick={onFill}>
-            מלא עכשיו
-          </Button>
+          item.category === "questionnaire" ? (
+            <Button size="sm" onClick={onFill}>
+              מלא עכשיו
+            </Button>
+          ) : (
+            <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-primary hover:text-primary">
+              <Upload className="h-3.5 w-3.5" /> העלאה
+              <input
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png"
+                className="hidden"
+                onChange={(e) => onUploadFile(e.target.files?.[0] ?? null)}
+              />
+            </label>
+          )
         ) : item.data.file ? (
           <Button variant="outline" size="sm" onClick={onDownload}>
             <Download className="h-3.5 w-3.5" /> הורד
           </Button>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+// A compact row for a document/lab-result not tied to any visit — same slim
+// style as DocRow, so "מסמכים כלליים" reads as one consistent list instead
+// of a second, heavier card style.
+function GeneralItemRow({
+  item,
+  onFillQuestionnaire,
+  onUploadFile,
+  onDownload,
+}: {
+  item: DisplayItem;
+  onFillQuestionnaire: (docId: string) => void;
+  onUploadFile: (docId: string, file: File | null) => void;
+  onDownload: () => void;
+}) {
+  if (item.kind === "doc") {
+    const categoryLabel = DOCUMENT_CATEGORIES.find((c) => c.id === item.category)?.label;
+    const Icon = CATEGORY_ICON[item.category];
+    const isPending = item.data.status === "ממתין למילוי";
+    return (
+      <div className={cn("flex items-center justify-between gap-3 px-3.5 py-2", isPending && "bg-warning-bg")}>
+        <div className="flex items-center gap-2.5 min-w-0">
+          <Icon className={cn("h-4 w-4 shrink-0", isPending ? "text-warning-text" : "text-slate-400")} />
+          <div className="min-w-0">
+            <p className={cn("text-sm font-medium truncate", isPending ? "text-warning-text" : "text-slate-800")}>
+              {item.data.title}
+            </p>
+            <p className="text-xs text-slate-400">
+              {categoryLabel} · {formatDateHe(item.data.created_date)}
+            </p>
+          </div>
+        </div>
+        <div className="shrink-0">
+          {isPending ? (
+            item.category === "questionnaire" ? (
+              <Button size="sm" onClick={() => onFillQuestionnaire(item.data.id)}>
+                מלא עכשיו
+              </Button>
+            ) : (
+              <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-primary hover:text-primary">
+                <Upload className="h-3.5 w-3.5" /> העלאה
+                <input
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png"
+                  className="hidden"
+                  onChange={(e) => onUploadFile(item.data.id, e.target.files?.[0] ?? null)}
+                />
+              </label>
+            )
+          ) : item.data.file ? (
+            <Button variant="outline" size="sm" onClick={onDownload}>
+              <Download className="h-3.5 w-3.5" /> הורד
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  const isCompleted = item.data.status === "הושלם";
+  return (
+    <div className="px-3.5 py-2">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <FlaskConical className="h-4 w-4 shrink-0 text-slate-400" />
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-slate-800 truncate">{item.data.test_types.join(", ")}</p>
+            <p className="text-xs text-slate-400 truncate">
+              {item.data.provider_name} · {formatDateHe(item.data.created_date)}
+            </p>
+          </div>
+        </div>
+        <div className="shrink-0">
+          <StatusBadge status={item.data.status} kind="referral" />
+        </div>
+      </div>
+      {isCompleted && (
+        <div className="mt-2">
+          <p className="text-xs text-slate-600 rounded-lg bg-slate-50 p-2.5">{item.data.results}</p>
+          <div className="mt-2 flex justify-end">
+            <Button variant="outline" size="sm" onClick={onDownload}>
+              <Download className="h-3.5 w-3.5" /> הורד PDF
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -108,12 +220,14 @@ function AppointmentGroupCard({
   appointment,
   items,
   onFillQuestionnaire,
+  onUploadFile,
   onDownload,
   onViewAppointment,
 }: {
   appointment: Appointment;
   items: DocItem[];
   onFillQuestionnaire: (docId: string) => void;
+  onUploadFile: (docId: string, file: File | null) => void;
   onDownload: () => void;
   onViewAppointment: () => void;
 }) {
@@ -121,27 +235,33 @@ function AppointmentGroupCard({
     <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
       <button
         onClick={onViewAppointment}
-        className="flex w-full items-center justify-between gap-2 bg-slate-50 px-4 py-3 text-right hover:bg-slate-100 transition-colors"
+        className="flex w-full flex-wrap items-center justify-between gap-2 bg-slate-50 px-3.5 py-2.5 text-right hover:bg-slate-100 transition-colors"
       >
-        <div>
-          <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
-            <CalendarDays className="h-4 w-4 text-primary" /> {formatDateHe(appointment.date)}
+        <div className="min-w-0">
+          <p className="flex flex-wrap items-center gap-1.5 text-sm font-semibold text-slate-900">
+            <CalendarDays className="h-4 w-4 shrink-0 text-primary" /> {formatDateHe(appointment.date)}
             <span className="flex items-center gap-1 font-normal text-slate-400">
               <Clock className="h-3.5 w-3.5" /> {appointment.time}
             </span>
           </p>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-xs text-slate-500 mt-0.5 truncate">
             {appointment.service_name} · {appointment.provider_name}
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex shrink-0 items-center gap-2">
           <StatusBadge status={appointment.status} kind="appointment" />
           <ArrowLeft className="h-3.5 w-3.5 text-slate-400" />
         </div>
       </button>
       <div className="divide-y divide-slate-100">
         {items.map((item) => (
-          <DocRow key={item.id} item={item} onFill={() => onFillQuestionnaire(item.data.id)} onDownload={onDownload} />
+          <DocRow
+            key={item.id}
+            item={item}
+            onFill={() => onFillQuestionnaire(item.data.id)}
+            onUploadFile={(file) => onUploadFile(item.data.id, file)}
+            onDownload={onDownload}
+          />
         ))}
       </div>
     </div>
@@ -223,6 +343,23 @@ function ClientDocumentsPageContent() {
     showToast("השאלון מולא בהצלחה", { variant: "success" });
   }
 
+  // Fulfils a non-questionnaire checklist item by attaching the uploaded
+  // file directly to its existing placeholder record.
+  async function handleUploadRequiredDoc(docId: string, file: File | null) {
+    if (!file) return;
+    const validationError = validateDocumentFile(file);
+    if (validationError) {
+      showToast(validationError, { variant: "destructive" });
+      return;
+    }
+    const dataUrl = await fileToDataUrl(file);
+    updateDocument(docId, {
+      status: "זמין",
+      file: { file_name: file.name, uploaded_at: new Date().toISOString(), data_url: dataUrl },
+    });
+    showToast("המסמך הועלה בהצלחה", { variant: "success" });
+  }
+
   function handleDownload() {
     showToast("הקובץ הורד (מצב הדגמה)", { variant: "success" });
   }
@@ -251,7 +388,6 @@ function ClientDocumentsPageContent() {
     <ClientLayout>
       <PageHeader
         title="מסמכים"
-        description="מקובצים לפי תור, כדי לראות בבת אחת מה קשור למה — הפניות, קבלות, סיכומי ביקור, שאלונים ותוצאות מעבדה"
         actions={
           <Button size="sm" onClick={() => setUploadOpen(true)}>
             <Plus className="h-4 w-4" /> העלאת מסמך
@@ -261,15 +397,17 @@ function ClientDocumentsPageContent() {
 
       {appointmentFilter ? (
         <>
-          <div className="flex items-center justify-between gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3.5 py-2.5 mb-4 text-sm">
-            <span className="flex items-center gap-1.5 text-primary">
-              <CalendarDays className="h-4 w-4" />
-              מציג מסמכים לתור
-              {filteredAppointment ? ` · ${filteredAppointment.service_name} · ${formatDateHe(filteredAppointment.date)}` : ""}
+          <div className="flex items-center justify-between gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3.5 py-2.5 mb-3 text-sm">
+            <span className="flex min-w-0 items-center gap-1.5 text-primary">
+              <CalendarDays className="h-4 w-4 shrink-0" />
+              <span className="truncate">
+                מציג מסמכים לתור
+                {filteredAppointment ? ` · ${filteredAppointment.service_name} · ${formatDateHe(filteredAppointment.date)}` : ""}
+              </span>
             </span>
             <button
               onClick={() => router.push("/client/documents")}
-              className="flex items-center gap-1 rounded-full p-1 text-primary hover:bg-primary/10"
+              className="flex shrink-0 items-center gap-1 rounded-full p-1 text-primary hover:bg-primary/10"
               title="הצג את כל המסמכים"
             >
               <X className="h-4 w-4" />
@@ -281,6 +419,7 @@ function ClientDocumentsPageContent() {
               appointment={filteredGroup.appointment}
               items={filteredGroup.items}
               onFillQuestionnaire={handleFillQuestionnaire}
+              onUploadFile={handleUploadRequiredDoc}
               onDownload={handleDownload}
               onViewAppointment={() => router.push(`/client/appointments?appointment=${filteredGroup.appointment.id}`)}
             />
@@ -291,11 +430,11 @@ function ClientDocumentsPageContent() {
       ) : (
         <>
           {pendingItems.length > 0 && (
-            <div className="mb-4 rounded-xl border border-warning-border bg-warning-bg p-4">
-              <p className="flex items-center gap-1.5 text-sm font-semibold text-warning-text mb-2.5">
-                <AlertCircle className="h-4 w-4" /> פעולות נדרשות ({pendingItems.length})
+            <div className="mb-3 rounded-lg border border-warning-border bg-warning-bg p-2.5">
+              <p className="flex items-center gap-1.5 text-xs font-semibold text-warning-text mb-1.5">
+                <AlertCircle className="h-3.5 w-3.5" /> פעולות נדרשות ({pendingItems.length})
               </p>
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1">
                 {pendingItems.map((item) => {
                   const appt = item.data.appointment_id
                     ? appointments.find((a) => a.id === item.data.appointment_id)
@@ -303,19 +442,31 @@ function ClientDocumentsPageContent() {
                   return (
                     <div
                       key={item.id}
-                      className="flex items-center justify-between gap-2 rounded-lg bg-white/70 px-3 py-2"
+                      className="flex items-center justify-between gap-2 rounded-md bg-white/70 px-2 py-1"
                     >
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-warning-text truncate">{item.data.title}</p>
+                        <p className="text-xs font-medium text-warning-text truncate">{item.data.title}</p>
                         {appt && (
-                          <p className="text-xs text-warning-text/70">
+                          <p className="text-[11px] text-warning-text/70 truncate">
                             {appt.service_name} · {formatDateHe(appt.date)}
                           </p>
                         )}
                       </div>
-                      <Button size="sm" className="shrink-0" onClick={() => handleFillQuestionnaire(item.data.id)}>
-                        מלא עכשיו
-                      </Button>
+                      {item.category === "questionnaire" ? (
+                        <Button size="sm" className="shrink-0" onClick={() => handleFillQuestionnaire(item.data.id)}>
+                          מלא עכשיו
+                        </Button>
+                      ) : (
+                        <label className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-warning-text/40 bg-white px-2.5 py-1 text-[11px] font-medium text-warning-text transition-colors hover:bg-warning-text hover:text-white">
+                          <Upload className="h-3 w-3" /> העלאה
+                          <input
+                            type="file"
+                            accept=".pdf,.jpg,.jpeg,.png"
+                            className="hidden"
+                            onChange={(e) => handleUploadRequiredDoc(item.data.id, e.target.files?.[0] ?? null)}
+                          />
+                        </label>
+                      )}
                     </div>
                   );
                 })}
@@ -323,27 +474,21 @@ function ClientDocumentsPageContent() {
             </div>
           )}
 
-          <div className="flex gap-2 overflow-x-auto pb-1 mb-4 -mx-1 px-1">
-            <FilterChip active={activeCategory === "all"} onClick={() => setActiveCategory("all")}>
-              הכל
-            </FilterChip>
-            {DOCUMENT_CATEGORIES.map((c) => (
-              <FilterChip key={c.id} active={activeCategory === c.id} onClick={() => setActiveCategory(c.id)}>
-                {c.label}
-              </FilterChip>
-            ))}
+          <div className="mb-3">
+            <CategoryFilter activeCategory={activeCategory} onChange={setActiveCategory} />
           </div>
 
           {groups.length === 0 && generalItems.length === 0 ? (
             <EmptyState icon={<FileText className="h-10 w-10" />} title="אין מסמכים להצגה" />
           ) : (
-            <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-3">
               {groups.map((group) => (
                 <AppointmentGroupCard
                   key={group.appointment.id}
                   appointment={group.appointment}
                   items={group.items}
                   onFillQuestionnaire={handleFillQuestionnaire}
+                  onUploadFile={handleUploadRequiredDoc}
                   onDownload={handleDownload}
                   onViewAppointment={() => router.push(`/client/appointments?appointment=${group.appointment.id}`)}
                 />
@@ -351,73 +496,17 @@ function ClientDocumentsPageContent() {
 
               {generalItems.length > 0 && (
                 <div>
-                  <p className="text-xs font-semibold text-slate-400 mb-2 px-1">מסמכים כלליים</p>
-                  <div className="flex flex-col gap-3">
-                    {generalItems.map((item, i) => {
-                      const categoryLabel = DOCUMENT_CATEGORIES.find((c) => c.id === item.category)?.label;
-                      return (
-                        <motion.div
-                          key={item.id}
-                          initial={{ opacity: 0, y: 8 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ duration: 0.18, delay: i * 0.04 }}
-                        >
-                          <Card className="p-4">
-                            {item.kind === "doc" ? (
-                              <>
-                                <div className="flex items-start justify-between gap-2">
-                                  <div>
-                                    <p className="font-medium text-slate-900">{item.data.title}</p>
-                                    <p className="text-xs text-slate-500 mt-0.5">{categoryLabel}</p>
-                                    <p className="text-xs text-slate-400 mt-0.5">{formatDateHe(item.data.created_date)}</p>
-                                  </div>
-                                  {item.data.status && (
-                                    <Badge tone={item.data.status === "ממתין למילוי" ? "warning" : "success"}>
-                                      {item.data.status}
-                                    </Badge>
-                                  )}
-                                </div>
-
-                                {item.data.status === "ממתין למילוי" ? (
-                                  <div className="mt-3 flex justify-end">
-                                    <Button size="sm" onClick={() => handleFillQuestionnaire(item.data.id)}>
-                                      מלא עכשיו
-                                    </Button>
-                                  </div>
-                                ) : item.data.file ? (
-                                  <div className="mt-3 flex justify-end">
-                                    <Button variant="outline" size="sm" onClick={handleDownload}>
-                                      <Download className="h-3.5 w-3.5" /> הורד
-                                    </Button>
-                                  </div>
-                                ) : null}
-                              </>
-                            ) : (
-                              <>
-                                <div className="flex items-start justify-between gap-2">
-                                  <div>
-                                    <p className="font-medium text-slate-900">{item.data.test_types.join(", ")}</p>
-                                    <p className="text-xs text-slate-500 mt-0.5">{item.data.provider_name}</p>
-                                    <p className="text-xs text-slate-400 mt-0.5">{formatDateHe(item.data.created_date)}</p>
-                                  </div>
-                                  <StatusBadge status={item.data.status} kind="referral" />
-                                </div>
-                                {item.data.status === "הושלם" && (
-                                  <>
-                                    <p className="text-sm text-slate-600 mt-3 rounded-lg bg-slate-50 p-3">{item.data.results}</p>
-                                    <div className="mt-3 flex justify-end">
-                                      <Button variant="outline" size="sm" onClick={handleDownload}>
-                                        <Download className="h-3.5 w-3.5" /> הורד PDF
-                                      </Button>
-                                    </div>
-                                  </>
-                                )}
-                              </>
-                            )}
-                          </Card>
-                        </motion.div>
-                      );
-                    })}
+                  <p className="text-xs font-semibold text-slate-400 mb-1.5 px-1">מסמכים כלליים</p>
+                  <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm divide-y divide-slate-100">
+                    {generalItems.map((item) => (
+                      <GeneralItemRow
+                        key={item.id}
+                        item={item}
+                        onFillQuestionnaire={handleFillQuestionnaire}
+                        onUploadFile={handleUploadRequiredDoc}
+                        onDownload={handleDownload}
+                      />
+                    ))}
                   </div>
                 </div>
               )}
@@ -442,7 +531,7 @@ function ClientDocumentsPageContent() {
           />
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-slate-700">קובץ</label>
-            <input type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="text-sm" />
+            <FileDropzone file={file} onFileChange={setFile} />
           </div>
           <Button type="submit" loading={uploading} className="mt-2">
             <Upload className="h-4 w-4" /> העלה

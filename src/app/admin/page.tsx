@@ -23,7 +23,7 @@ import {
   SERVICE_TYPES,
   User,
 } from "@/types";
-import { generateId, formatDateHe } from "@/lib/utils";
+import { formatDateHe } from "@/lib/utils";
 import { EXAMPLE_REMINDER_APPOINTMENT, REMINDER_PLACEHOLDERS, renderReminderTemplate } from "@/lib/reminders";
 import { Plus, Trash2, Building2, Users, Settings, Percent, ShieldAlert, UserPlus } from "lucide-react";
 
@@ -36,9 +36,10 @@ export default function AdminSettingsPage() {
   const addAdminUser = useStore((s) => s.addAdminUser);
   const reminderSettings = useStore((s) => s.reminderSettings);
   const updateReminderSettings = useStore((s) => s.updateReminderSettings);
+  const addBranch = useStore((s) => s.addBranch);
+  const deleteBranch = useStore((s) => s.deleteBranch);
 
   const [localUsers, setLocalUsers] = useState(users);
-  const [localBranches, setLocalBranches] = useState(branches);
   const [branchOpen, setBranchOpen] = useState(false);
   const [branchForm, setBranchForm] = useState({ name: "", city: "", address: "" });
   const [deleteBranchId, setDeleteBranchId] = useState<string | null>(null);
@@ -58,8 +59,8 @@ export default function AdminSettingsPage() {
     showToast("התפקיד עודכן", { description: "שינוי זה הוא לצורכי הדגמה בלבד", variant: "success" });
   }
 
-  function addBranch() {
-    setLocalBranches((b) => [...b, { id: generateId("branch"), ...branchForm }]);
+  function handleAddBranch() {
+    addBranch(branchForm);
     showToast("הסניף נוסף בהצלחה", { variant: "success" });
     setBranchOpen(false);
     setBranchForm({ name: "", city: "", address: "" });
@@ -270,11 +271,11 @@ export default function AdminSettingsPage() {
               </Button>
             </CardHeader>
             <CardContent>
-              {localBranches.length === 0 ? (
+              {branches.length === 0 ? (
                 <EmptyState icon={<Building2 className="h-10 w-10" />} title="אין סניפים" />
               ) : (
                 <div className="grid sm:grid-cols-3 gap-3">
-                  {localBranches.map((b) => (
+                  {branches.map((b) => (
                     <div key={b.id} className="rounded-lg border border-slate-200 p-3">
                       <div className="flex items-start justify-between">
                         <div>
@@ -323,7 +324,7 @@ export default function AdminSettingsPage() {
           <Input label="שם הסניף" value={branchForm.name} onChange={(e) => setBranchForm({ ...branchForm, name: e.target.value })} />
           <Input label="עיר" value={branchForm.city} onChange={(e) => setBranchForm({ ...branchForm, city: e.target.value })} />
           <Input label="כתובת" value={branchForm.address} onChange={(e) => setBranchForm({ ...branchForm, address: e.target.value })} />
-          <Button onClick={addBranch}>שמור סניף</Button>
+          <Button onClick={handleAddBranch}>שמור סניף</Button>
         </div>
       </Dialog>
 
@@ -334,7 +335,7 @@ export default function AdminSettingsPage() {
         destructive
         confirmLabel="מחק"
         onConfirm={() => {
-          setLocalBranches((b) => b.filter((x) => x.id !== deleteBranchId));
+          if (deleteBranchId) deleteBranch(deleteBranchId);
           showToast("הסניף נמחק", { variant: "success" });
         }}
       />

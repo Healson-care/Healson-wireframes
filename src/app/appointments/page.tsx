@@ -10,33 +10,32 @@ import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog, Dialog } from "@/components/ui/Dialog";
-import { Input, Textarea } from "@/components/ui/Input";
+import { Input, Select, Textarea } from "@/components/ui/Input";
 import { GeneralAppointmentForm, GeneralAppointmentFormValues } from "@/components/admin/GeneralAppointmentForm";
 import { cn, formatDateHe } from "@/lib/utils";
-import {
-  addDays,
-  addMonths,
-  APPOINTMENT_CHIP_TONE,
-  findSchedulingConflict,
-  isoDate,
-  monthGridDays,
-  suggestNextFreeSlot,
-  WEEKDAY_LABELS,
-} from "@/lib/calendar";
-import { Appointment, DOCUMENT_CATEGORIES } from "@/types";
+import { addDays, addMonths, findSchedulingConflict, isoDate, monthGridDays, suggestNextFreeSlot } from "@/lib/calendar";
+import { Appointment, APPOINTMENT_STATUSES, DOCUMENT_CATEGORIES } from "@/types";
 import {
   AlertTriangle,
+  CalendarRange,
   Check,
-  CheckCircle2,
   CreditCard,
   Download,
   FileText,
   FolderOpen,
+  List,
   Pencil,
   Plus,
-  Send,
+  Search,
   X,
 } from "lucide-react";
+
+function startOfWeek(d: Date) {
+  const date = new Date(d);
+  date.setDate(date.getDate() - date.getDay());
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
 
 function AdminAppointmentsPageContent() {
   const router = useRouter();
@@ -54,8 +53,12 @@ function AdminAppointmentsPageContent() {
   const addDocument = useStore((s) => s.addDocument);
   const showToast = useStore((s) => s.showToast);
 
-  const [calendarMonth, setCalendarMonth] = useState(initialDay);
+  const [weekAnchor, setWeekAnchor] = useState(initialDay);
+  const [monthAnchor, setMonthAnchor] = useState(initialDay);
   const [selectedDay, setSelectedDay] = useState(initialDay);
+  const [view, setView] = useState<"week" | "month">("week");
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [cancelId, setCancelId] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ date: "", time: "", duration_minutes: 30, notes: "" });
@@ -63,29 +66,25 @@ function AdminAppointmentsPageContent() {
   const [bookOpen, setBookOpen] = useState(false);
   const [bookingDate, setBookingDate] = useState<string | undefined>(undefined);
 
+  const weekStart = startOfWeek(weekAnchor);
+  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+
   const dayAppointments = useMemo(() => {
     const dayIso = isoDate(selectedDay);
-    return appointments.filter((a) => a.date === dayIso).sort((a, b) => a.time.localeCompare(b.time));
-  }, [appointments, selectedDay]);
+    return appointments
+      .filter((a) => a.date === dayIso)
+      .filter((a) => statusFilter === "all" || a.status === statusFilter)
+      .filter((a) => !query || a.client_name.includes(query) || a.provider_name.includes(query))
+      .sort((a, b) => a.time.localeCompare(b.time));
+  }, [appointments, selectedDay, statusFilter, query]);
 
   const overdueBalanceAppointments = useMemo(() => {
     const todayIso = isoDate(new Date());
     return appointments.filter((a) => a.status === "מאושר" && a.date <= todayIso);
   }, [appointments]);
 
-  const tomorrowIso = useMemo(() => isoDate(addDays(new Date(), 1)), []);
-  const tomorrowPendingReminders = useMemo(
-    () => appointments.filter((a) => a.date === tomorrowIso && a.status !== "בוטל" && !a.reminder_sent_at),
-    [appointments, tomorrowIso]
-  );
-  const dayPendingReminders = useMemo(
-    () => dayAppointments.filter((a) => a.status !== "בוטל" && !a.reminder_sent_at),
-    [dayAppointments]
-  );
-
-  function appointmentsForDay(d: Date) {
-    const dayIso = isoDate(d);
-    return appointments.filter((a) => a.date === dayIso).sort((a, b) => a.time.localeCompare(b.time));
+  function countForDay(d: Date) {
+    return appointments.filter((a) => a.date === isoDate(d)).length;
   }
 
   function docsForAppointment(id: string) {
@@ -126,15 +125,6 @@ function AdminAppointmentsPageContent() {
   function openBooking(dateIso?: string) {
     setBookingDate(dateIso);
     setBookOpen(true);
-  }
-
-  function handleSendReminders(pending: Appointment[]) {
-    if (pending.length === 0) return;
-    const now = new Date().toISOString();
-    for (const a of pending) {
-      updateAppointment(a.id, { reminder_sent_at: now });
-    }
-    showToast(`נשלחו ${pending.length} תזכורות SMS`, { variant: "success" });
   }
 
   function handleCollectBalance(a: Appointment) {
@@ -196,25 +186,31 @@ function AdminAppointmentsPageContent() {
         title="ניהול תורים"
         description="לוח תורים מרכזי עבור כל הספקים"
         actions={
-          <>
-            {tomorrowPendingReminders.length > 0 && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  const d = new Date(tomorrowIso);
-                  setCalendarMonth(d);
-                  setSelectedDay(d);
-                  handleSendReminders(tomorrowPendingReminders);
-                }}
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1">
+              <button
+                onClick={() => setView("week")}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
+                  view === "week" ? "bg-primary text-white" : "text-slate-500 hover:bg-slate-50"
+                )}
               >
-                <Send className="h-4 w-4" /> שלח תזכורות למחר ({tomorrowPendingReminders.length})
-              </Button>
-            )}
+                <List className="h-3.5 w-3.5" /> שבועי
+              </button>
+              <button
+                onClick={() => setView("month")}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
+                  view === "month" ? "bg-primary text-white" : "text-slate-500 hover:bg-slate-50"
+                )}
+              >
+                <CalendarRange className="h-3.5 w-3.5" /> חודשי
+              </button>
+            </div>
             <Button size="sm" onClick={() => openBooking(isoDate(selectedDay))}>
               <Plus className="h-4 w-4" /> קביעת תור חדש
             </Button>
-          </>
+          </div>
         }
       />
 
@@ -234,7 +230,8 @@ function AdminAppointmentsPageContent() {
                   type="button"
                   onClick={() => {
                     const d = new Date(a.date);
-                    setCalendarMonth(d);
+                    setWeekAnchor(d);
+                    setMonthAnchor(d);
                     setSelectedDay(d);
                   }}
                   className="text-xs font-medium text-danger-text hover:underline"
@@ -256,123 +253,118 @@ function AdminAppointmentsPageContent() {
         </div>
       )}
 
-      <Card className="p-3 mb-4">
-        <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-slate-800">
-              {calendarMonth.toLocaleDateString("he-IL", { month: "long", year: "numeric" })}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setCalendarMonth(new Date());
-                setSelectedDay(new Date());
-              }}
-            >
-              היום
-            </Button>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setCalendarMonth((m) => addMonths(m, -1))}>
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        <Input
+          placeholder="חיפוש לפי מטופל או ספק..."
+          icon={<Search className="h-4 w-4" />}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="max-w-xs"
+        />
+        <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="max-w-[180px]">
+          <option value="all">כל הסטטוסים</option>
+          {APPOINTMENT_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </Select>
+      </div>
+
+      {view === "month" ? (
+        <Card className="p-3 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <Button variant="outline" size="sm" onClick={() => setMonthAnchor(addMonths(monthAnchor, -1))}>
               חודש קודם
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setCalendarMonth((m) => addMonths(m, 1))}>
+            <span className="text-sm font-medium text-slate-600">
+              {monthAnchor.toLocaleDateString("he-IL", { month: "long", year: "numeric" })}
+            </span>
+            <Button variant="outline" size="sm" onClick={() => setMonthAnchor(addMonths(monthAnchor, 1))}>
               חודש הבא
             </Button>
           </div>
-        </div>
-
-        <div className="grid grid-cols-7 gap-1 mb-1 text-center text-xs font-medium text-slate-400">
-          {WEEKDAY_LABELS.map((d) => (
-            <div key={d}>{d}</div>
-          ))}
-        </div>
-        <div className="grid grid-cols-7 gap-1">
-          {monthGridDays(calendarMonth).map((d) => {
-            const dayIso = isoDate(d);
-            const inMonth = d.getMonth() === calendarMonth.getMonth();
-            const isToday = dayIso === isoDate(new Date());
-            const isSelected = dayIso === isoDate(selectedDay);
-            const dayAppts = appointmentsForDay(d);
-            return (
-              <div
-                key={dayIso}
-                role="button"
-                tabIndex={0}
-                onClick={() => setSelectedDay(d)}
-                onKeyDown={(e) => e.key === "Enter" && setSelectedDay(d)}
-                className={cn(
-                  "group relative min-h-[76px] rounded-lg border p-1.5 text-right flex flex-col gap-1 cursor-pointer transition-colors",
-                  isSelected
-                    ? "bg-primary/10 border-primary"
-                    : inMonth
-                    ? "bg-white border-slate-200 hover:border-primary/40 hover:bg-primary/5"
-                    : "bg-slate-50/60 border-transparent",
-                  isToday && !isSelected && "ring-2 ring-primary/50"
-                )}
-              >
-                <div className="flex items-center justify-between">
-                  <span
-                    className={cn(
-                      "text-xs font-medium",
-                      inMonth ? "text-slate-700" : "text-slate-300",
-                      isToday && "text-primary"
-                    )}
-                  >
-                    {d.getDate()}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openBooking(dayIso);
-                    }}
-                    title="קביעת תור חדש בתאריך זה"
-                    className="opacity-0 group-hover:opacity-100 rounded-md p-0.5 text-primary hover:bg-primary/10 transition-opacity"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-                <div className="flex flex-col gap-0.5">
-                  {dayAppts.slice(0, 2).map((a) => {
-                    const overdue = a.status === "מאושר" && a.date <= isoDate(new Date());
-                    return (
-                      <span
-                        key={a.id}
-                        className={cn(
-                          "flex items-center gap-0.5 truncate rounded border px-1 py-0.5 text-[10px]",
-                          APPOINTMENT_CHIP_TONE[a.status] ?? "bg-slate-100 text-slate-600 border-slate-200",
-                          overdue && "ring-1 ring-danger-border"
-                        )}
-                        title={`${a.time} · ${a.client_name} · ${a.status}${overdue ? " · יתרה לא שולמה" : ""}`}
-                      >
-                        {overdue && <AlertTriangle className="h-2.5 w-2.5 shrink-0" />}
-                        <span className="truncate">
-                          {a.time} {a.client_name}
-                        </span>
-                      </span>
-                    );
-                  })}
-                  {dayAppts.length > 2 && <span className="text-[10px] text-slate-400">+{dayAppts.length - 2} נוספים</span>}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </Card>
-
-      {dayAppointments.length > 0 && (
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-sm font-medium text-slate-600">
-            {selectedDay.toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "numeric" })}
-          </span>
-          {dayPendingReminders.length > 0 && (
-            <Button size="sm" variant="outline" onClick={() => handleSendReminders(dayPendingReminders)}>
-              <Send className="h-3.5 w-3.5" /> שלח תזכורות ליום זה ({dayPendingReminders.length})
+          <div className="grid grid-cols-7 gap-1.5">
+            {monthGridDays(monthAnchor).map((d) => {
+              const isSelected = isoDate(d) === isoDate(selectedDay);
+              const inMonth = d.getMonth() === monthAnchor.getMonth();
+              const count = countForDay(d);
+              return (
+                <button
+                  key={d.toISOString()}
+                  onClick={() => {
+                    setSelectedDay(d);
+                    setView("week");
+                    setWeekAnchor(d);
+                  }}
+                  className={cn(
+                    "flex flex-col items-center gap-1 rounded-lg p-2 text-xs min-h-[52px]",
+                    isSelected
+                      ? "bg-primary text-white"
+                      : inMonth
+                      ? "bg-slate-50 text-slate-600 hover:bg-slate-100"
+                      : "bg-white text-slate-300 hover:bg-slate-50"
+                  )}
+                >
+                  <span className="font-semibold">{d.getDate()}</span>
+                  {count > 0 && (
+                    <span
+                      className={cn(
+                        "rounded-full px-1.5 text-[10px]",
+                        isSelected ? "bg-white/20" : "bg-primary/10 text-primary"
+                      )}
+                    >
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </Card>
+      ) : (
+        <Card className="p-3 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <Button variant="outline" size="sm" onClick={() => setWeekAnchor(addDays(weekAnchor, -7))}>
+              שבוע קודם
             </Button>
-          )}
-        </div>
+            <span className="text-sm font-medium text-slate-600">
+              {weekStart.toLocaleDateString("he-IL", { day: "2-digit", month: "2-digit" })} -{" "}
+              {addDays(weekStart, 6).toLocaleDateString("he-IL", { day: "2-digit", month: "2-digit" })}
+            </span>
+            <Button variant="outline" size="sm" onClick={() => setWeekAnchor(addDays(weekAnchor, 7))}>
+              שבוע הבא
+            </Button>
+          </div>
+          <div className="grid grid-cols-7 gap-1.5">
+            {weekDays.map((d) => {
+              const isSelected = isoDate(d) === isoDate(selectedDay);
+              return (
+                <button
+                  key={d.toISOString()}
+                  onClick={() => setSelectedDay(d)}
+                  className={cn(
+                    "flex flex-col items-center gap-1 rounded-lg p-2 text-xs",
+                    isSelected ? "bg-primary text-white" : "bg-slate-50 text-slate-600 hover:bg-slate-100"
+                  )}
+                >
+                  <span>{d.toLocaleDateString("he-IL", { weekday: "short" })}</span>
+                  <span className="font-semibold">{d.getDate()}</span>
+                  {countForDay(d) > 0 && (
+                    <span
+                      className={cn(
+                        "rounded-full px-1.5 text-[10px]",
+                        isSelected ? "bg-white/20" : "bg-primary/10 text-primary"
+                      )}
+                    >
+                      {countForDay(d)}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </Card>
       )}
 
       <AnimatePresence mode="wait">
@@ -384,7 +376,10 @@ function AdminAppointmentsPageContent() {
           transition={{ duration: 0.18 }}
         >
           {dayAppointments.length === 0 ? (
-            <EmptyState title="אין תורים ביום זה" description="בחר יום אחר ביומן למעלה, או קבע תור חדש" />
+            <EmptyState
+              title="אין תורים ביום זה"
+              description={query || statusFilter !== "all" ? "נסה לשנות את החיפוש או הסינון" : "בחר יום אחר בלוח למעלה, או קבע תור חדש"}
+            />
           ) : (
             <div className="flex flex-col gap-3">
               {dayAppointments.map((a, i) => (
@@ -407,11 +402,6 @@ function AdminAppointmentsPageContent() {
                         >
                           <FileText className="h-3 w-3" /> {docsForAppointment(a.id).length} מסמכים מקושרים
                         </button>
-                        {a.reminder_sent_at && (
-                          <p className="flex items-center gap-1 text-xs text-emerald-600 mt-1" title={`נשלח ${formatDateHe(a.reminder_sent_at)}`}>
-                            <CheckCircle2 className="h-3 w-3" /> תזכורת נשלחה
-                          </p>
-                        )}
                       </div>
                       <div className="flex flex-col items-end gap-1.5">
                         <StatusBadge status={a.status} kind="appointment" />

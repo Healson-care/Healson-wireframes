@@ -11,7 +11,7 @@ import { EmptyState } from "@/components/ui/Misc";
 
 const QUICK_ACTIONS = [
   { href: "/client/search", label: "חיפוש שירותים", icon: Search },
-  { href: "/client/appointments", label: "היסטוריית תורים", icon: CalendarDays },
+  { href: "/client/appointments", label: "התורים שלי", icon: CalendarDays },
   { href: "/client/profile", label: "הפרופיל שלי", icon: UserRound },
 ];
 

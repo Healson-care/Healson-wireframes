@@ -5,10 +5,10 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Home,
+  LayoutDashboard,
   Search,
   CalendarDays,
   FileText,
-  Bell,
   UserRound,
   LogOut,
 } from "lucide-react";
@@ -22,22 +22,41 @@ import { useRequireRole } from "@/lib/useRequireRole";
 import { useCurrentPatient } from "@/lib/useCurrentPatient";
 
 const NAV_ITEMS = [
-  { href: "/client", label: "בית", icon: Home },
+  { href: "/client", label: "אזור אישי", icon: LayoutDashboard },
   { href: "/client/search", label: "חיפוש", icon: Search },
-  { href: "/client/appointments", label: "היסטוריית תורים", icon: CalendarDays },
-  { href: "/client/reminders", label: "תזכורות", icon: Bell },
+  { href: "/client/appointments", label: "התורים שלי", icon: CalendarDays },
   { href: "/client/documents", label: "מסמכים", icon: FileText },
   { href: "/client/profile", label: "פרופיל", icon: UserRound },
 ];
 
 const COMMAND_ITEMS = NAV_ITEMS.map((item) => ({ ...item, group: "ניווט" }));
 
+// Small notification-style count badge overlaid on a nav icon — currently
+// only "מסמכים" uses it, for documents still waiting on the patient.
+function NavIcon({ Icon, count, className }: { Icon: typeof FileText; count: number; className: string }) {
+  return (
+    <span className="relative inline-flex">
+      <Icon className={className} />
+      {count > 0 && (
+        <span className="absolute -top-1.5 -left-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold leading-none text-white">
+          {count}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function ClientLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const logout = useStore((s) => s.logout);
+  const documents = useStore((s) => s.documents);
   const { ready, user } = useRequireRole("patient");
   const patient = useCurrentPatient();
+
+  const pendingDocumentsCount = documents.filter(
+    (d) => d.patient_id === patient?.id && d.status === "ממתין למילוי"
+  ).length;
 
   // Role alone isn't enough — a lead (patient-role user with no Patient
   // record, e.g. the demo "מטופל חדש") must never see the personal area,
@@ -69,12 +88,23 @@ export function ClientLayout({ children }: { children: ReactNode }) {
                   pathname === item.href ? "bg-primary/10 text-primary" : "text-slate-600 hover:bg-slate-100"
                 )}
               >
-                <item.icon className="h-4 w-4" />
+                <NavIcon
+                  Icon={item.icon}
+                  count={item.href === "/client/documents" ? pendingDocumentsCount : 0}
+                  className="h-4 w-4"
+                />
                 {item.label}
               </Link>
             ))}
           </nav>
           <div className="flex items-center gap-2">
+            <Link
+              href="/"
+              className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-primary hover:text-primary sm:text-sm"
+            >
+              <Home className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">חזרה לדף הבית</span>
+            </Link>
             <Badge tone={patient ? "success" : "warning"} title={patient ? "יש רשומת מטופל מלאה" : "מחובר/ת בלי רשומת מטופל — טרם הושלמה הרשמה"}>
               {patient ? "מטופל רשום" : "ליד"}
             </Badge>
@@ -82,7 +112,7 @@ export function ClientLayout({ children }: { children: ReactNode }) {
             <button
               onClick={() => {
                 logout();
-                router.push("/login");
+                router.push("/client/login");
               }}
               className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm text-slate-500 hover:bg-slate-100"
             >
@@ -96,7 +126,7 @@ export function ClientLayout({ children }: { children: ReactNode }) {
       <main className="flex-1 mx-auto w-full max-w-2xl px-4 py-6 pb-24 sm:pb-10">{children}</main>
 
       <nav className="fixed bottom-0 inset-x-0 z-30 border-t border-slate-200 bg-white sm:hidden">
-        <div className="grid grid-cols-6">
+        <div className="grid grid-cols-5">
           {NAV_ITEMS.map((item) => (
             <Link
               key={item.href}
@@ -106,7 +136,11 @@ export function ClientLayout({ children }: { children: ReactNode }) {
                 pathname === item.href ? "text-primary" : "text-slate-500"
               )}
             >
-              <item.icon className="h-5 w-5" />
+              <NavIcon
+                Icon={item.icon}
+                count={item.href === "/client/documents" ? pendingDocumentsCount : 0}
+                className="h-5 w-5"
+              />
               {item.label}
             </Link>
           ))}

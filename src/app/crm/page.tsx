@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useStore } from "@/lib/store";
 import { PageHeader, Avatar, StatCard } from "@/components/ui/Misc";
@@ -13,11 +13,15 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/Tabs";
 import { DataTable, DataTableColumn } from "@/components/ui/DataTable";
 import { PatientForm, PatientFormValues } from "@/components/admin/PatientForm";
 import { LeadForm, LeadFormValues } from "@/components/admin/LeadForm";
-import { KUPOT, LEAD_STATUSES, PATIENT_STATUSES, Patient, Lead } from "@/types";
+import { KUPOT, LEAD_STATUSES, PATIENT_STATUSES, Patient, Lead, LeadStatus } from "@/types";
 import { cn } from "@/lib/utils";
-import { Plus, Search, Users, X, Pencil, Trash2, ArrowLeftRight, FolderOpen } from "lucide-react";
+import { Plus, Search, Users, X, Pencil, Trash2, ArrowLeftRight, FolderOpen, LayoutGrid, List, Phone } from "lucide-react";
 
-export default function CrmPage() {
+function CrmPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialTab = searchParams.get("tab") === "leads" ? "leads" : "patients";
+
   const patients = useStore((s) => s.patients);
   const leads = useStore((s) => s.leads);
   const addPatient = useStore((s) => s.addPatient);
@@ -48,7 +52,7 @@ export default function CrmPage() {
         }
       />
 
-      <Tabs defaultValue="patients">
+      <Tabs defaultValue={initialTab} onValueChange={(v) => router.replace(`/crm?tab=${v}`)}>
         <TabsList className="mb-5 max-w-xs">
           <TabsTrigger value="patients" icon={<Users className="h-3.5 w-3.5" />}>מטופלים</TabsTrigger>
           <TabsTrigger value="leads" icon={<ArrowLeftRight className="h-3.5 w-3.5" />}>לידים</TabsTrigger>
@@ -81,6 +85,14 @@ export default function CrmPage() {
   );
 }
 
+export default function CrmPage() {
+  return (
+    <Suspense fallback={<AppLayout>{null}</AppLayout>}>
+      <CrmPageContent />
+    </Suspense>
+  );
+}
+
 function PatientsTab({
   patients,
   appointments,
@@ -105,6 +117,8 @@ function PatientsTab({
   const [formOpen, setFormOpen] = useState(false);
   const [editPatient, setEditPatient] = useState<Patient | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [bulkDeleteIds, setBulkDeleteIds] = useState<string[] | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const now = new Date();
   const activeCount = patients.filter((p) => (p.status || "פעיל") === "פעיל").length;
@@ -203,6 +217,21 @@ function PatientsTab({
         emptyIcon={<Users className="h-10 w-10" />}
         emptyTitle="אין מטופלים"
         emptyDescription="הוסף מטופל חדש או שנה את הסינון"
+        selectable
+        selectedIds={selectedIds}
+        onSelectedIdsChange={setSelectedIds}
+        bulkActions={(ids, clear) => (
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() => {
+              setBulkDeleteIds(ids);
+              clear();
+            }}
+          >
+            <Trash2 className="h-3.5 w-3.5" /> מחק נבחרים
+          </Button>
+        )}
         columns={
           [
             {
@@ -324,6 +353,20 @@ function PatientsTab({
           }
         }}
       />
+
+      <ConfirmDialog
+        open={!!bulkDeleteIds}
+        onClose={() => setBulkDeleteIds(null)}
+        title={`מחיקת ${bulkDeleteIds?.length ?? 0} מטופלים`}
+        description="פעולה זו אינה הפיכה."
+        destructive
+        confirmLabel="מחק נבחרים"
+        onConfirm={() => {
+          bulkDeleteIds?.forEach((id) => deletePatient(id));
+          showToast("המטופלים הנבחרים נמחקו", { variant: "success" });
+          setSelectedIds(new Set());
+        }}
+      />
     </div>
   );
 }
@@ -348,6 +391,9 @@ function LeadsTab({
   const [formOpen, setFormOpen] = useState(false);
   const [editLead, setEditLead] = useState<(typeof leads)[number] | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [bulkDeleteIds, setBulkDeleteIds] = useState<string[] | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [view, setView] = useState<"table" | "kanban">("table");
 
   const filtered = leads.filter((l) => {
     if (statusFilter && l.status !== statusFilter) return false;
@@ -384,22 +430,82 @@ function LeadsTab({
             </FilterChip>
           ))}
         </div>
+        <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 mr-auto">
+          <button
+            onClick={() => setView("table")}
+            className={cn(
+              "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
+              view === "table" ? "bg-primary text-white" : "text-slate-500 hover:bg-slate-50"
+            )}
+          >
+            <List className="h-3.5 w-3.5" /> טבלה
+          </button>
+          <button
+            onClick={() => setView("kanban")}
+            className={cn(
+              "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
+              view === "kanban" ? "bg-primary text-white" : "text-slate-500 hover:bg-slate-50"
+            )}
+          >
+            <LayoutGrid className="h-3.5 w-3.5" /> פייפליין
+          </button>
+        </div>
         <Button
           size="sm"
           onClick={() => {
             setEditLead(null);
             setFormOpen(true);
           }}
-          className="mr-auto"
         >
           <Plus className="h-4 w-4" /> ליד חדש
         </Button>
       </div>
 
+      {view === "kanban" ? (
+        <LeadKanban
+          leads={filtered}
+          onStatusChange={(id, status) => {
+            updateLead(id, { status });
+            showToast("סטטוס הליד עודכן", { variant: "success" });
+          }}
+          onEdit={(l) => {
+            setEditLead(l);
+            setFormOpen(true);
+          }}
+        />
+      ) : (
       <DataTable<Lead>
         rows={filtered}
         rowKey={(l) => l.id}
         emptyTitle="אין לידים"
+        selectable
+        selectedIds={selectedIds}
+        onSelectedIdsChange={setSelectedIds}
+        bulkActions={(ids, clear) => (
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                ids.forEach((id) => convertLead(id));
+                showToast("הלידים הנבחרים הומרו למטופלים", { variant: "success" });
+                clear();
+              }}
+            >
+              <ArrowLeftRight className="h-3.5 w-3.5" /> המר נבחרים
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => {
+                setBulkDeleteIds(ids);
+                clear();
+              }}
+            >
+              <Trash2 className="h-3.5 w-3.5" /> מחק נבחרים
+            </Button>
+          </>
+        )}
         columns={
           [
             {
@@ -462,6 +568,7 @@ function LeadsTab({
           </>
         )}
       />
+      )}
 
       <LeadForm
         open={formOpen}
@@ -494,6 +601,89 @@ function LeadsTab({
           }
         }}
       />
+
+      <ConfirmDialog
+        open={!!bulkDeleteIds}
+        onClose={() => setBulkDeleteIds(null)}
+        title={`מחיקת ${bulkDeleteIds?.length ?? 0} לידים`}
+        destructive
+        confirmLabel="מחק נבחרים"
+        onConfirm={() => {
+          bulkDeleteIds?.forEach((id) => deleteLead(id));
+          showToast("הלידים הנבחרים נמחקו", { variant: "success" });
+          setSelectedIds(new Set());
+        }}
+      />
+    </div>
+  );
+}
+
+function LeadKanban({
+  leads,
+  onStatusChange,
+  onEdit,
+}: {
+  leads: Lead[];
+  onStatusChange: (id: string, status: LeadStatus) => void;
+  onEdit: (lead: Lead) => void;
+}) {
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [dragOverStatus, setDragOverStatus] = useState<LeadStatus | null>(null);
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+      {LEAD_STATUSES.map((status) => {
+        const columnLeads = leads.filter((l) => l.status === status);
+        return (
+          <div
+            key={status}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOverStatus(status);
+            }}
+            onDragLeave={() => setDragOverStatus((s) => (s === status ? null : s))}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (draggedId) onStatusChange(draggedId, status);
+              setDraggedId(null);
+              setDragOverStatus(null);
+            }}
+            className={cn(
+              "flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50/60 p-2.5 min-h-[120px] transition-colors",
+              dragOverStatus === status && "border-primary bg-primary/5"
+            )}
+          >
+            <div className="flex items-center justify-between px-1">
+              <span className="text-xs font-semibold text-slate-600">{status}</span>
+              <Badge tone="slate">{columnLeads.length}</Badge>
+            </div>
+            {columnLeads.map((l) => (
+              <div
+                key={l.id}
+                draggable
+                onDragStart={() => setDraggedId(l.id)}
+                onDragEnd={() => setDraggedId(null)}
+                onClick={() => onEdit(l)}
+                className="cursor-grab rounded-lg border border-slate-200 bg-white p-2.5 text-sm shadow-sm active:cursor-grabbing hover:shadow-md transition-shadow"
+              >
+                <div className="flex items-center gap-2">
+                  <Avatar name={l.full_name} className="h-7 w-7 text-xs" />
+                  <p className="font-medium text-slate-900 truncate">{l.full_name}</p>
+                </div>
+                {l.phone && (
+                  <p className="mt-1.5 flex items-center gap-1 text-xs text-slate-500">
+                    <Phone className="h-3 w-3" /> {l.phone}
+                  </p>
+                )}
+                <p className="text-xs text-slate-400 mt-0.5">{l.source}</p>
+              </div>
+            ))}
+            {columnLeads.length === 0 && (
+              <p className="text-xs text-slate-300 text-center py-4">אין לידים</p>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

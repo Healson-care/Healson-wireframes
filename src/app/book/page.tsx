@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
@@ -8,6 +8,7 @@ import { ArrowRight, LogOut } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useCurrentPatient } from "@/lib/useCurrentPatient";
 import { resolveProviderPrice } from "@/lib/pricing";
+import { BOOK_RESUME_PROVIDER_KEY, POST_REGISTER_REDIRECT_KEY } from "@/lib/constants";
 import { Logo } from "@/components/shared/Logo";
 import { ConfirmDialog } from "@/components/ui/Dialog";
 import { BookingStepper } from "@/components/book/BookingStepper";
@@ -17,7 +18,6 @@ import { PaymentPanel } from "@/components/book/PaymentPanel";
 import { BookingConfirmation } from "@/components/book/BookingConfirmation";
 import { WaitlistJoinDialog } from "@/components/book/WaitlistJoinDialog";
 import { buildIcsDataUrl } from "@/lib/utils";
-import { buildDays, DaySlots } from "@/lib/scheduling";
 import { ProviderProfile } from "@/types";
 
 const HOLD_SECONDS = 180;
@@ -50,18 +50,10 @@ export default function BookPage() {
   const [showAuthRequired, setShowAuthRequired] = useState(false);
 
   const [selectedProvider, setSelectedProvider] = useState<ProviderProfile | null>(null);
-
-  // Slot availability is computed from the selected provider's real
-  // schedule plus existing appointments once a provider is chosen.
-  const days: DaySlots[] = useMemo(
-    () => (selectedProvider ? buildDays(selectedProvider, appointments) : []),
-    [selectedProvider, appointments]
-  );
-  const [activeDayIdx, setActiveDayIdx] = useState(0);
   const [selectedSlot, setSelectedSlot] = useState<{ date: string; time: string; label: string } | null>(null);
   const [holdExpiresAt, setHoldExpiresAt] = useState<number | null>(null);
   const [pendingAppointmentId, setPendingAppointmentId] = useState<string | null>(null);
-  const [waitlistSlot, setWaitlistSlot] = useState<{ date: string; time: string; label: string } | null>(null);
+  const [waitlistSlot, setWaitlistSlot] = useState<{ date?: string; time?: string; label?: string } | null>(null);
 
   const [payMethod, setPayMethod] = useState<"card" | "apple" | "google">("card");
   const [paying, setPaying] = useState(false);
@@ -82,6 +74,7 @@ export default function BookPage() {
 
   function handleSelectProvider(p: ProviderProfile) {
     if (!patient) {
+      sessionStorage.setItem(BOOK_RESUME_PROVIDER_KEY, p.id);
       setShowAuthRequired(true);
       return;
     }
@@ -89,11 +82,32 @@ export default function BookPage() {
     setStep(1);
   }
 
+  // Resume straight at the slot picker for whichever provider the visitor
+  // had clicked on right before getting blocked by the auth-required
+  // popup, instead of dropping them back at the provider list once they
+  // return here freshly logged in/registered.
+  useEffect(() => {
+    if (!patient) return;
+    const resumeProviderId = sessionStorage.getItem(BOOK_RESUME_PROVIDER_KEY);
+    if (!resumeProviderId) return;
+    sessionStorage.removeItem(BOOK_RESUME_PROVIDER_KEY);
+    const resumeProvider = providers.find((p) => p.id === resumeProviderId);
+    // Syncing from sessionStorage (external, only known once patient/
+    // hydration resolves) — not a derived-state anti-pattern.
+    /* eslint-disable react-hooks/set-state-in-effect */
+    if (resumeProvider) {
+      setSelectedProvider(resumeProvider);
+      setStep(1);
+    }
+    /* eslint-enable react-hooks/set-state-in-effect */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patient]);
+
   // Only ever invoked from the slot button's onClick — safe to read the clock here.
   // Creating the appointment here (not at payment time) is deliberate: from the
   // moment a slot is picked it's "ממתין לתשלום מקדמה" in the patient's history,
   // even if they never complete payment.
-  function selectSlot(date: string, time: string, label: string) {
+  function selectSlot(date: string, time: string, label: string, clinicId: string) {
     if (!selectedProvider || !patient) return;
     if (patient.processing_restricted) {
       showToast("לא ניתן להמשיך", { description: "עיבוד הנתונים של מטופל זה חסום. פנה לתמיכה.", variant: "destructive" });
@@ -105,11 +119,12 @@ export default function BookPage() {
       provider_id: selectedProvider.id,
       provider_name: `${selectedProvider.title ?? ""} ${selectedProvider.display_name}`.trim(),
       service_name: consultation?.name ?? "ייעוץ",
+      clinic_id: clinicId,
       date,
       time,
       duration_minutes: consultation?.duration_minutes ?? 30,
       status: "ממתין לתשלום מקדמה",
-     price,
+      price,
       deposit_amount: Math.round(price * 0.3),
       kupah: patient.kupah,
       notes: "",
@@ -199,6 +214,16 @@ export default function BookPage() {
           });
           setPendingQuestionnaire({ appointmentId: pendingAppointmentId, title: questionnaireTitle });
         }
+        for (const doc of consultation?.required_documents ?? []) {
+          addDocument({
+            patient_id: patientId,
+            category: "referral_personal",
+            title: doc.label,
+            uploaded_by: "system",
+            appointment_id: pendingAppointmentId,
+            status: "ממתין למילוי",
+          });
+        }
       }
       const icsUrl = buildIcsDataUrl({
         title: `תור ל-${selectedProvider.display_name}`,
@@ -238,7 +263,11 @@ export default function BookPage() {
                 <LogOut className="h-3.5 w-3.5" /> התנתק
               </button>
             ) : (
-              <Link href="/client/login" className="text-sm font-medium text-primary hover:underline">
+              <Link
+                href="/client/login"
+                onClick={() => sessionStorage.setItem(POST_REGISTER_REDIRECT_KEY, "/book")}
+                className="text-sm font-medium text-primary hover:underline"
+              >
                 התחברות או הרשמה
               </Link>
             )}
@@ -263,9 +292,7 @@ export default function BookPage() {
             </button>
             <SlotPicker
               provider={selectedProvider}
-              days={days}
-              activeDayIdx={activeDayIdx}
-              onDayChange={setActiveDayIdx}
+              appointments={appointments}
               onSelectSlot={selectSlot}
               onJoinWaitlist={(date, time, label) => setWaitlistSlot({ date, time, label })}
             />
@@ -328,7 +355,10 @@ export default function BookPage() {
       <ConfirmDialog
         open={showAuthRequired}
         onClose={() => setShowAuthRequired(false)}
-        onConfirm={() => router.push("/client/login")}
+        onConfirm={() => {
+          sessionStorage.setItem(POST_REGISTER_REDIRECT_KEY, "/book");
+          router.push("/client/login");
+        }}
         title="נדרשת הרשמה או התחברות"
         description="לא ניתן לראות זמינות ללא התחברות או הרשמה"
         confirmLabel="המשך להתחברות/הרשמה"

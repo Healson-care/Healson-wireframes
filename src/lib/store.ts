@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import {
   Appointment,
+  Branch,
   CatalogItem,
   ConsentRecord,
   ConsentType,
@@ -95,7 +96,18 @@ interface AuthState {
   pendingRegistration: PendingRegistration | null;
   pendingProviderSubmission: PendingProviderSubmission | null;
   pendingLoginVerification: PendingLoginVerification | null;
-  login: (email: string, password: string) => { ok: boolean; error?: string; requiresOtp?: boolean };
+  login: (
+    email: string,
+    password: string
+  ) => {
+    ok: boolean;
+    error?: string;
+    requiresOtp?: boolean;
+    // Set when a provider is blocked from logging in by their lifecycle
+    // status — lets the login page render a dedicated blocked-state panel
+    // (reason, what to do next) instead of a generic one-line error.
+    blockedStatus?: "rejected" | "suspended";
+  };
   verifyLoginSmsOtp: (code: string) => { ok: boolean; error?: string };
   verifyLoginEmailOtp: (code: string) => { ok: boolean; error?: string };
   resendLoginOtp: (channel: "sms" | "email") => string | null;
@@ -186,6 +198,9 @@ interface EntitiesState {
   convertLead: (id: string) => Patient | undefined;
 
   addAdminUser: (data: { full_name: string; email: string; phone?: string }) => User;
+
+  addBranch: (data: Omit<Branch, "id">) => Branch;
+  deleteBranch: (id: string) => void;
 
   upsertProviderProfile: (
     userId: string | undefined,
@@ -282,13 +297,14 @@ export const useStore = create<Store>()(
             if (provider?.status === "rejected") {
               return {
                 ok: false,
+                blockedStatus: "rejected",
                 error: provider.rejection_reason
                   ? `בקשתך נדחתה: ${provider.rejection_reason}`
                   : "בקשתך להצטרפות נדחתה.",
               };
             }
             if (provider?.status === "suspended") {
-              return { ok: false, error: "חשבון הספק מושהה זמנית. אנא פנה לתמיכה." };
+              return { ok: false, blockedStatus: "suspended", error: "חשבון הספק מושהה זמנית. אנא פנה לתמיכה." };
             }
           }
           // Policy: an existing patient (already has a Patient record, i.e.
@@ -311,7 +327,38 @@ export const useStore = create<Store>()(
           set({ currentUser: existing });
           return { ok: true };
         }
-        // Unknown email -> mock-create a new patient account on the fly.
+        // No User account yet — but a Patient record with this email may
+        // already exist (e.g. added by staff, never logged in online
+        // before). Treat that the same as an existing patient — link a
+        // User to it and require the double OTP — instead of silently
+        // spinning up a second, blank lead account for the same person.
+        const matchingPatient = get().patients.find(
+          (p) => p.email && p.email.toLowerCase() === email.toLowerCase()
+        );
+        if (matchingPatient) {
+          const linkedUser: User = {
+            id: generateId("user"),
+            email,
+            full_name: matchingPatient.full_name,
+            role: "patient",
+            phone: matchingPatient.phone,
+            created_date: new Date().toISOString(),
+          };
+          set((s) => ({ users: [...s.users, linkedUser] }));
+          if (!matchingPatient.user_id) {
+            get().updatePatient(matchingPatient.id, { user_id: linkedUser.id });
+          }
+          set({
+            pendingLoginVerification: {
+              userId: linkedUser.id,
+              smsOtp: "123456",
+              emailOtp: "654321",
+              smsVerified: false,
+            },
+          });
+          return { ok: true, requiresOtp: true };
+        }
+        // Truly unknown email -> mock-create a new patient account on the fly.
         const newUser: User = {
           id: generateId("user"),
           email,
@@ -330,8 +377,31 @@ export const useStore = create<Store>()(
         return { ok: true };
       },
 
+      // Demo-only "Continue with Google" SSO shortcut for a NEW provider.
+      // Creates (or resets, on repeat clicks) a fresh provider account and logs
+      // it in, exactly like registerProviderAccount — but with a Google
+      // identity instead of an email/password form. It lands in `pending_review`
+      // with a BARE profile (no type/documents yet), so the caller sends the
+      // provider into the in-portal application (/provider/register) to choose
+      // their provider type, upload documents and submit for review — the same
+      // request stage every provider goes through, before onboarding. Idempotent
+      // by fixed id, same reset technique as the "new patient" demo above.
       loginWithGoogle: () => {
-        get().loginAsDemo("patient");
+        const GOOGLE_PROVIDER_ID = "user_google_provider";
+        const user: User = {
+          id: GOOGLE_PROVIDER_ID,
+          email: "google.provider@demo.co.il",
+          full_name: 'ישראל ישראלי',
+          role: "provider",
+          phone: "050-0000000",
+          created_date: new Date().toISOString(),
+        };
+        set((s) => ({
+          users: [...s.users.filter((u) => u.id !== GOOGLE_PROVIDER_ID), user],
+          providers: s.providers.filter((p) => p.user_id !== GOOGLE_PROVIDER_ID),
+          currentUser: user,
+        }));
+        get().upsertProviderProfile(GOOGLE_PROVIDER_ID, { display_name: user.full_name });
       },
 
       loginAsDemo: (role, patientVariant) => {
@@ -632,6 +702,13 @@ export const useStore = create<Store>()(
         return record;
       },
 
+      addBranch: (data) => {
+        const record: Branch = { id: generateId("branch"), ...data };
+        set((s) => ({ branches: [...s.branches, record] }));
+        return record;
+      },
+      deleteBranch: (id) => set((s) => ({ branches: s.branches.filter((b) => b.id !== id) })),
+
       updateProviderById: (id, data) =>
         set((s) => ({
           providers: s.providers.map((p) => {
@@ -917,7 +994,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 13,
+      version: 16,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
       // records), the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER seed
       // account, the v3 -> v4 AppointmentStatus rename ("ממתין לאישור" ->
@@ -942,11 +1019,21 @@ export const useStore = create<Store>()(
       // linked_clinic_ids onto provider5/provider6's consultation_types —
       // without those, ProviderDiscovery's per-tab/specialty filtering
       // (which now reads services straight off each provider instead of a
-      // shared reference catalog) could never surface those two doctors —
-      // discard any state persisted under an earlier version so the app
-      // reseeds clean instead of silently keeping stale seed/demo/status/
-      // catalog data.
-      migrate: (persistedState, version) => (version < 13 ? ({} as Store) : (persistedState as Store)),
+      // shared reference catalog) could never surface those two doctors.
+      // v13 -> v14 spreads SEED_APPOINTMENTS across all 4 published demo
+      // providers instead of just provider1/provider2 — without any booked
+      // appointments, a provider's calendar can never show a fully-booked
+      // day or a waitlist-eligible slot, so the other two doctors could
+      // never demo that flow. v14 -> v15 adds Appointment.clinic_id and a
+      // second clinic_location for provider1 (multi-location booking demo,
+      // each location with its own weekly hours) — discard any state
+      // persisted under an earlier version so the app reseeds clean instead
+      // of silently keeping stale seed/demo/status/catalog data.
+      // v15 -> v16 adds the "other" DocumentCategory and
+      // ConsultationType.required_documents (pre-appointment document
+      // checklist), plus new hand-seeded demo PatientDocument rows for it —
+      // without the bump, existing persisted state keeps the old document set.
+      migrate: (persistedState, version) => (version < 16 ? ({} as Store) : (persistedState as Store)),
       // Uploaded files (photos/PDFs) are stored as base64 data URLs inside
       // this same persisted blob (no real backend — see file.ts). If a
       // single write ever still exceeds the browser's localStorage quota

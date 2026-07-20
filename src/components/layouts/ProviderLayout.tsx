@@ -20,20 +20,23 @@ import { Logo } from "@/components/shared/Logo";
 import { DashboardSkeleton } from "@/components/ui/Skeleton";
 import { CommandPalette } from "@/components/ui/CommandPalette";
 import { DropdownMenu, DropdownMenuItem } from "@/components/ui/DropdownMenu";
+import { NotificationsBell, buildProviderNotifications } from "@/components/shared/NotificationsBell";
 import { Avatar } from "@/components/ui/Misc";
 import { useRequireRole } from "@/lib/useRequireRole";
 import { useCurrentProvider } from "@/lib/useCurrentPatient";
+import { getProviderSetupConfig } from "@/lib/provider-setup";
+import { getProfileSections } from "@/components/provider/profile-sections";
 
-const NAV_ITEMS = [
+// Operational (daily-work) destinations only — profile configuration lives
+// behind the "פרופיל" dropdown (getProfileSections), so there's exactly one
+// visible top nav and no duplicated navigation.
+const OPERATIONAL_NAV = [
   { href: "/provider/dashboard", label: "ראשי", icon: LayoutDashboard },
   { href: "/provider/patients", label: "מטופלים", icon: Users },
   { href: "/provider/appointments", label: "תורים", icon: CalendarDays },
   { href: "/provider/orders", label: "הזמנות", icon: ShoppingCart },
   { href: "/provider/referrals", label: "הפניות", icon: FileText },
-  { href: "/provider/profile", label: "פרופיל", icon: UserRound },
 ];
-
-const COMMAND_ITEMS = NAV_ITEMS.map((item) => ({ ...item, group: "ניווט" }));
 
 export function ProviderLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -41,24 +44,60 @@ export function ProviderLayout({ children }: { children: ReactNode }) {
   const logout = useStore((s) => s.logout);
   const { ready, user } = useRequireRole("provider");
   const provider = useCurrentProvider();
+  const appointments = useStore((s) => s.appointments);
+  const notifications = buildProviderNotifications(provider, appointments);
 
-  // Providers mid-onboarding get a limited-scope wizard only (INV-SCOPE-GATE-01)
-  // — no calendar, patients, referrals, or lab access until Go-Live.
-  const isOnboarding = ready && provider?.status === "onboarding";
-  // A freshly-registered provider (PROV-REGISTRATION) already has a session
-  // before Ops has verified their license — send them to the portal
-  // registration wizard, which resumes wherever they left off (still filling
-  // the form, or waiting for review) instead of showing the full provider nav.
-  const isPendingReview = ready && provider?.status === "pending_review";
+  const status = provider?.status;
+  const isPendingReview = ready && status === "pending_review";
+  const isOnboarding = ready && status === "onboarding";
+  const isApproved = ready && status === "approved";
+
+  // The whole provider journey lives inside this one portal shell. Pre-approval
+  // stages are pinned to their pages: an application (pending_review → only
+  // /provider/register) and onboarding (→ the dashboard + the profile-config
+  // pages, where setup happens). The operational nav (patients/appointments/
+  // referrals) only unlocks once approved (INV-SCOPE-GATE-01). A freshly
+  // registered provider (PROV-REGISTRATION) already has a real session while
+  // their license is reviewed, so they see the portal, not a standalone wizard.
+  const onDashboard = pathname === "/provider/dashboard";
+  const onRegister = pathname === "/provider/register";
+  const onProfile = pathname.startsWith("/provider/profile");
+  const redirectingPending = isPendingReview && !onRegister;
+  const redirectingOnboarding = isOnboarding && !onDashboard && !onProfile;
 
   useEffect(() => {
-    if (isOnboarding) router.replace("/provider/onboarding");
-    else if (isPendingReview) router.replace("/provider/register");
-  }, [isOnboarding, isPendingReview, router]);
+    if (redirectingPending) router.replace("/provider/register");
+    else if (redirectingOnboarding) router.replace("/provider/dashboard");
+  }, [redirectingPending, redirectingOnboarding, router]);
 
-  if (!ready || !user || isOnboarding || isPendingReview) {
+  if (!ready || !user || redirectingPending || redirectingOnboarding) {
     return <DashboardSkeleton />;
   }
+
+  // Operational nav: everything once approved, just the dashboard during
+  // onboarding (setup is reached via the profile menu), nothing before that.
+  const operationalItems = isApproved
+    ? OPERATIONAL_NAV
+    : isOnboarding
+    ? OPERATIONAL_NAV.filter((i) => i.href === "/provider/dashboard")
+    : [];
+  // The full profile-management menu is for AFTER go-live — an approved
+  // provider manages everything there. During onboarding the provider is guided
+  // by the persistent onboarding meter (which links to each setup page), so the
+  // free dropdown stays hidden to keep that stage focused.
+  const showProfileMenu = isApproved;
+  const profileSections = provider ? getProfileSections(getProviderSetupConfig(provider.provider_type)) : [];
+  const commandItems = [
+    ...operationalItems.map((item) => ({ ...item, group: "ניווט" })),
+    ...(showProfileMenu ? profileSections.map((s) => ({ href: s.href, label: s.label, icon: s.icon, group: "פרופיל" })) : []),
+  ];
+  const mobileItems = [
+    ...operationalItems,
+    ...(showProfileMenu ? [{ href: "/provider/profile", label: "פרופיל", icon: UserRound }] : []),
+  ];
+
+  const stageBadge = isPendingReview ? "בקשה בבדיקה" : isOnboarding ? "השלמת הצטרפות" : "ספק";
+  const stageBadgeClass = isApproved ? "bg-amber-100 text-amber-700" : "bg-info-bg text-info-text";
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -66,10 +105,10 @@ export function ProviderLayout({ children }: { children: ReactNode }) {
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
           <Link href="/provider/dashboard" className="flex items-center gap-2">
             <Logo />
-            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">ספק</span>
+            <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", stageBadgeClass)}>{stageBadge}</span>
           </Link>
           <nav className="hidden md:flex items-center gap-1">
-            {NAV_ITEMS.map((item) => (
+            {operationalItems.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
@@ -82,9 +121,35 @@ export function ProviderLayout({ children }: { children: ReactNode }) {
                 {item.label}
               </Link>
             ))}
+            {showProfileMenu && (
+              <DropdownMenu
+                trigger={
+                  <span
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                      onProfile ? "bg-primary/10 text-primary" : "text-slate-600 hover:bg-slate-100"
+                    )}
+                  >
+                    <UserRound className="h-4 w-4" /> פרופיל
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </span>
+                }
+              >
+                {profileSections.map((s) => (
+                  <DropdownMenuItem
+                    key={s.href}
+                    href={s.href}
+                    className={pathname === s.href ? "bg-primary/5 text-primary" : undefined}
+                  >
+                    <s.icon className="h-4 w-4" /> {s.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenu>
+            )}
           </nav>
           <div className="flex items-center gap-2">
-            <CommandPalette items={COMMAND_ITEMS} />
+            {commandItems.length > 0 && <CommandPalette items={commandItems} />}
+            <NotificationsBell notifications={notifications} />
             <Link href="/" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" title="דף הבית">
               <Home className="h-4 w-4" />
             </Link>
@@ -97,9 +162,11 @@ export function ProviderLayout({ children }: { children: ReactNode }) {
                 </span>
               }
             >
-              <DropdownMenuItem href="/provider/profile">
-                <UserRound className="h-4 w-4" /> הפרופיל שלי
-              </DropdownMenuItem>
+              {showProfileMenu && (
+                <DropdownMenuItem href="/provider/profile">
+                  <UserRound className="h-4 w-4" /> הפרופיל שלי
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem
                 onClick={() => {
                   logout();
@@ -115,23 +182,28 @@ export function ProviderLayout({ children }: { children: ReactNode }) {
 
       <main className="flex-1 mx-auto w-full max-w-7xl px-4 py-6 pb-24 md:pb-10">{children}</main>
 
-      <nav className="fixed bottom-0 inset-x-0 z-30 border-t border-slate-200 bg-white md:hidden">
-        <div className="grid grid-cols-5">
-          {NAV_ITEMS.filter((i) => i.href !== "/provider/profile").map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "flex flex-col items-center gap-1 py-2 text-[10px] font-medium",
-                pathname === item.href ? "text-primary" : "text-slate-500"
-              )}
-            >
-              <item.icon className="h-5 w-5" />
-              {item.label}
-            </Link>
-          ))}
-        </div>
-      </nav>
+      {mobileItems.length > 0 && (
+        <nav className="fixed bottom-0 inset-x-0 z-30 border-t border-slate-200 bg-white md:hidden">
+          <div className="flex items-stretch justify-around">
+            {mobileItems.map((item) => {
+              const active = item.href === "/provider/profile" ? onProfile : pathname === item.href;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    "flex flex-1 flex-col items-center gap-1 py-2 text-[10px] font-medium",
+                    active ? "text-primary" : "text-slate-500"
+                  )}
+                >
+                  <item.icon className="h-5 w-5" />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+        </nav>
+      )}
     </div>
   );
 }

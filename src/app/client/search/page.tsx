@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
@@ -14,7 +14,6 @@ import { PaymentPanel } from "@/components/book/PaymentPanel";
 import { BookingConfirmation } from "@/components/book/BookingConfirmation";
 import { WaitlistJoinDialog } from "@/components/book/WaitlistJoinDialog";
 import { buildIcsDataUrl } from "@/lib/utils";
-import { buildDays, DaySlots } from "@/lib/scheduling";
 import { POST_REGISTER_REDIRECT_KEY } from "@/lib/constants";
 import { ProviderProfile } from "@/types";
 
@@ -42,15 +41,10 @@ export default function ClientSearchPage() {
   const [step, setStep] = useState(0);
   const [selectedProvider, setSelectedProvider] = useState<ProviderProfile | null>(null);
 
-  const days: DaySlots[] = useMemo(
-    () => (selectedProvider ? buildDays(selectedProvider, appointments) : []),
-    [selectedProvider, appointments]
-  );
-  const [activeDayIdx, setActiveDayIdx] = useState(0);
   const [selectedSlot, setSelectedSlot] = useState<{ date: string; time: string; label: string } | null>(null);
   const [holdExpiresAt, setHoldExpiresAt] = useState<number | null>(null);
   const [pendingAppointmentId, setPendingAppointmentId] = useState<string | null>(null);
-  const [waitlistSlot, setWaitlistSlot] = useState<{ date: string; time: string; label: string } | null>(null);
+  const [waitlistSlot, setWaitlistSlot] = useState<{ date?: string; time?: string; label?: string } | null>(null);
 
   const [payMethod, setPayMethod] = useState<"card" | "apple" | "google">("card");
   const [paying, setPaying] = useState(false);
@@ -72,7 +66,7 @@ export default function ClientSearchPage() {
   // Creating the appointment here (not at payment time) is deliberate: from
   // the moment a slot is picked it's "ממתין לתשלום מקדמה" in the patient's
   // history, even if they never complete payment.
-  function selectSlot(date: string, time: string, label: string) {
+  function selectSlot(date: string, time: string, label: string, clinicId: string) {
     if (!selectedProvider) return;
     if (patient?.processing_restricted) {
       showToast("לא ניתן להמשיך", { description: "עיבוד הנתונים של מטופל זה חסום. פנה לתמיכה.", variant: "destructive" });
@@ -84,6 +78,7 @@ export default function ClientSearchPage() {
       provider_id: selectedProvider.id,
       provider_name: `${selectedProvider.title ?? ""} ${selectedProvider.display_name}`.trim(),
       service_name: consultation?.name ?? "ייעוץ",
+      clinic_id: clinicId,
       date,
       time,
       duration_minutes: consultation?.duration_minutes ?? 30,
@@ -186,6 +181,16 @@ export default function ClientSearchPage() {
           });
           setPendingQuestionnaire({ appointmentId: pendingAppointmentId, title: questionnaireTitle });
         }
+        for (const doc of consultation?.required_documents ?? []) {
+          addDocument({
+            patient_id: patientId,
+            category: "referral_personal",
+            title: doc.label,
+            uploaded_by: "system",
+            appointment_id: pendingAppointmentId,
+            status: "ממתין למילוי",
+          });
+        }
       }
       const icsUrl = buildIcsDataUrl({
         title: `תור ל-${selectedProvider.display_name}`,
@@ -253,9 +258,7 @@ export default function ClientSearchPage() {
                 </button>
                 <SlotPicker
                   provider={selectedProvider}
-                  days={days}
-                  activeDayIdx={activeDayIdx}
-                  onDayChange={setActiveDayIdx}
+                  appointments={appointments}
                   onSelectSlot={selectSlot}
                   onJoinWaitlist={(date, time, label) => setWaitlistSlot({ date, time, label })}
                 />

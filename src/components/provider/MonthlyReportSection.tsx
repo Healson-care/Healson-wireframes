@@ -22,9 +22,13 @@ export function MonthlyReportSection({
 }) {
   const completed = orders.filter((o) => o.status === "הושלם");
   const monthly = groupByMonth(completed, (o) => o.created_date, months).map((m) => {
+    // Commission/payout only reflect orders Healson has actually collected in
+    // full — a completed service still sitting on just a deposit isn't
+    // payable yet, so it must not count toward "נטו לספק" for the month.
+    const collected = m.items.filter((o) => o.payment_status === "שולם במלואו");
     const revenue = m.items.reduce((sum, o) => sum + o.final_price, 0);
-    const commission = m.items.reduce((sum, o) => sum + (o.commission_amount ?? 0), 0);
-    const payout = m.items.reduce((sum, o) => sum + (o.provider_payout_amount ?? o.final_price), 0);
+    const commission = collected.reduce((sum, o) => sum + (o.commission_amount ?? 0), 0);
+    const payout = collected.reduce((sum, o) => sum + (o.provider_payout_amount ?? o.final_price), 0);
     return { key: m.key, label: m.label, orderCount: m.items.length, revenue, commission, payout };
   });
 

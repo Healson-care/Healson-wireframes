@@ -9,6 +9,20 @@
 const MAX_IMAGE_DIMENSION = 1280;
 const IMAGE_JPEG_QUALITY = 0.82;
 const MAX_NON_IMAGE_BYTES = 4 * 1024 * 1024; // 4MB
+const ACCEPTED_DOCUMENT_EXTENSIONS = [".pdf", ".jpg", ".jpeg", ".png"];
+
+/** Same limits fileToDataUrl actually enforces, checked up front so callers
+ * can reject a bad file (and tell the user why) before ever reading it. */
+export function validateDocumentFile(file: File): string | null {
+  const name = file.name.toLowerCase();
+  if (!ACCEPTED_DOCUMENT_EXTENSIONS.some((ext) => name.endsWith(ext))) {
+    return "סוג קובץ לא נתמך — יש להעלות PDF, JPG או PNG בלבד";
+  }
+  if (!file.type.startsWith("image/") && file.size > MAX_NON_IMAGE_BYTES) {
+    return `הקובץ גדול מדי — הגודל המקסימלי הוא ${MAX_NON_IMAGE_BYTES / (1024 * 1024)}MB`;
+  }
+  return null;
+}
 
 export function fileToDataUrl(file: File): Promise<string> {
   if (file.type.startsWith("image/")) {

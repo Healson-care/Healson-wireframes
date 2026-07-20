@@ -1,9 +1,10 @@
 // Real slot availability generator shared by every booking flow (§/book and
-// the client personal-area booking flow both call this once a provider is
-// picked). Slots are derived from the provider's primary clinic/location's
-// weekly hours (patients don't pick a location today, so that's the
-// authoritative calendar), minus any blocked dates and any time already
-// taken by an existing, non-cancelled appointment.
+// the client personal-area booking flow both call this once a provider —
+// and, if they have more than one clinic, a specific location — is picked).
+// Slots are derived from that clinic's weekly hours, minus any blocked
+// dates and any time already taken by an existing, non-cancelled
+// appointment (checked against the provider as a whole — a doctor can't be
+// double-booked across two locations at the same time either).
 import { Appointment, Clinic, DayKey, ProviderProfile } from "@/types";
 
 export interface DaySlots {
@@ -16,7 +17,7 @@ const DAY_KEYS: DayKey[] = ["sunday", "monday", "tuesday", "wednesday", "thursda
 
 const SLOT_STEP_MINUTES = 30;
 
-function primaryLocation(provider: ProviderProfile): Clinic | undefined {
+export function primaryLocation(provider: ProviderProfile): Clinic | undefined {
   return provider.clinic_locations.find((c) => c.is_primary) ?? provider.clinic_locations[0];
 }
 
@@ -74,6 +75,62 @@ export function buildDays(provider: ProviderProfile, appointments: Appointment[]
     }));
 
     days.push({ date, label, slots });
+  }
+  return days;
+}
+
+export interface MonthDay {
+  date: string; // yyyy-MM-dd
+  dayOfMonth: number;
+  weekday: number; // 0 (Sunday) .. 6 (Saturday) — matches Date#getDay()
+  isPast: boolean; // today or earlier — never bookable
+  slots: { time: string; available: boolean }[];
+}
+
+// Every calendar day in the given month (unlike buildDays, which only
+// collects the next N *available* business days) — the date grid needs every
+// day present so it can render a blank/no-indicator cell for days the
+// provider doesn't work, distinct from a grey "fully booked" cell.
+// `clinic` is which of the provider's clinic_locations to build hours from
+// (a provider can offer the same service at more than one location, each
+// with its own weekly hours) — defaults to the primary one.
+export function buildMonth(
+  provider: ProviderProfile,
+  appointments: Appointment[],
+  monthDate: Date,
+  clinic: Clinic | undefined = primaryLocation(provider)
+): MonthDay[] {
+  const location = clinic;
+  const blockedDates = new Set((provider.blocked_dates ?? []).map((b) => b.date));
+  const occupied = new Set(
+    appointments
+      .filter((a) => a.provider_id === provider.id && a.status !== "בוטל")
+      .map((a) => `${a.date}T${a.time}`)
+  );
+
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const days: MonthDay[] = [];
+  for (let dayOfMonth = 1; dayOfMonth <= daysInMonth; dayOfMonth++) {
+    const d = new Date(year, month, dayOfMonth);
+    const isPast = d <= today;
+    const dayKey = DAY_KEYS[d.getDay()];
+    const date = `${year}-${String(month + 1).padStart(2, "0")}-${String(dayOfMonth).padStart(2, "0")}`;
+    const range = location?.hours[dayKey];
+    const isBlocked = blockedDates.has(date);
+
+    const times = isPast || !range || isBlocked ? [] : slotsForRange(range[0], range[1]);
+    const slots = times.map((time) => ({
+      time,
+      available: !occupied.has(`${date}T${time}`),
+    }));
+
+    days.push({ date, dayOfMonth, weekday: d.getDay(), isPast, slots });
   }
   return days;
 }

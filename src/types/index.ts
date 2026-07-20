@@ -50,6 +50,52 @@ export const PRIVATE_INSURANCE_COMPANIES = [
 
 export type PrivateInsuranceCompany = (typeof PRIVATE_INSURANCE_COMPANIES)[number];
 
+// Israeli bank clearing codes (מס' בנק) — used for provider payout accounts.
+export const ISRAELI_BANKS = [
+  { code: "10", name: "בנק לאומי" },
+  { code: "12", name: "בנק הפועלים" },
+  { code: "11", name: "בנק דיסקונט" },
+  { code: "20", name: "בנק מזרחי טפחות" },
+  { code: "31", name: "הבנק הבינלאומי" },
+  { code: "17", name: "בנק מרכנתיל דיסקונט" },
+  { code: "14", name: "בנק אוצר החייל" },
+  { code: "04", name: "בנק יהב" },
+  { code: "52", name: "בנק פועלי אגודת ישראל" },
+  { code: "9", name: "בנק הדואר" },
+] as const;
+
+// Bank details a provider submits so Healson can transfer their monthly
+// payout (§PRV-06/automation §"העברת תשלום לספקים"). Submitting this form
+// requires uploading a signed bank-account-management authorization
+// document — the same "אישור ניהול חשבון בנק" collected at onboarding —
+// and the account is not usable for a real transfer until verified_at is
+// set (mirrors the license_verified_at review pattern on ProviderProfile).
+export interface ProviderBankAccount {
+  account_holder_name: string;
+  bank_code: string;
+  branch_number: string;
+  account_number: string;
+  authorization_file?: UploadedFile;
+  submitted_at: string;
+  verified_at?: string;
+}
+
+// Monthly reconciliation between Healson and the provider (automation
+// §"התחשבנות חודשית"): each closed month the provider reviews the activity
+// report, approves it (or disputes it with a note), and uploads their
+// invoice. Figures themselves stay derived from orders — only the review
+// decision + invoice are persisted here, keyed by month ("YYYY-MM").
+export const SETTLEMENT_STATUSES = ["ממתין לאישור", "אושר", "במחלוקת"] as const;
+export type SettlementStatus = (typeof SETTLEMENT_STATUSES)[number];
+
+export interface MonthlySettlement {
+  month: string; // "YYYY-MM"
+  status: SettlementStatus;
+  approved_at?: string;
+  dispute_note?: string;
+  invoice_file?: UploadedFile;
+}
+
 // A provider's declared K-layer arrangement with a specific Kupah, at a
 // given supplemental-plan level — collected at application time (§apply
 // flow) and refined into full ProviderAgreement records later.
@@ -398,6 +444,11 @@ export interface ConsultationType {
   // document (see PatientDocument) once the deposit is paid.
   requires_questionnaire?: boolean;
   questionnaire_title?: string;
+  // Specific documents the patient must upload before the appointment (e.g.
+  // a referral letter, prior imaging). Same "once the deposit is paid"
+  // timing as requires_questionnaire — each entry becomes a pending
+  // PatientDocument (category "referral_personal") linked to the appointment.
+  required_documents?: { id: string; label: string }[];
 }
 
 export interface ExamType {
@@ -564,6 +615,8 @@ export interface ProviderProfile {
   go_live_requested_at?: string;
   rejection_reason?: string;
   commission_rate?: number; // percent Healson takes on this provider's orders
+  bank_account?: ProviderBankAccount;
+  monthly_settlements?: MonthlySettlement[];
   agreements: ProviderAgreement[];
   consultation_types: ConsultationType[];
   exam_types: ExamType[];
@@ -604,6 +657,7 @@ export interface Appointment {
   provider_id?: string;
   provider_name: string;
   service_name: string;
+  clinic_id?: string; // which of the provider's clinic_locations this was booked at
   date: string; // yyyy-MM-dd
   time: string; // HH:mm
   duration_minutes: number;
@@ -617,7 +671,6 @@ export interface Appointment {
   notes?: string;
   created_by_id?: string; // patient id
   referral_document?: UploadedFile;
-  reminder_sent_at?: string; // ISO timestamp of the last SMS reminder sent to the patient
 }
 
 export type WaitlistStatus = "ממתין" | "נוצר קשר" | "בוטל";
@@ -632,8 +685,10 @@ export interface WaitlistEntry {
   provider_name: string;
   client_name: string;
   client_phone?: string;
-  date: string; // yyyy-MM-dd
-  time: string; // HH:mm
+  // Left undefined for a general "any time works" request, rather than one
+  // tied to a specific slot that turned out to be taken.
+  date?: string; // yyyy-MM-dd
+  time?: string; // HH:mm
   status: WaitlistStatus;
   created_by_id?: string; // patient id
   created_date: string;
@@ -700,14 +755,16 @@ export type DocumentCategory =
   | "receipt"
   | "visit_summary"
   | "questionnaire"
-  | "lab_result";
+  | "lab_result"
+  | "other";
 
 export const DOCUMENT_CATEGORIES: { id: DocumentCategory; label: string }[] = [
-  { id: "referral_personal", label: "הפניות וטפסים אישיים" },
-  { id: "receipt", label: "קבלות וחשבוניות" },
-  { id: "visit_summary", label: "סיכומי ביקור וטפסי רופא" },
+  { id: "referral_personal", label: "הפניות וטפסים" },
+  { id: "receipt", label: "קבלות" },
+  { id: "visit_summary", label: "סיכומי ביקור" },
   { id: "questionnaire", label: "שאלונים" },
   { id: "lab_result", label: "תוצאות מעבדה" },
+  { id: "other", label: "אחר" },
 ];
 
 export type DocumentStatus = "ממתין למילוי" | "זמין";

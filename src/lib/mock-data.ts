@@ -128,6 +128,10 @@ const provider2: ProviderProfile = {
       linked_clinic_ids: [provider2ClinicId],
       requires_questionnaire: true,
       questionnaire_title: "שאלון בריאות כללי",
+      required_documents: [
+        { id: generateId("reqdoc"), label: "רשימת תרופות נוכחית" },
+        { id: generateId("reqdoc"), label: "תוצאות בדיקת דם אחרונה (אם קיימות)" },
+      ],
     },
     {
       id: generateId("ct"),
@@ -189,6 +193,9 @@ const provider2: ProviderProfile = {
 };
 
 const provider1ClinicId = generateId("clinic");
+// A second location for the same doctor (§location picker demo) — he splits
+// his week between the two, so each has different weekly hours.
+const provider1ClinicId2 = generateId("clinic");
 
 const provider1: ProviderProfile = {
   id: "prov_1",
@@ -230,7 +237,11 @@ const provider1: ProviderProfile = {
         { layer: "H", price: 450 },
       ],
       service_type: "consultation",
-      linked_clinic_ids: [provider1ClinicId],
+      linked_clinic_ids: [provider1ClinicId, provider1ClinicId2],
+      required_documents: [
+        { id: generateId("reqdoc"), label: "הפניה מרופא מטפל" },
+        { id: generateId("reqdoc"), label: "צילומי רנטגן קודמים (אם קיימים)" },
+      ],
     },
     {
       id: generateId("ct"),
@@ -242,7 +253,7 @@ const provider1: ProviderProfile = {
         { layer: "H", price: 390 },
       ],
       service_type: "consultation",
-      linked_clinic_ids: [provider1ClinicId],
+      linked_clinic_ids: [provider1ClinicId, provider1ClinicId2],
     },
     // Unified into the single services list (no more separate "בדיקות"
     // tab/section) — see B2/B3 in the services-merge fix.
@@ -271,9 +282,26 @@ const provider1: ProviderProfile = {
         sunday: ["09:00", "17:00"],
         monday: ["09:00", "17:00"],
         tuesday: ["09:00", "17:00"],
-        wednesday: ["09:00", "17:00"],
+        wednesday: null,
         thursday: ["09:00", "17:00"],
         friday: ["09:00", "13:00"],
+        saturday: null,
+      },
+    },
+    {
+      id: provider1ClinicId2,
+      name: "מרפאת אורתופדיה תל אביב",
+      address: "דיזנגוף 150",
+      city: "תל אביב",
+      phone: "03-6669876",
+      is_primary: false,
+      hours: {
+        sunday: null,
+        monday: null,
+        tuesday: null,
+        wednesday: ["10:00", "18:00"],
+        thursday: null,
+        friday: null,
         saturday: null,
       },
     },
@@ -715,10 +743,16 @@ const SERVICE_NAMES = [
   "בדיקת MRI לברך",
 ];
 
+// Cycled across all 4 published demo providers (not just provider1/2) so
+// every doctor a patient can find in search also has some booked slots to
+// demonstrate "fully booked day" / waitlist against — not just the two
+// original ones.
+const APPOINTMENT_PROVIDERS = [provider1, provider2, provider5, provider6];
+
 export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
   (_, i) => {
     const dayOffset = Math.floor(i / 3) - 4; // spread -4..+3 days
-    const provider = i % 2 === 0 ? provider1 : provider2;
+    const provider = APPOINTMENT_PROVIDERS[i % APPOINTMENT_PROVIDERS.length];
     const patient = SEED_PATIENTS[i % SEED_PATIENTS.length];
     const hour = 8 + (i % 9);
     const statusPool: Appointment["status"][] = [
@@ -945,6 +979,30 @@ export const SEED_DOCUMENTS: PatientDocument[] = [
     title: "שאלון בריאות לפני בדיקת מאמץ",
     uploaded_by: "system",
     appointment_id: demoDocAppointments[0]?.id,
+    status: "ממתין למילוי",
+    created_date: isoDateDaysFromNow(-1),
+  },
+  // Demo of the "required documents" checklist (see ConsultationType.
+  // required_documents) — pending items tied to an upcoming appointment so
+  // the checklist shows up on /client/appointments without needing to book
+  // a fresh appointment first.
+  {
+    id: generateId("doc"),
+    patient_id: demoPatient.id,
+    category: "referral_personal",
+    title: "הפניה מרופא מטפל",
+    uploaded_by: "system",
+    appointment_id: demoDocAppointments[1]?.id,
+    status: "ממתין למילוי",
+    created_date: isoDateDaysFromNow(-1),
+  },
+  {
+    id: generateId("doc"),
+    patient_id: demoPatient.id,
+    category: "referral_personal",
+    title: "צילומי רנטגן קודמים (אם קיימים)",
+    uploaded_by: "system",
+    appointment_id: demoDocAppointments[1]?.id,
     status: "ממתין למילוי",
     created_date: isoDateDaysFromNow(-1),
   },

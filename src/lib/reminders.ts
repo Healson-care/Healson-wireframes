@@ -10,9 +10,8 @@ type ReminderAppointment = {
 
 export interface ReminderSettings {
   enabled: boolean;
-  sendTime: string; // "HH:MM" — daily time the automatic send checks fire
+  sendTime: string; // "HH:MM" — daily time reminders are meant to go out
   template: string;
-  lastAutoSendDate?: string; // yyyy-MM-dd — guards against firing more than once per day
 }
 
 export const REMINDER_PLACEHOLDERS: { token: string; label: string }[] = [
