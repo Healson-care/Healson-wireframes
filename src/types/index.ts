@@ -7,6 +7,20 @@ export type Kupah = "כללית" | "מכבי" | "מאוחדת" | "לאומית";
 
 export const KUPOT: Kupah[] = ["כללית", "מכבי", "מאוחדת", "לאומית"];
 
+export type CommunicationLanguage = "he" | "en";
+export const COMMUNICATION_LANGUAGES: CommunicationLanguage[] = ["he", "en"];
+export const COMMUNICATION_LANGUAGE_LABELS: Record<CommunicationLanguage, string> = {
+  he: "עברית",
+  en: "אנגלית",
+};
+
+export type NotificationChannel = "email" | "whatsapp";
+export const NOTIFICATION_CHANNELS: NotificationChannel[] = ["email", "whatsapp"];
+export const NOTIFICATION_CHANNEL_LABELS: Record<NotificationChannel, string> = {
+  email: "מייל",
+  whatsapp: "וואטסאפ",
+};
+
 // ---------------------------------------------------------------------------
 // SKBH insurance layers (§2.2) — every patient holds at least S+H, and may
 // additionally hold K (supplemental HMO insurance) and/or B (private health
@@ -324,6 +338,8 @@ export interface Patient {
   has_b_insurance?: boolean;
   b_insurance_company?: string;
   b_policy_number?: string;
+  communication_language?: CommunicationLanguage;
+  notification_channel?: NotificationChannel;
   status: PatientStatus;
   assigned_provider?: string; // ProviderProfile id
   created_date: string;
