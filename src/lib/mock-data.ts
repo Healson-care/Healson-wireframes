@@ -607,7 +607,7 @@ const instituteDoctor2: ProviderProfile = {
   contact_phone: "052-4410100",
   contact_email: "omer.navo@asuta-demo.co.il",
   doctor_subtype: "surgeon",
-  surgical_privileges_hospital: "מרכז רפואי אסותא",
+  surgical_privileges_hospital: "מרכז רפואי הדסה",
   is_published: false,
   status: "approved",
   organization_provider_ids: ["prov_institute"],
