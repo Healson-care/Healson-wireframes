@@ -10,10 +10,19 @@ import { Badge } from "@/components/ui/Badge";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { fileToDataUrl } from "@/lib/file";
-import { AffiliatedDoctor, Clinic, ConsultationType, ProviderProfile, UploadedFile } from "@/types";
+import {
+  AffiliatedDoctor,
+  Clinic,
+  ConsultationType,
+  ProviderProfile,
+  UploadedFile,
+  isUnitProviderType,
+} from "@/types";
+import { hasAnyAvailability, totalWeeklyHours } from "@/lib/schedule";
 import {
   AlertCircle,
   BadgeCheck,
+  CalendarClock,
   Link2,
   MapPin,
   Pencil,
@@ -63,11 +72,16 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
   const affiliations = provider.affiliated_doctors ?? [];
   const doctorById = useMemo(() => new Map(providers.map((p) => [p.id, p])), [providers]);
   const services = provider.consultation_types;
-  const clinics = provider.clinic_locations;
+  // A medical unit is a single site, so there is no location to pick between —
+  // what matters there is the doctor's own schedule, set in "זמינות" (§PRV-08).
+  const clinics = isUnitProviderType(provider.provider_type) ? [] : provider.clinic_locations;
 
   // Services that need a doctor but have nobody assigned — the reason this
-  // section exists, so it's surfaced rather than left implicit.
-  const doctorServices = services.filter(requiresDoctor);
+  // section exists, so it's surfaced rather than left implicit. In a unit a
+  // service performed on a מתקן (MRI ראש on MRI 1) is already covered, so it
+  // must not be counted as "unstaffed" here (§PRV-08).
+  const facilityServiceIds = new Set((provider.facilities ?? []).flatMap((f) => f.service_ids));
+  const doctorServices = services.filter((s) => requiresDoctor(s) && !facilityServiceIds.has(s.id));
   const unstaffedServices = doctorServices.filter(
     (s) => !affiliations.some((a) => a.service_ids.includes(s.id))
   );
@@ -82,6 +96,7 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
             <p className="text-xs text-slate-500">
               {affiliations.length} רופאים · {doctorServices.length - unstaffedServices.length} מתוך{" "}
               {doctorServices.length} שירותים מאוישים
+              {isUnitProviderType(provider.provider_type) && " · הזמינות נקבעת לכל רופא/ה בנפרד"}
             </p>
           </div>
         </div>
@@ -169,13 +184,29 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
                   )}
                 </div>
 
-                {(affiliation.clinic_ids?.length ?? 0) > 0 && (
+                {clinics.length > 0 && (affiliation.clinic_ids?.length ?? 0) > 0 && (
                   <p className="mt-2 flex items-center gap-1 text-[11px] text-slate-500">
                     <MapPin className="h-3 w-3" />
                     {clinics
                       .filter((c) => affiliation.clinic_ids!.includes(c.id))
                       .map((c) => c.name)
                       .join(" · ")}
+                  </p>
+                )}
+
+                {/* In a unit the doctor is a bookable resource, so whether they
+                    have a week of their own is the thing to surface here. */}
+                {isUnitProviderType(provider.provider_type) && (
+                  <p
+                    className={cn(
+                      "mt-2 flex items-center gap-1 text-[11px]",
+                      hasAnyAvailability(affiliation) ? "text-slate-500" : "text-warning-text font-medium"
+                    )}
+                  >
+                    <CalendarClock className="h-3 w-3" />
+                    {hasAnyAvailability(affiliation)
+                      ? `${totalWeeklyHours(affiliation).toFixed(1)} שעות פעילות בשבוע`
+                      : 'לא הוגדר לוח זמנים — הגדירו בלשונית "זמינות"'}
                   </p>
                 )}
               </Card>
@@ -278,6 +309,14 @@ function AddDoctorDialog({
   onLink: (doctorId: string, data: AffiliationInput) => boolean;
 }) {
   const skillDomains = useStore((s) => s.skillDomains);
+  const searchDoctors = useStore((s) => s.searchDoctors);
+
+  // Two explicit ways in (§PRV-07): look the doctor up in the platform, or
+  // create a brand-new record. Search is the default — most doctors an
+  // organization adds already exist somewhere on the platform.
+  const [mode, setMode] = useState<"search" | "create">("search");
+  const [search, setSearch] = useState("");
+  const [pickedDoctorId, setPickedDoctorId] = useState<string | null>(null);
 
   const [title, setTitle] = useState(TITLES[0]);
   const [fullName, setFullName] = useState("");
@@ -309,7 +348,14 @@ function AddDoctorDialog({
   const alreadyLinked = matches.filter((m) => alreadyAffiliatedIds.includes(m.id));
   const showMatches = !dismissedMatches && (newMatches.length > 0 || alreadyLinked.length > 0);
 
+  const allProviders = useStore((s) => s.providers);
+  const searchResults = useMemo(() => (open ? searchDoctors(search) : []), [open, search, searchDoctors]);
+  const pickedDoctor = allProviders.find((p) => p.id === pickedDoctorId);
+
   function reset() {
+    setMode("search");
+    setSearch("");
+    setPickedDoctorId(null);
     setTitle(TITLES[0]);
     setFullName("");
     setSpecialty("");
@@ -362,6 +408,67 @@ function AddDoctorDialog({
   return (
     <Dialog open={open} onClose={handleClose} title="הוספת רופא/ה לארגון" className="max-w-2xl">
       <div className="flex flex-col gap-3">
+        {/* Two ways in — look up an existing doctor, or create a new record. */}
+        <div className="flex gap-2">
+          {(
+            [
+              ["search", "חיפוש רופא/ה קיים/ת במערכת"],
+              ["create", "הוספת רופא/ה חדש/ה"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setMode(value)}
+              className={cn(
+                "flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
+                mode === value
+                  ? "border-primary bg-primary/5 text-primary"
+                  : "border-slate-200 text-slate-600 hover:border-slate-300"
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {mode === "search" ? (
+          <SearchExistingDoctor
+            search={search}
+            onSearchChange={(v) => {
+              setSearch(v);
+              setPickedDoctorId(null);
+            }}
+            results={searchResults}
+            alreadyAffiliatedIds={alreadyAffiliatedIds}
+            pickedDoctor={pickedDoctor}
+            onPick={setPickedDoctorId}
+            onSwitchToCreate={() => setMode("create")}
+          />
+        ) : null}
+
+        {mode === "search" && pickedDoctor && (
+          <>
+            <Input label="תפקיד בארגון (לא חובה)" placeholder="רופא/ה בכיר/ה" value={role} onChange={(e) => setRole(e.target.value)} />
+            <ServicePicker services={services} value={serviceIds} onChange={setServiceIds} />
+            <ClinicPicker clinics={clinics} value={clinicIds} onChange={setClinicIds} />
+            <Button
+              onClick={() => {
+                const ok = onLink(pickedDoctor.id, {
+                  role: role.trim() || undefined,
+                  service_ids: serviceIds,
+                  clinic_ids: clinicIds,
+                });
+                if (ok) reset();
+              }}
+            >
+              <Link2 className="h-4 w-4" /> שייך את {pickedDoctor.display_name} לארגון
+            </Button>
+          </>
+        )}
+
+        {mode === "create" && (
+        <>
         <p className="flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
           <Search className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           התחילו להזין את פרטי הרופא/ה. אם הרופא/ה כבר קיים/ת במערכת — נזהה זאת ונציע לשייך את הרשומה
@@ -521,8 +628,99 @@ function AddDoctorDialog({
         <Button onClick={handleCreate} loading={busy} disabled={!fullName.trim() || !specialty}>
           <Plus className="h-4 w-4" /> יצירת רשומה חדשה ושיוך לארגון
         </Button>
+        </>
+        )}
       </div>
     </Dialog>
+  );
+}
+
+/** The "חיפוש רופא/ה קיים/ת" half of the add flow: free-text roster search over
+ * the doctors already on the platform, so an organization links an existing
+ * record instead of typing a second copy of the same person. */
+function SearchExistingDoctor({
+  search,
+  onSearchChange,
+  results,
+  alreadyAffiliatedIds,
+  pickedDoctor,
+  onPick,
+  onSwitchToCreate,
+}: {
+  search: string;
+  onSearchChange: (value: string) => void;
+  results: ProviderProfile[];
+  alreadyAffiliatedIds: string[];
+  pickedDoctor?: ProviderProfile;
+  onPick: (id: string) => void;
+  onSwitchToCreate: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <Input
+        label="חיפוש במערכת"
+        icon={<Search className="h-4 w-4" />}
+        placeholder="שם, מספר רישיון, התמחות, טלפון או אימייל"
+        value={search}
+        onChange={(e) => onSearchChange(e.target.value)}
+        hint="רופא/ה קיים/ת משויך/ת לארגון — הרשומה נשמרת אחת בלבד ולא נוצרת כפילות"
+      />
+
+      {search.trim().length < 2 ? (
+        <p className="rounded-lg bg-slate-50 px-3 py-3 text-xs text-slate-500">
+          הזינו לפחות שני תווים כדי לחפש. אם הרופא/ה עדיין לא רשום/ה במערכת —{" "}
+          <button type="button" onClick={onSwitchToCreate} className="font-medium text-primary hover:underline">
+            הוסיפו רשומה חדשה
+          </button>
+          .
+        </p>
+      ) : results.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-slate-300 px-3 py-3 text-xs text-slate-500">
+          לא נמצא/ה רופא/ה תואם/ת ל&quot;{search}&quot;.{" "}
+          <button type="button" onClick={onSwitchToCreate} className="font-medium text-primary hover:underline">
+            הוספת רופא/ה חדש/ה
+          </button>
+        </p>
+      ) : (
+        <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-200">
+          {results.map((doctor) => {
+            const linked = alreadyAffiliatedIds.includes(doctor.id);
+            const picked = pickedDoctor?.id === doctor.id;
+            return (
+              <button
+                key={doctor.id}
+                type="button"
+                disabled={linked}
+                onClick={() => onPick(doctor.id)}
+                className={cn(
+                  "flex w-full items-center gap-2 border-b border-slate-100 px-3 py-2 text-right transition-colors last:border-b-0",
+                  linked ? "cursor-not-allowed opacity-60" : "hover:bg-primary/5",
+                  picked && "bg-primary/10"
+                )}
+              >
+                <Avatar name={doctor.display_name} src={doctor.image_url} className="h-8 w-8 text-[11px]" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-slate-900">
+                    {doctor.title} {doctor.display_name}
+                  </span>
+                  <span className="block truncate text-[11px] text-slate-500">
+                    {doctor.specialty}
+                    {doctor.license_number ? ` · רישיון ${doctor.license_number}` : ""}
+                  </span>
+                </span>
+                {linked ? (
+                  <Badge tone="success">כבר בארגון</Badge>
+                ) : picked ? (
+                  <Badge tone="blue">נבחר/ה</Badge>
+                ) : (
+                  <Link2 className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 

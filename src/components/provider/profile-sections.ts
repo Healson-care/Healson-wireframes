@@ -11,6 +11,7 @@ import {
   CalendarClock,
   CreditCard,
   FileBarChart,
+  MonitorCog,
   Settings,
   type LucideIcon,
 } from "lucide-react";
@@ -56,8 +57,22 @@ export function getProfileSections(setupConfig: ProviderTypeSetupConfig): Profil
       href: "/provider/profile/clinics",
       label: setupConfig.locationLabelPlural,
       icon: MapPin,
-      description: `ניהול ה${setupConfig.locationLabelPlural} והשירותים המקושרים אליהם`,
+      description: setupConfig.singleLocation
+        ? "כתובת היחידה, פרטי התקשרות ושירותים — היחידה עצמה היא הסניף"
+        : `ניהול ה${setupConfig.locationLabelPlural} והשירותים המקושרים אליהם`,
     },
+    // Medical units (§PRV-08) — machines/rooms that hold their own queue.
+    ...(setupConfig.showFacilities
+      ? [
+          {
+            key: "facilities",
+            href: "/provider/profile/facilities",
+            label: "מתקנים",
+            icon: MonitorCog,
+            description: "MRI, CT, חדרי פעולות — והשירותים המבוצעים על כל אחד",
+          },
+        ]
+      : []),
     ...(setupConfig.showAvailability
       ? [
           {
@@ -65,7 +80,9 @@ export function getProfileSections(setupConfig: ProviderTypeSetupConfig): Profil
             href: "/provider/profile/availability",
             label: "זמינות",
             icon: CalendarClock,
-            description: "משמרות, הפסקות, חריגות ותאריכים חסומים",
+            description: setupConfig.showFacilities
+              ? "זמינות כללית של היחידה, ולוח זמנים נפרד לכל מתקן ולכל רופא/ה"
+              : "משמרות, הפסקות, חריגות ותאריכים חסומים",
           },
         ]
       : []),

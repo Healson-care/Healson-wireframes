@@ -7,8 +7,14 @@
 // localStorage stores, and is transparently up-converted here into the real
 // shift-based model (multiple shifts per day, mid-shift breaks, per-shift slot
 // length, per-shift service scoping, per-date exceptions).
+//
+// Nothing here is location-specific any more: a medical unit's מתקן (MRI 1) and
+// its affiliated doctors each keep a week of their own in exactly the same
+// shape, so every function below takes a `ScheduleHolder` — anything carrying a
+// `schedule`/`schedule_exceptions` pair. `Clinic`, `ProviderFacility` and
+// `AffiliatedDoctor` all satisfy it structurally.
 import {
-  Clinic,
+  ClinicHours,
   DayKey,
   DEFAULT_SLOT_MINUTES,
   ScheduleException,
@@ -16,6 +22,15 @@ import {
   WeeklySchedule,
   emptyWeeklySchedule,
 } from "@/types";
+
+/** Anything that owns a weekly schedule: a location, a facility, a doctor. */
+export interface ScheduleHolder {
+  id: string;
+  schedule?: WeeklySchedule;
+  schedule_exceptions?: ScheduleException[];
+  /** @deprecated legacy Clinic-only single-range-per-day hours */
+  hours?: ClinicHours;
+}
 
 export const DAY_KEYS: DayKey[] = [
   "sunday",
@@ -47,7 +62,7 @@ export function dayKeyForDate(date: Date): DayKey {
 
 /** The location's weekly shifts — from `schedule` when present, otherwise
  * derived from the legacy `hours` record (one shift per open day). */
-export function getWeeklySchedule(clinic?: Clinic): WeeklySchedule {
+export function getWeeklySchedule(clinic?: ScheduleHolder): WeeklySchedule {
   if (!clinic) return emptyWeeklySchedule();
   if (clinic.schedule) {
     // Guard against a partially-shaped object persisted by an older build.
@@ -70,7 +85,7 @@ export function getWeeklySchedule(clinic?: Clinic): WeeklySchedule {
 /** Mirror of a schedule in the legacy `hours` shape (earliest start → latest
  * end per day), kept in sync on every save so any screen still reading
  * `Clinic.hours` keeps showing something truthful. */
-export function scheduleToLegacyHours(schedule: WeeklySchedule): Clinic["hours"] {
+export function scheduleToLegacyHours(schedule: WeeklySchedule): ClinicHours {
   return DAY_KEYS.reduce((acc, d) => {
     const shifts = schedule[d] ?? [];
     if (shifts.length === 0) {
@@ -81,22 +96,25 @@ export function scheduleToLegacyHours(schedule: WeeklySchedule): Clinic["hours"]
       acc[d] = [start, end];
     }
     return acc;
-  }, {} as Clinic["hours"]);
+  }, {} as ClinicHours);
 }
 
-/** Writes a schedule onto a clinic, keeping the legacy `hours` mirror in sync. */
-export function withSchedule(clinic: Clinic, schedule: WeeklySchedule): Clinic {
-  return { ...clinic, schedule, hours: scheduleToLegacyHours(schedule) };
+/** Writes a schedule onto a schedule holder. A `Clinic` also gets its legacy
+ * `hours` mirror refreshed; holders that never had one (facilities, doctors)
+ * don't grow the deprecated field. */
+export function withSchedule<T extends ScheduleHolder>(holder: T, schedule: WeeklySchedule): T {
+  const next = { ...holder, schedule } as T;
+  return "hours" in holder ? ({ ...next, hours: scheduleToLegacyHours(schedule) } as T) : next;
 }
 
-export function findException(clinic: Clinic | undefined, date: string): ScheduleException | undefined {
+export function findException(clinic: ScheduleHolder | undefined, date: string): ScheduleException | undefined {
   return (clinic?.schedule_exceptions ?? []).find((e) => e.date === date);
 }
 
 /** Shifts actually in effect on a concrete date: a date exception (closed, or
  * a replacement set of shifts) wins over the weekly schedule. Returns an
  * empty array when the location is closed that day. */
-export function shiftsForDate(clinic: Clinic | undefined, date: string): ScheduleShift[] {
+export function shiftsForDate(clinic: ScheduleHolder | undefined, date: string): ScheduleShift[] {
   if (!clinic) return [];
   const exception = findException(clinic, date);
   if (exception) return exception.closed ? [] : exception.shifts ?? [];
@@ -140,7 +158,7 @@ export function shiftOffersService(shift: ScheduleShift, serviceId?: string): bo
 /** All bookable start times at a location on a date, de-duplicated and sorted
  * — the shift-aware replacement for the old "one range → slots" helper. */
 export function slotTimesForDate(
-  clinic: Clinic | undefined,
+  clinic: ScheduleHolder | undefined,
   date: string,
   opts: { serviceId?: string; durationMinutes?: number } = {}
 ): string[] {
@@ -153,12 +171,12 @@ export function slotTimesForDate(
 
 /** Any bookable time at all this week — used by the onboarding checklist and
  * the "no availability configured" dashboard alert. */
-export function hasAnyAvailability(clinic: Clinic): boolean {
+export function hasAnyAvailability(clinic: ScheduleHolder): boolean {
   const schedule = getWeeklySchedule(clinic);
   return DAY_KEYS.some((d) => (schedule[d] ?? []).length > 0);
 }
 
-export function totalWeeklyHours(clinic: Clinic): number {
+export function totalWeeklyHours(clinic: ScheduleHolder): number {
   const schedule = getWeeklySchedule(clinic);
   return DAY_KEYS.reduce((sum, d) => {
     return (

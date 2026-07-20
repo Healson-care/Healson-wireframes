@@ -6,7 +6,7 @@ import { getProviderSetupConfig } from "@/lib/provider-setup";
 
 export default function ProviderClinicsPage() {
   return (
-    <ProfilePageFrame title="מרפאות ומיקומים" description="ניהול המיקומים והשירותים המקושרים אליהם">
+    <ProfilePageFrame title="מיקומים">
       {({ provider, update }) => {
         const setupConfig = getProviderSetupConfig(provider.provider_type);
         return (
@@ -16,6 +16,8 @@ export default function ProviderClinicsPage() {
             allowedLocationTypes={setupConfig.locationTypes}
             locationLabelSingular={setupConfig.locationLabelSingular}
             locationLabelPlural={setupConfig.locationLabelPlural}
+            singleLocation={setupConfig.singleLocation}
+            unitName={provider.display_name}
             services={provider.consultation_types}
             onServicesChange={(consultation_types) => update({ consultation_types })}
           />

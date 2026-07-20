@@ -18,6 +18,7 @@ import {
   isLocationsComplete,
   isAvailabilityComplete,
   isAffiliatedDoctorsComplete,
+  isFacilitiesComplete,
 } from "@/lib/provider-setup";
 
 interface Step {
@@ -54,6 +55,9 @@ export function OnboardingProgress({ provider, className }: { provider: Provider
     { key: "catalog", ok: isCatalogComplete(provider), label: setupConfig.catalogLabel, href: "/provider/profile/services" },
     ...(setupConfig.locationTypes.length > 0
       ? [{ key: "locations", ok: isLocationsComplete(provider), label: setupConfig.locationLabelPlural, href: "/provider/profile/clinics" }]
+      : []),
+    ...(setupConfig.showFacilities
+      ? [{ key: "facilities", ok: isFacilitiesComplete(provider), label: "מתקנים", href: "/provider/profile/facilities" }]
       : []),
     ...(setupConfig.showAvailability
       ? [{ key: "availability", ok: isAvailabilityComplete(provider), label: "זמינות", href: "/provider/profile/availability" }]
