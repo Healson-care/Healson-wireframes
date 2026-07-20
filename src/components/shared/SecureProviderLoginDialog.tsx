@@ -14,13 +14,83 @@ import {
   Smartphone,
   AlertCircle,
   ArrowRight,
+  Stethoscope,
+  Building2,
+  Network,
+  ChevronLeft,
 } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
-import { DEMO_PROVIDER_USER, SEED_PROVIDERS } from "@/lib/mock-data";
+import {
+  DEMO_INSTITUTE_USER,
+  DEMO_OUTPATIENT_USER,
+  DEMO_PROVIDER_USER,
+  SEED_PROVIDERS,
+} from "@/lib/mock-data";
+import type { User } from "@/types";
 
-const demoProviderProfile = SEED_PROVIDERS.find((p) => p.user_id === DEMO_PROVIDER_USER.id);
+// The demo offers exactly two kinds of live provider account — a single
+// practitioner and a medical unit — because those are the two portals that
+// actually differ (a unit additionally manages affiliated doctors, a
+// unit-specific service catalogue and multi-shift schedules). Picking a unit
+// then chooses which of the two seeded unit accounts to open.
+type AccountKind = "individual" | "unit";
+
+interface DemoAccount {
+  id: string;
+  kind: AccountKind;
+  user: User;
+  label: string;
+  description: string;
+  icon: typeof Stethoscope;
+}
+
+const DEMO_ACCOUNTS: DemoAccount[] = [
+  {
+    id: "individual",
+    kind: "individual",
+    user: DEMO_PROVIDER_USER,
+    label: "רופא או מטפל",
+    description: "פורטל של ספק יחיד — יומן אישי, מטופלים והפניות",
+    icon: Stethoscope,
+  },
+  {
+    id: "institute",
+    kind: "unit",
+    user: DEMO_INSTITUTE_USER,
+    label: "מכון רפואי",
+    description: "בדיקות, פעולות וניתוחים, עם רופאים משויכים",
+    icon: Building2,
+  },
+  {
+    id: "outpatient",
+    kind: "unit",
+    user: DEMO_OUTPATIENT_USER,
+    label: "מרפאת חוץ",
+    description: "ייעוצים, אבחונים וטיפולים, עם רופאים משויכים",
+    icon: Network,
+  },
+];
+
+const ACCOUNT_KINDS: { kind: AccountKind; label: string; description: string; icon: typeof Stethoscope }[] = [
+  {
+    kind: "individual",
+    label: "ספק יחיד",
+    description: "רופא או מטפל",
+    icon: Stethoscope,
+  },
+  {
+    kind: "unit",
+    label: "יחידה רפואית",
+    description: "מכון רפואי / מרפאת חוץ",
+    icon: Building2,
+  },
+];
+
+function profileFor(account: DemoAccount) {
+  return SEED_PROVIDERS.find((p) => p.user_id === account.user.id);
+}
 
 const TRUST_BADGES = [
   { icon: Lock, label: "הצפנת AES-256" },
@@ -46,7 +116,9 @@ function maskPhone(phone?: string) {
   return `${digits.slice(0, 3)}-***-${last4}`;
 }
 
-type Stage = "form" | "otp" | "verifying" | "success";
+// "kind" → pick single-practitioner vs. medical unit; "account" → (units only)
+// pick which unit; then the existing credentials → OTP → verify → success run.
+type Stage = "kind" | "account" | "form" | "otp" | "verifying" | "success";
 
 export function SecureProviderLoginDialog({
   open,
@@ -55,23 +127,42 @@ export function SecureProviderLoginDialog({
 }: {
   open: boolean;
   onClose: () => void;
-  onComplete: () => void;
+  /** The seeded demo user id to sign in as, once the flow completes. */
+  onComplete: (userId: string) => void;
 }) {
-  const [stage, setStage] = useState<Stage>("form");
-  const [email, setEmail] = useState(DEMO_PROVIDER_USER.email ?? "");
+  const [stage, setStage] = useState<Stage>("kind");
+  const [account, setAccount] = useState<DemoAccount>(DEMO_ACCOUNTS[0]);
+  const [email, setEmail] = useState(DEMO_ACCOUNTS[0].user.email);
   const [password, setPassword] = useState("demo-secure-2026");
   const [stepIndex, setStepIndex] = useState(-1);
   const [otpCode, setOtpCode] = useState("");
   const [otpError, setOtpError] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
 
+  const accountProfile = profileFor(account);
+
   function handleClose() {
-    setStage("form");
+    setStage("kind");
     setStepIndex(-1);
     setOtpCode("");
     setOtpError(null);
     setResendCooldown(0);
     onClose();
+  }
+
+  function selectKind(kind: AccountKind) {
+    const options = DEMO_ACCOUNTS.filter((a) => a.kind === kind);
+    if (options.length === 1) {
+      selectAccount(options[0]);
+      return;
+    }
+    setStage("account");
+  }
+
+  function selectAccount(next: DemoAccount) {
+    setAccount(next);
+    setEmail(next.user.email);
+    setStage("form");
   }
 
   useEffect(() => {
@@ -92,9 +183,10 @@ export function SecureProviderLoginDialog({
 
   useEffect(() => {
     if (stage !== "success") return;
-    const t = setTimeout(() => onComplete(), 1000);
+    const userId = account.user.id;
+    const t = setTimeout(() => onComplete(userId), 1000);
     return () => clearTimeout(t);
-  }, [stage, onComplete]);
+  }, [stage, onComplete, account]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -128,7 +220,7 @@ export function SecureProviderLoginDialog({
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <motion.div
             className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
-            onClick={stage === "form" || stage === "otp" ? handleClose : undefined}
+            onClick={stage === "verifying" || stage === "success" ? undefined : handleClose}
             aria-hidden
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -161,6 +253,88 @@ export function SecureProviderLoginDialog({
 
             <div className="px-6 py-5">
               <AnimatePresence mode="wait">
+                {stage === "kind" && (
+                  <motion.div
+                    key="kind"
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -6 }}
+                    transition={{ duration: 0.15 }}
+                  >
+                    <p className="mb-3 text-center text-sm text-slate-600">
+                      איזה סוג תיק ספק תרצו לראות בהדגמה?
+                    </p>
+                    <div className="flex flex-col gap-2">
+                      {ACCOUNT_KINDS.map((k) => (
+                        <button
+                          key={k.kind}
+                          type="button"
+                          onClick={() => selectKind(k.kind)}
+                          className="group flex items-center gap-3 rounded-xl border border-slate-200 px-3.5 py-3 text-right transition-all hover:border-primary hover:bg-primary/5 hover:shadow-sm"
+                        >
+                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-amber-100 to-amber-200 text-amber-700">
+                            <k.icon className="h-5 w-5" />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm font-semibold text-slate-900">{k.label}</span>
+                            <span className="block text-xs text-slate-500">{k.description}</span>
+                          </span>
+                          <ChevronLeft className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-hover:-translate-x-0.5" />
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-4 text-center text-[11px] leading-relaxed text-slate-400">
+                      מצב הדגמה — שני החשבונות פעילים ומפורסמים בפלטפורמה
+                    </p>
+                  </motion.div>
+                )}
+
+                {stage === "account" && (
+                  <motion.div
+                    key="account"
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -6 }}
+                    transition={{ duration: 0.15 }}
+                  >
+                    <p className="mb-3 text-center text-sm text-slate-600">בחרו את היחידה הרפואית להדגמה</p>
+                    <div className="flex flex-col gap-2">
+                      {DEMO_ACCOUNTS.filter((a) => a.kind === "unit").map((a) => {
+                        const profile = profileFor(a);
+                        return (
+                          <button
+                            key={a.id}
+                            type="button"
+                            onClick={() => selectAccount(a)}
+                            className="group flex items-center gap-3 rounded-xl border border-slate-200 px-3.5 py-3 text-right transition-all hover:border-primary hover:bg-primary/5 hover:shadow-sm"
+                          >
+                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-amber-100 to-amber-200 text-amber-700">
+                              <a.icon className="h-5 w-5" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-sm font-semibold text-slate-900">{a.label}</span>
+                              <span className="block text-xs text-slate-500">{a.description}</span>
+                              {profile && (
+                                <span className="mt-0.5 block truncate text-[11px] text-slate-400">
+                                  {profile.display_name}
+                                </span>
+                              )}
+                            </span>
+                            <ChevronLeft className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-hover:-translate-x-0.5" />
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setStage("kind")}
+                      className="mt-4 flex w-full items-center justify-center gap-1 text-[11px] text-slate-400 transition-colors hover:text-slate-600"
+                    >
+                      <ArrowRight className="h-3 w-3" /> חזרה לבחירת סוג הספק
+                    </button>
+                  </motion.div>
+                )}
+
                 {stage === "form" && (
                   <motion.div
                     key="form"
@@ -178,6 +352,21 @@ export function SecureProviderLoginDialog({
                           <b.icon className="h-3 w-3" /> {b.label}
                         </span>
                       ))}
+                    </div>
+
+                    <div className="mb-3 flex items-center gap-2.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                      <account.icon className="h-4 w-4 shrink-0 text-slate-400" />
+                      <span className="min-w-0 flex-1 truncate text-xs text-slate-600">
+                        <strong className="font-semibold text-slate-800">{account.label}</strong>
+                        {accountProfile ? ` · ${accountProfile.display_name}` : ""}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setStage("kind")}
+                        className="shrink-0 text-[11px] font-medium text-primary hover:underline"
+                      >
+                        שינוי
+                      </button>
                     </div>
 
                     <form onSubmit={handleSubmit} className="flex flex-col gap-3">
@@ -223,7 +412,7 @@ export function SecureProviderLoginDialog({
                       לאבטחת חשבונך שלחנו קוד אימות בן 6 ספרות ב-SMS למספר
                       <br />
                       <span className="font-semibold text-slate-900" dir="ltr">
-                        {maskPhone(DEMO_PROVIDER_USER.phone)}
+                        {maskPhone(account.user.phone)}
                       </span>
                     </p>
 
@@ -331,8 +520,8 @@ export function SecureProviderLoginDialog({
                     <p className="font-semibold text-slate-900 mt-1">זוהית בהצלחה</p>
                     <p className="text-sm text-slate-600 flex items-center gap-1.5">
                       <KeyRound className="h-3.5 w-3.5 text-slate-400" />
-                      {demoProviderProfile?.display_name ?? DEMO_PROVIDER_USER.full_name}
-                      {demoProviderProfile?.specialty && ` · ${demoProviderProfile.specialty}`}
+                      {accountProfile?.display_name ?? account.user.full_name}
+                      {accountProfile?.specialty && ` · ${accountProfile.specialty}`}
                     </p>
                     <p className="text-xs text-slate-400 mt-1">מעביר אותך לפורטל הספק...</p>
                   </motion.div>

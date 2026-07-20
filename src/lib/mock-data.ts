@@ -2,6 +2,9 @@ import {
   Appointment,
   Branch,
   CatalogItem,
+  Clinic,
+  ScheduleShift,
+  WeeklySchedule,
   ConsentRecord,
   CONSENT_DOCUMENT_VERSION,
   DocumentCategory,
@@ -19,6 +22,7 @@ import {
 } from "@/types";
 import { generateId, isoDateDaysFromNow, isoTimestampHoursFromNow } from "./utils";
 import { SEED_SKILL_DOMAINS, SEED_SKILL_SUBDOMAINS } from "./medical-tree";
+import { scheduleToLegacyHours } from "./schedule";
 import { resolveCatalogPrice } from "./pricing";
 
 // ---------------------------------------------------------------------------
@@ -55,6 +59,27 @@ export const DEMO_PROVIDER_USER: User = {
   created_date: isoDateDaysFromNow(-300),
 };
 
+// Organization provider demo accounts — a מכון רפואי and a מרפאת חוץ. The
+// "כניסה מאובטחת של ספק" demo offers these as the "יחידה רפואית" option,
+// next to the single-practitioner account above.
+export const DEMO_INSTITUTE_USER: User = {
+  id: "user_provider_institute",
+  email: "institute@demo.co.il",
+  full_name: "מכון אסותא ראשונים",
+  role: "provider",
+  phone: "03-5559090",
+  created_date: isoDateDaysFromNow(-260),
+};
+
+export const DEMO_OUTPATIENT_USER: User = {
+  id: "user_provider_outpatient",
+  email: "clinic@demo.co.il",
+  full_name: "מרפאות חוץ הדסה קהילה",
+  role: "provider",
+  phone: "02-5558080",
+  created_date: isoDateDaysFromNow(-210),
+};
+
 export const DEMO_ADMIN_USER: User = {
   id: "user_admin_1",
   email: "admin@demo.co.il",
@@ -79,6 +104,8 @@ export const SEED_USERS: User[] = [
   DEMO_PATIENT_USER,
   DEMO_NEW_PATIENT_USER,
   DEMO_PROVIDER_USER,
+  DEMO_INSTITUTE_USER,
+  DEMO_OUTPATIENT_USER,
   DEMO_ADMIN_USER,
   DEMO_ADMIN_USER_2,
 ];
@@ -97,6 +124,9 @@ const provider2: ProviderProfile = {
   review_count: 212,
   license_number: "MD-44521",
   license_issuer: "משרד הבריאות",
+  // Also practises under the מרפאות חוץ demo organization (see
+  // providerOutpatient.affiliated_doctors) — one doctor record, two contexts.
+  organization_provider_ids: ["prov_outpatient"],
   license_issue_date: isoDateDaysFromNow(-1500),
   license_expiry_date: isoDateDaysFromNow(900),
   is_published: true,
@@ -500,7 +530,529 @@ const provider6: ProviderProfile = {
   referral_forms: [],
 };
 
-export const SEED_PROVIDERS: ProviderProfile[] = [provider1, provider2, provider3, provider4, provider5, provider6];
+// ---------------------------------------------------------------------------
+// Organization demo accounts (§PRV-07) — a מכון רפואי and a מרפאת חוץ, both
+// live, so the "כניסה מאובטחת של ספק" demo can show a medical *unit* portal
+// (affiliated doctors, a per-type service catalogue, a real multi-shift
+// weekly schedule) next to the single-practitioner portal (ד"ר אבי לוי).
+// ---------------------------------------------------------------------------
+
+/** Builds a Clinic with the shift-based schedule as the source of truth,
+ * deriving the legacy `hours` mirror so anything still reading it stays
+ * truthful (see src/lib/schedule.ts). */
+function clinicWithSchedule(
+  clinic: Omit<Clinic, "hours" | "schedule"> & { schedule: WeeklySchedule }
+): Clinic {
+  return { ...clinic, hours: scheduleToLegacyHours(clinic.schedule) };
+}
+
+function shift(id: string, start: string, end: string, extra: Partial<ScheduleShift> = {}): ScheduleShift {
+  return { id, start, end, ...extra };
+}
+
+const instituteClinicId = "clinic_institute_1";
+const instituteClinicId2 = "clinic_institute_2";
+const instituteServiceIds = {
+  mri: "ct_inst_mri",
+  ct: "ct_inst_ct",
+  colono: "ct_inst_colono",
+  homeBlood: "ct_inst_home_blood",
+  surgeonPick: "ct_inst_surgeon",
+  secondOpinion: "ct_inst_second_opinion",
+};
+
+// Doctors employed by the institute — real doctor records in the platform
+// (never duplicated: an organization that adds a doctor who already exists
+// links the existing record instead — see linkExistingDoctorToOrganization).
+const instituteDoctor1: ProviderProfile = {
+  id: "prov_inst_doc_1",
+  provider_type: "doctor",
+  display_name: "ד\"ר שרון גלעד",
+  title: "ד\"ר",
+  specialty: "רדיולוגיה",
+  sub_specialties: ["CT ו-MRI", "רדיולוגיה התערבותית"],
+  license_number: "MD-77410",
+  contact_phone: "052-4410099",
+  contact_email: "sharon.gilad@asuta-demo.co.il",
+  doctor_subtype: "physician",
+  is_published: false,
+  status: "approved",
+  organization_provider_ids: ["prov_institute"],
+  agreements: [],
+  consultation_types: [],
+  exam_types: [],
+  clinic_locations: [],
+  referral_forms: [],
+  created_date: isoDateDaysFromNow(-240),
+};
+
+const instituteDoctor2: ProviderProfile = {
+  id: "prov_inst_doc_2",
+  provider_type: "doctor",
+  display_name: "ד\"ר עומר נבו",
+  title: "ד\"ר",
+  specialty: "כירורגיה כללית",
+  sub_specialties: ["כירורגיה זעיר פולשנית", "כירורגיית בטן"],
+  license_number: "MD-77522",
+  contact_phone: "052-4410100",
+  contact_email: "omer.navo@asuta-demo.co.il",
+  doctor_subtype: "surgeon",
+  surgical_privileges_hospital: "מרכז רפואי אסותא",
+  is_published: false,
+  status: "approved",
+  organization_provider_ids: ["prov_institute"],
+  agreements: [],
+  consultation_types: [],
+  exam_types: [],
+  clinic_locations: [],
+  referral_forms: [],
+  created_date: isoDateDaysFromNow(-230),
+};
+
+const providerInstitute: ProviderProfile = {
+  id: "prov_institute",
+  provider_type: "medical_institute",
+  user_id: DEMO_INSTITUTE_USER.id,
+  display_name: "מכון אסותא ראשונים",
+  contact_name: "רונית אלמוג",
+  contact_phone: "03-5559090",
+  contact_email: "info@asuta-demo.co.il",
+  business_reg_number: "514882301",
+  specialty: "בדיקות, טיפולים, ניתוחים",
+  bio: "מכון רפואי המשלב הדמיה מתקדמת, פעולות פולשניות קלות וניתוחים אלקטיביים, כולל שירותי בדיקות עד הבית.",
+  license_number: "INST-2201",
+  license_issuer: "משרד הבריאות",
+  rating: 4.7,
+  review_count: 431,
+  is_published: true,
+  status: "approved",
+  commission_rate: 11,
+  location_count: 2,
+  created_date: isoDateDaysFromNow(-260),
+  agreements: [
+    { id: generateId("agr"), provider_id: "prov_institute", layer: "K" },
+    { id: generateId("agr"), provider_id: "prov_institute", layer: "B", insurance_companies: ["הראל", "מגדל"] },
+    { id: generateId("agr"), provider_id: "prov_institute", layer: "H" },
+  ],
+  kupah_arrangements: [
+    { kupah: "מכבי", level: "מכבי כסף" },
+    { kupah: "כללית", level: "כללית פלטינום" },
+  ],
+  private_insurance_companies: ["הראל", "מגדל"],
+  consultation_types: [
+    {
+      id: instituteServiceIds.mri,
+      name: "MRI עמוד שדרה",
+      duration_minutes: 45,
+      prices: [
+        { layer: "K", price: 390 },
+        { layer: "H", price: 1450 },
+      ],
+      service_type: "imaging",
+      service_category: "בדיקות",
+      linked_clinic_ids: [instituteClinicId],
+      requires_referral: true,
+    },
+    {
+      id: instituteServiceIds.ct,
+      name: "CT בטן עם חומר ניגוד",
+      duration_minutes: 30,
+      prices: [
+        { layer: "K", price: 320 },
+        { layer: "H", price: 1100 },
+      ],
+      service_type: "imaging",
+      service_category: "בדיקות",
+      linked_clinic_ids: [instituteClinicId],
+      requires_contrast: true,
+      has_radiation: true,
+    },
+    {
+      id: instituteServiceIds.colono,
+      name: "קולונוסקופיה בהרדמה",
+      duration_minutes: 60,
+      prices: [
+        { layer: "K", price: 650 },
+        { layer: "H", price: 2400 },
+      ],
+      service_type: "procedure",
+      service_category: "פעולות",
+      linked_clinic_ids: [instituteClinicId, instituteClinicId2],
+      anesthesia_type: "sedation",
+      requires_referral: true,
+    },
+    {
+      id: instituteServiceIds.homeBlood,
+      name: "בדיקות דם עד הבית",
+      duration_minutes: 20,
+      prices: [
+        { layer: "K", price: 90 },
+        { layer: "H", price: 260 },
+      ],
+      service_type: "test",
+      service_category: "בדיקות עד הבית",
+      linked_clinic_ids: [instituteClinicId2],
+      requires_fasting: true,
+      sample_type: "דם ורידי",
+    },
+    {
+      id: instituteServiceIds.surgeonPick,
+      name: "בחירת מנתח — ניתוח בקע",
+      duration_minutes: 90,
+      prices: [{ layer: "H", price: 14500 }],
+      service_type: "surgery",
+      service_category: "בחירת מנתח",
+      linked_clinic_ids: [instituteClinicId],
+      anesthesia_type: "general",
+      recovery_days: 14,
+      requires_hospital: true,
+    },
+    {
+      id: instituteServiceIds.secondOpinion,
+      name: "חוות דעת נוספת — הדמיה",
+      duration_minutes: 25,
+      prices: [{ layer: "H", price: 520 }],
+      service_type: "consultation",
+      service_category: "חוות דעת נוספת",
+      linked_clinic_ids: [instituteClinicId],
+    },
+  ],
+  exam_types: [],
+  clinic_locations: [
+    clinicWithSchedule({
+      id: instituteClinicId,
+      name: "מכון אסותא — ראשון לציון",
+      address: "הרצל 88",
+      city: "ראשון לציון",
+      phone: "03-5559090",
+      is_primary: true,
+      location_type: "clinic",
+      // Split hours + a mid-shift break: mornings are imaging, the afternoon
+      // shift is reserved for procedures and surgery scheduling.
+      schedule: {
+        sunday: [
+          shift("sh_inst_sun_am", "07:00", "13:00", {
+            label: "משמרת בוקר — הדמיה",
+            slot_minutes: 30,
+            breaks: [{ id: "br_inst_sun", start: "10:00", end: "10:30", label: "הפסקת צוות" }],
+            service_ids: [instituteServiceIds.mri, instituteServiceIds.ct, instituteServiceIds.secondOpinion],
+          }),
+          shift("sh_inst_sun_pm", "15:00", "19:00", {
+            label: "משמרת אחה״צ — פעולות",
+            slot_minutes: 60,
+            service_ids: [instituteServiceIds.colono, instituteServiceIds.surgeonPick],
+          }),
+        ],
+        monday: [
+          shift("sh_inst_mon_am", "07:00", "13:00", {
+            label: "משמרת בוקר — הדמיה",
+            slot_minutes: 30,
+            service_ids: [instituteServiceIds.mri, instituteServiceIds.ct, instituteServiceIds.secondOpinion],
+          }),
+          shift("sh_inst_mon_pm", "15:00", "19:00", {
+            label: "משמרת אחה״צ — פעולות",
+            slot_minutes: 60,
+            service_ids: [instituteServiceIds.colono, instituteServiceIds.surgeonPick],
+          }),
+        ],
+        tuesday: [
+          shift("sh_inst_tue", "07:00", "15:00", {
+            label: "יום ארוך",
+            slot_minutes: 30,
+            breaks: [{ id: "br_inst_tue", start: "12:00", end: "12:45", label: "הפסקת צהריים" }],
+          }),
+        ],
+        wednesday: [
+          shift("sh_inst_wed_am", "07:00", "13:00", { label: "משמרת בוקר", slot_minutes: 30 }),
+        ],
+        thursday: [
+          shift("sh_inst_thu_am", "07:00", "13:00", { label: "משמרת בוקר", slot_minutes: 30 }),
+          shift("sh_inst_thu_pm", "15:00", "18:00", {
+            label: "משמרת אחה״צ — פעולות",
+            slot_minutes: 60,
+            service_ids: [instituteServiceIds.colono],
+          }),
+        ],
+        friday: [shift("sh_inst_fri", "07:00", "11:30", { label: "בוקר מקוצר", slot_minutes: 30 })],
+        saturday: [],
+      },
+      schedule_exceptions: [
+        {
+          id: "exc_inst_1",
+          date: isoDateDaysFromNow(9),
+          closed: true,
+          reason: "יום היערכות ותחזוקת מכשור",
+        },
+        {
+          id: "exc_inst_2",
+          date: isoDateDaysFromNow(16),
+          closed: false,
+          reason: "ערב חג — פעילות מקוצרת",
+          shifts: [shift("sh_inst_exc", "07:00", "12:00", { slot_minutes: 30 })],
+        },
+      ],
+    }),
+    clinicWithSchedule({
+      id: instituteClinicId2,
+      name: "מכון אסותא — סניף פתח תקווה",
+      address: "ז'בוטינסקי 35",
+      city: "פתח תקווה",
+      phone: "03-5559091",
+      is_primary: false,
+      location_type: "clinic",
+      schedule: {
+        sunday: [shift("sh_inst2_sun", "08:00", "16:00", { slot_minutes: 30 })],
+        monday: [shift("sh_inst2_mon", "08:00", "16:00", { slot_minutes: 30 })],
+        tuesday: [],
+        wednesday: [shift("sh_inst2_wed", "08:00", "16:00", { slot_minutes: 30 })],
+        thursday: [shift("sh_inst2_thu", "08:00", "16:00", { slot_minutes: 30 })],
+        friday: [],
+        saturday: [],
+      },
+    }),
+  ],
+  referral_forms: [],
+  affiliated_doctors: [
+    {
+      id: "affdoc_inst_1",
+      doctor_provider_id: instituteDoctor1.id,
+      role: "מנהל היחידה להדמיה",
+      service_ids: [instituteServiceIds.mri, instituteServiceIds.ct, instituteServiceIds.secondOpinion],
+      clinic_ids: [instituteClinicId],
+      added_at: isoDateDaysFromNow(-240),
+    },
+    {
+      id: "affdoc_inst_2",
+      doctor_provider_id: instituteDoctor2.id,
+      role: "מנתח בכיר",
+      service_ids: [instituteServiceIds.colono, instituteServiceIds.surgeonPick],
+      clinic_ids: [instituteClinicId, instituteClinicId2],
+      added_at: isoDateDaysFromNow(-230),
+    },
+  ],
+};
+
+const outpatientClinicId = "clinic_outpatient_1";
+const outpatientServiceIds = {
+  consult: "ct_out_consult",
+  followUp: "ct_out_followup",
+  secondOpinion: "ct_out_second_opinion",
+  diagnostics: "ct_out_diagnostics",
+  tests: "ct_out_tests",
+  treatments: "ct_out_treatments",
+};
+
+const outpatientDoctor1: ProviderProfile = {
+  id: "prov_out_doc_1",
+  provider_type: "doctor",
+  display_name: "ד\"ר תמר אביב",
+  title: "ד\"ר",
+  specialty: "רפואת משפחה",
+  sub_specialties: ["רפואה מונעת", "ניהול מחלות כרוניות"],
+  license_number: "MD-81244",
+  contact_phone: "053-7710022",
+  contact_email: "tamar.aviv@hadassah-demo.co.il",
+  doctor_subtype: "physician",
+  is_published: false,
+  status: "approved",
+  organization_provider_ids: ["prov_outpatient"],
+  agreements: [],
+  consultation_types: [],
+  exam_types: [],
+  clinic_locations: [],
+  referral_forms: [],
+  created_date: isoDateDaysFromNow(-200),
+};
+
+const providerOutpatient: ProviderProfile = {
+  id: "prov_outpatient",
+  provider_type: "outpatient_clinic",
+  user_id: DEMO_OUTPATIENT_USER.id,
+  display_name: "מרפאות חוץ הדסה קהילה",
+  contact_name: "אורי בן-חיים",
+  contact_phone: "02-5558080",
+  contact_email: "clinic@hadassah-demo.co.il",
+  business_reg_number: "513990877",
+  specialty: "ייעוץ, בדיקות, טיפולים",
+  bio: "רשת מרפאות חוץ קהילתיות הפועלת תחת ארגון רפואי, המספקת ייעוצים, אבחונים, בדיקות וטיפולים.",
+  license_number: "CLN-4410",
+  license_issuer: "משרד הבריאות",
+  rating: 4.6,
+  review_count: 298,
+  is_published: true,
+  status: "approved",
+  commission_rate: 12,
+  location_count: 1,
+  created_date: isoDateDaysFromNow(-210),
+  agreements: [
+    { id: generateId("agr"), provider_id: "prov_outpatient", layer: "S", kupah_list: ["כללית", "מכבי", "מאוחדת", "לאומית"] },
+    { id: generateId("agr"), provider_id: "prov_outpatient", layer: "K" },
+    { id: generateId("agr"), provider_id: "prov_outpatient", layer: "H" },
+  ],
+  kupah_arrangements: [
+    { kupah: "כללית", level: "כללית מושלם" },
+    { kupah: "מאוחדת", level: "מאוחדת עדיף" },
+  ],
+  consultation_types: [
+    {
+      id: outpatientServiceIds.consult,
+      name: "ייעוץ רפואת משפחה",
+      duration_minutes: 20,
+      prices: [
+        { layer: "S", price: 30 },
+        { layer: "K", price: 90 },
+        { layer: "H", price: 320 },
+      ],
+      service_type: "consultation",
+      service_category: "ייעוץ",
+      linked_clinic_ids: [outpatientClinicId],
+    },
+    {
+      id: outpatientServiceIds.followUp,
+      name: "ייעוץ חוזר",
+      duration_minutes: 15,
+      prices: [
+        { layer: "K", price: 60 },
+        { layer: "H", price: 210 },
+      ],
+      service_type: "consultation",
+      service_category: "ייעוץ חוזר",
+      linked_clinic_ids: [outpatientClinicId],
+    },
+    {
+      id: outpatientServiceIds.secondOpinion,
+      name: "חוות דעת נוספת",
+      duration_minutes: 30,
+      prices: [{ layer: "H", price: 480 }],
+      service_type: "consultation",
+      service_category: "חוות דעת נוספת",
+      linked_clinic_ids: [outpatientClinicId],
+    },
+    {
+      id: outpatientServiceIds.diagnostics,
+      name: "אבחון קרדיולוגי — אק״ג במאמץ",
+      duration_minutes: 45,
+      prices: [
+        { layer: "K", price: 180 },
+        { layer: "H", price: 620 },
+      ],
+      service_type: "test",
+      service_category: "אבחונים",
+      linked_clinic_ids: [outpatientClinicId],
+    },
+    {
+      id: outpatientServiceIds.tests,
+      name: "בדיקות דם שגרתיות",
+      duration_minutes: 10,
+      prices: [
+        { layer: "S", price: 0 },
+        { layer: "H", price: 150 },
+      ],
+      service_type: "test",
+      service_category: "בדיקות",
+      linked_clinic_ids: [outpatientClinicId],
+      requires_fasting: true,
+    },
+    {
+      id: outpatientServiceIds.treatments,
+      name: "טיפול בפצע כרוני",
+      duration_minutes: 30,
+      prices: [
+        { layer: "K", price: 120 },
+        { layer: "H", price: 380 },
+      ],
+      service_type: "treatment",
+      service_category: "טיפולים",
+      linked_clinic_ids: [outpatientClinicId],
+    },
+  ],
+  exam_types: [],
+  clinic_locations: [
+    clinicWithSchedule({
+      id: outpatientClinicId,
+      name: "מרפאת חוץ — ירושלים מרכז",
+      address: "יפו 210",
+      city: "ירושלים",
+      phone: "02-5558080",
+      is_primary: true,
+      location_type: "clinic",
+      schedule: {
+        sunday: [
+          shift("sh_out_sun_am", "08:00", "12:30", {
+            label: "מרפאת בוקר",
+            slot_minutes: 20,
+            service_ids: [outpatientServiceIds.consult, outpatientServiceIds.followUp, outpatientServiceIds.tests],
+          }),
+          shift("sh_out_sun_pm", "16:00", "20:00", {
+            label: "מרפאת ערב",
+            slot_minutes: 20,
+            breaks: [{ id: "br_out_sun", start: "18:00", end: "18:20", label: "הפסקה" }],
+          }),
+        ],
+        monday: [
+          shift("sh_out_mon_am", "08:00", "12:30", { label: "מרפאת בוקר", slot_minutes: 20 }),
+        ],
+        tuesday: [
+          shift("sh_out_tue_am", "08:00", "12:30", { label: "מרפאת בוקר", slot_minutes: 20 }),
+          shift("sh_out_tue_pm", "16:00", "20:00", {
+            label: "מרפאת ערב — אבחונים",
+            slot_minutes: 45,
+            service_ids: [outpatientServiceIds.diagnostics, outpatientServiceIds.treatments],
+          }),
+        ],
+        wednesday: [shift("sh_out_wed", "08:00", "15:00", { label: "יום רציף", slot_minutes: 20 })],
+        thursday: [
+          shift("sh_out_thu_am", "08:00", "12:30", { label: "מרפאת בוקר", slot_minutes: 20 }),
+        ],
+        friday: [shift("sh_out_fri", "08:00", "11:00", { label: "בוקר מקוצר", slot_minutes: 20 })],
+        saturday: [],
+      },
+      schedule_exceptions: [
+        { id: "exc_out_1", date: isoDateDaysFromNow(12), closed: true, reason: "יום השתלמות צוות" },
+      ],
+    }),
+  ],
+  referral_forms: [],
+  affiliated_doctors: [
+    {
+      id: "affdoc_out_1",
+      doctor_provider_id: outpatientDoctor1.id,
+      role: "מנהלת המרפאה",
+      service_ids: [
+        outpatientServiceIds.consult,
+        outpatientServiceIds.followUp,
+        outpatientServiceIds.tests,
+        outpatientServiceIds.treatments,
+      ],
+      clinic_ids: [outpatientClinicId],
+      added_at: isoDateDaysFromNow(-200),
+    },
+    {
+      // A doctor who already existed in the platform as a standalone provider
+      // (ד"ר מיכל ברק, prov_2) — linked, not duplicated (§PRV-07 dedup).
+      id: "affdoc_out_2",
+      doctor_provider_id: "prov_2",
+      role: "יועצת קרדיולוגית",
+      service_ids: [outpatientServiceIds.diagnostics, outpatientServiceIds.secondOpinion],
+      clinic_ids: [outpatientClinicId],
+      added_at: isoDateDaysFromNow(-120),
+    },
+  ],
+};
+
+export const SEED_PROVIDERS: ProviderProfile[] = [
+  provider1,
+  provider2,
+  provider3,
+  provider4,
+  provider5,
+  provider6,
+  providerInstitute,
+  instituteDoctor1,
+  instituteDoctor2,
+  providerOutpatient,
+  outpatientDoctor1,
+];
 
 // ---------------------------------------------------------------------------
 // Catalog items — derived from the skill taxonomy, 3 items per sub-domain.
@@ -743,11 +1295,18 @@ const SERVICE_NAMES = [
   "בדיקת MRI לברך",
 ];
 
-// Cycled across all 4 published demo providers (not just provider1/2) so
-// every doctor a patient can find in search also has some booked slots to
-// demonstrate "fully booked day" / waitlist against — not just the two
-// original ones.
-const APPOINTMENT_PROVIDERS = [provider1, provider2, provider5, provider6];
+// Cycled across every published demo provider — including the two
+// organization accounts — so each one a patient can find in search also has
+// booked slots to demonstrate "fully booked day" / waitlist against, and the
+// unit portals open with real operational data rather than empty tables.
+const APPOINTMENT_PROVIDERS = [
+  provider1,
+  provider2,
+  provider5,
+  provider6,
+  providerInstitute,
+  providerOutpatient,
+];
 
 export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
   (_, i) => {
@@ -772,7 +1331,11 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
       client_phone: patient.phone,
       provider_id: provider.id,
       provider_name: provider.display_name,
-      service_name: SERVICE_NAMES[i % SERVICE_NAMES.length],
+      // Prefer a service the provider actually offers, so an institute's
+      // appointments don't read as orthopedic consultations.
+      service_name:
+        provider.consultation_types[i % Math.max(1, provider.consultation_types.length)]?.name ??
+        SERVICE_NAMES[i % SERVICE_NAMES.length],
       date: isoDateDaysFromNow(dayOffset),
       time: `${String(hour).padStart(2, "0")}:00`,
       duration_minutes: 30,

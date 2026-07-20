@@ -1,82 +1,30 @@
 // Real slot availability generator shared by every booking flow (§/book and
 // the client personal-area booking flow both call this once a provider —
 // and, if they have more than one clinic, a specific location — is picked).
-// Slots are derived from that clinic's weekly hours, minus any blocked
-// dates and any time already taken by an existing, non-cancelled
-// appointment (checked against the provider as a whole — a doctor can't be
-// double-booked across two locations at the same time either).
-import { Appointment, Clinic, DayKey, ProviderProfile } from "@/types";
-
-export interface DaySlots {
-  date: string;
-  label: string;
-  slots: { time: string; available: boolean }[];
-}
-
-const DAY_KEYS: DayKey[] = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
-
-const SLOT_STEP_MINUTES = 30;
+// Slots are derived from that clinic's weekly schedule (shifts, breaks,
+// per-date exceptions — see src/lib/schedule.ts), minus any blocked dates and
+// any time already taken by an existing, non-cancelled appointment (checked
+// against the provider as a whole — a doctor can't be double-booked across
+// two locations at the same time either).
+//
+// `serviceId` narrows the result to a specific service: a shift that declares
+// which services it hosts only yields slots for those, the location must
+// actually offer the service (ConsultationType.linked_clinic_ids), and slots
+// are sized to the service's own duration so a booking can't run past closing.
+import { Appointment, Clinic, ProviderProfile } from "@/types";
+import { slotTimesForDate } from "./schedule";
 
 export function primaryLocation(provider: ProviderProfile): Clinic | undefined {
   return provider.clinic_locations.find((c) => c.is_primary) ?? provider.clinic_locations[0];
 }
 
-function timeToMinutes(time: string): number {
-  const [h, m] = time.split(":").map(Number);
-  return h * 60 + m;
-}
-
-function minutesToTime(minutes: number): string {
-  const h = Math.floor(minutes / 60)
-    .toString()
-    .padStart(2, "0");
-  const m = (minutes % 60).toString().padStart(2, "0");
-  return `${h}:${m}`;
-}
-
-function slotsForRange(start: string, end: string): string[] {
-  const startMin = timeToMinutes(start);
-  const endMin = timeToMinutes(end);
-  const times: string[] = [];
-  for (let t = startMin; t + SLOT_STEP_MINUTES <= endMin; t += SLOT_STEP_MINUTES) {
-    times.push(minutesToTime(t));
-  }
-  return times;
-}
-
-export function buildDays(provider: ProviderProfile, appointments: Appointment[], daysAhead = 6): DaySlots[] {
-  const location = primaryLocation(provider);
-  const blockedDates = new Set((provider.blocked_dates ?? []).map((b) => b.date));
-  const occupied = new Set(
-    appointments
-      .filter((a) => a.provider_id === provider.id && a.status !== "בוטל")
-      .map((a) => `${a.date}T${a.time}`)
-  );
-
-  // Saturday (שבת) is never bookable, so it's skipped entirely rather than
-  // shown as a day with no slots — the day picker keeps advancing until it
-  // has collected `daysAhead` real (non-Saturday) options.
-  const days: DaySlots[] = [];
-  for (let dayOffset = 1; days.length < daysAhead; dayOffset++) {
-    const d = new Date();
-    d.setDate(d.getDate() + dayOffset);
-    const dayKey = DAY_KEYS[d.getDay()];
-    if (dayKey === "saturday") continue;
-
-    const date = d.toISOString().slice(0, 10);
-    const label = d.toLocaleDateString("he-IL", { weekday: "short", day: "2-digit", month: "2-digit" });
-    const range = location?.hours[dayKey];
-    const isBlocked = blockedDates.has(date);
-
-    const times = !range || isBlocked ? [] : slotsForRange(range[0], range[1]);
-    const slots = times.map((time) => ({
-      time,
-      available: !occupied.has(`${date}T${time}`),
-    }));
-
-    days.push({ date, label, slots });
-  }
-  return days;
+/** Whether a location offers a given service. A service with no explicit
+ * location links isn't restricted to any of them. */
+export function serviceOfferedAt(provider: ProviderProfile, serviceId: string, clinicId: string): boolean {
+  const service = provider.consultation_types.find((s) => s.id === serviceId);
+  if (!service) return true;
+  const links = service.linked_clinic_ids ?? [];
+  return links.length === 0 || links.includes(clinicId);
 }
 
 export interface MonthDay {
@@ -87,20 +35,24 @@ export interface MonthDay {
   slots: { time: string; available: boolean }[];
 }
 
-// Every calendar day in the given month (unlike buildDays, which only
-// collects the next N *available* business days) — the date grid needs every
-// day present so it can render a blank/no-indicator cell for days the
-// provider doesn't work, distinct from a grey "fully booked" cell.
+// Every calendar day in the given month — the date grid needs every day
+// present so it can render a blank/no-indicator cell for days the provider
+// doesn't work, distinct from a grey "fully booked" cell.
 // `clinic` is which of the provider's clinic_locations to build hours from
 // (a provider can offer the same service at more than one location, each
-// with its own weekly hours) — defaults to the primary one.
+// with its own weekly schedule) — defaults to the primary one.
 export function buildMonth(
   provider: ProviderProfile,
   appointments: Appointment[],
   monthDate: Date,
-  clinic: Clinic | undefined = primaryLocation(provider)
+  clinic: Clinic | undefined = primaryLocation(provider),
+  opts: { serviceId?: string; durationMinutes?: number } = {}
 ): MonthDay[] {
   const location = clinic;
+  // A service the chosen location doesn't offer has no slots there at all,
+  // regardless of what its shifts say — an unscoped shift means "every
+  // service *this location* provides", not every service in the catalog.
+  const offeredHere = !opts.serviceId || !location || serviceOfferedAt(provider, opts.serviceId, location.id);
   const blockedDates = new Set((provider.blocked_dates ?? []).map((b) => b.date));
   const occupied = new Set(
     appointments
@@ -119,12 +71,10 @@ export function buildMonth(
   for (let dayOfMonth = 1; dayOfMonth <= daysInMonth; dayOfMonth++) {
     const d = new Date(year, month, dayOfMonth);
     const isPast = d <= today;
-    const dayKey = DAY_KEYS[d.getDay()];
     const date = `${year}-${String(month + 1).padStart(2, "0")}-${String(dayOfMonth).padStart(2, "0")}`;
-    const range = location?.hours[dayKey];
     const isBlocked = blockedDates.has(date);
 
-    const times = isPast || !range || isBlocked ? [] : slotsForRange(range[0], range[1]);
+    const times = isPast || isBlocked || !offeredHere ? [] : slotTimesForDate(location, date, opts);
     const slots = times.map((time) => ({
       time,
       available: !occupied.has(`${date}T${time}`),
@@ -138,7 +88,7 @@ export function buildMonth(
 // Deterministic (not random) "days until this provider's next opening" used
 // only to power the availability filter in ProviderDiscovery — there's no
 // real per-provider slot data at the search stage (slots are only generated
-// once a provider is picked, via buildDays above), so this simulates a
+// once a provider is picked, via buildMonth above), so this simulates a
 // stable per-provider offset instead of wiring up a full mock calendar.
 export function nextAvailableInDays(providerId: string): number {
   let hash = 0;

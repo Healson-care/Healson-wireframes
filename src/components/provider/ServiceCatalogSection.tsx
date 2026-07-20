@@ -21,6 +21,8 @@ import {
   PROVIDER_SERVICE_TYPE_LABELS,
   PROVIDER_SERVICE_TYPES,
   ProviderServiceType,
+  ProviderType,
+  getProviderServiceCategories,
 } from "@/types";
 import { Plus, Pencil, Trash2, Stethoscope, MapPin } from "lucide-react";
 
@@ -34,6 +36,7 @@ export function ServiceCatalogSection({
   providerId,
   itemLabel,
   providerSpecialty,
+  providerType,
 }: {
   items: ConsultationType[];
   onChange: (items: ConsultationType[]) => void;
@@ -43,7 +46,12 @@ export function ServiceCatalogSection({
   // skill domain name_he (see medical-tree.ts), the picker below defaults to
   // and stays scoped to that one domain instead of showing all of them.
   providerSpecialty?: string;
+  // Organization types (מרפאת חוץ / מכון רפואי) classify their catalog with
+  // their own service vocabulary rather than the generic 7 service types —
+  // the same list the applicant picked from during registration.
+  providerType?: ProviderType;
 }) {
+  const serviceCategories = getProviderServiceCategories(providerType);
   const skillDomains = useStore((s) => s.skillDomains);
   const skillSubdomains = useStore((s) => s.skillSubdomains);
   const catalog = useStore((s) => s.catalog);
@@ -62,6 +70,7 @@ export function ServiceCatalogSection({
   const [duration, setDuration] = useState("30");
   const [prices, setPrices] = useState<Record<InsuranceLayer, string>>(emptyLayerPrices());
   const [serviceType, setServiceType] = useState<ProviderServiceType>("consultation");
+  const [serviceCategory, setServiceCategory] = useState<string>("");
   const [showAllDomains, setShowAllDomains] = useState(!matchedDomain);
   const [requiresReferral, setRequiresReferral] = useState(false);
   const [requiresFasting, setRequiresFasting] = useState(false);
@@ -94,6 +103,7 @@ export function ServiceCatalogSection({
     setDuration("30");
     setPrices(emptyLayerPrices());
     setServiceType("consultation");
+    setServiceCategory(serviceCategories?.[0] ?? "");
     setShowAllDomains(!matchedDomain);
     setRequiresReferral(false);
     setRequiresFasting(false);
@@ -118,6 +128,7 @@ export function ServiceCatalogSection({
     item.prices.forEach((p) => (map[p.layer] = String(p.price)));
     setPrices(map);
     setServiceType(item.service_type ?? "consultation");
+    setServiceCategory(item.service_category ?? serviceCategories?.[0] ?? "");
     setShowAllDomains(!matchedDomain || itemDomainId !== matchedDomain.id);
     setRequiresReferral(item.requires_referral ?? false);
     setRequiresFasting(item.requires_fasting ?? false);
@@ -140,6 +151,7 @@ export function ServiceCatalogSection({
       prices: INSURANCE_LAYERS.filter((l) => prices[l] !== "").map((l) => ({ layer: l, price: Number(prices[l]) || 0 })),
       catalog_item_id: catalogItem?.id ?? editingExisting?.catalog_item_id,
       service_type: serviceType,
+      service_category: serviceCategories ? serviceCategory || undefined : editingExisting?.service_category,
       // Location linking is owned by the clinics screen now — preserve whatever
       // links already exist, never reset them from here.
       linked_clinic_ids: editingExisting?.linked_clinic_ids ?? [],
@@ -167,7 +179,7 @@ export function ServiceCatalogSection({
     return skillSubdomains.find((d) => d.id === id)?.name_he ?? "";
   }
 
-  const canSave = editingId ? true : !!catalogItemId;
+  const canSave = (editingId ? true : !!catalogItemId) && (!serviceCategories || !!serviceCategory);
 
   return (
     <div>
@@ -194,7 +206,11 @@ export function ServiceCatalogSection({
                           {domainName(catalogItem.skill_domain_id)} · {subdomainName(catalogItem.skill_subdomain_id)}
                         </Badge>
                       )}
-                      {item.service_type && <Badge tone="blue">{PROVIDER_SERVICE_TYPE_LABELS[item.service_type]}</Badge>}
+                      {item.service_category ? (
+                        <Badge tone="blue">{item.service_category}</Badge>
+                      ) : (
+                        item.service_type && <Badge tone="blue">{PROVIDER_SERVICE_TYPE_LABELS[item.service_type]}</Badge>
+                      )}
                       <span className="text-xs text-slate-500">{item.duration_minutes} דק׳</span>
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
@@ -317,15 +333,50 @@ export function ServiceCatalogSection({
           )}
 
           <div className="grid sm:grid-cols-2 gap-3">
-            <Select label="סוג שירות" value={serviceType} onChange={(e) => setServiceType(e.target.value as ProviderServiceType)}>
+            {/* Organization types classify by their own catalogue (§PRV-02);
+                everyone else keeps the generic 7-way classification. */}
+            {serviceCategories ? (
+              <Select
+                label="סוג השירות"
+                value={serviceCategory}
+                onChange={(e) => setServiceCategory(e.target.value)}
+                required
+              >
+                <option value="">בחר/י סוג שירות</option>
+                {serviceCategories.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              <Select label="סוג שירות" value={serviceType} onChange={(e) => setServiceType(e.target.value as ProviderServiceType)}>
+                {PROVIDER_SERVICE_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {PROVIDER_SERVICE_TYPE_LABELS[t]}
+                  </option>
+                ))}
+              </Select>
+            )}
+            <Input label="משך (דקות)" type="number" value={duration} onChange={(e) => setDuration(e.target.value)} required />
+          </div>
+
+          {/* The category above drives the patient-facing grouping; the
+              clinical classification below still decides which prep fields
+              (fasting, anesthesia, contrast…) are relevant. */}
+          {serviceCategories && (
+            <Select
+              label="סיווג קליני (קובע אילו שדות הכנה נדרשים)"
+              value={serviceType}
+              onChange={(e) => setServiceType(e.target.value as ProviderServiceType)}
+            >
               {PROVIDER_SERVICE_TYPES.map((t) => (
                 <option key={t} value={t}>
                   {PROVIDER_SERVICE_TYPE_LABELS[t]}
                 </option>
               ))}
             </Select>
-            <Input label="משך (דקות)" type="number" value={duration} onChange={(e) => setDuration(e.target.value)} required />
-          </div>
+          )}
 
           <div className="flex flex-col gap-2 rounded-lg border border-slate-200 p-3">
             <label className="flex items-center gap-2 text-sm cursor-pointer">

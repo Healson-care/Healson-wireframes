@@ -1,0 +1,684 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { Card } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { Dialog, ConfirmDialog } from "@/components/ui/Dialog";
+import { Input, Select } from "@/components/ui/Input";
+import { EmptyState, Avatar } from "@/components/ui/Misc";
+import { Badge } from "@/components/ui/Badge";
+import { useStore } from "@/lib/store";
+import { cn } from "@/lib/utils";
+import { fileToDataUrl } from "@/lib/file";
+import { AffiliatedDoctor, Clinic, ConsultationType, ProviderProfile, UploadedFile } from "@/types";
+import {
+  AlertCircle,
+  BadgeCheck,
+  Link2,
+  MapPin,
+  Pencil,
+  Plus,
+  Search,
+  Stethoscope,
+  Trash2,
+  Upload,
+  UserPlus,
+} from "lucide-react";
+
+const TITLES = ['ד"ר', "פרופ'"];
+
+/** Doctors working under an organization (§PRV-07 — outpatient clinics and
+ * medical institutes).
+ *
+ * Every consultation-based service is actually delivered by a doctor, so the
+ * organization manages its roster here and links each doctor to the services
+ * they deliver. A doctor is never duplicated: while the "add doctor" form is
+ * being filled, the platform is searched for a matching record (license
+ * number / phone / email / exact name) and, on a hit, the user is offered the
+ * existing doctor to affiliate instead of creating a second record. */
+/** Which catalogue entries actually need a doctor behind them. Consultation-
+ * based services always do; product-like entries ("ציוד רפואי") don't, so they
+ * must not be counted as "unstaffed". */
+function requiresDoctor(service: ConsultationType): boolean {
+  if (service.service_type === "product") return false;
+  if (service.service_category) {
+    return !["ציוד רפואי", "שירותים נוספים"].includes(service.service_category);
+  }
+  return true;
+}
+
+export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfile }) {
+  const providers = useStore((s) => s.providers);
+  const findMatchingDoctors = useStore((s) => s.findMatchingDoctors);
+  const addAffiliatedDoctor = useStore((s) => s.addAffiliatedDoctor);
+  const linkExistingDoctorToOrganization = useStore((s) => s.linkExistingDoctorToOrganization);
+  const updateAffiliatedDoctor = useStore((s) => s.updateAffiliatedDoctor);
+  const removeAffiliatedDoctor = useStore((s) => s.removeAffiliatedDoctor);
+  const showToast = useStore((s) => s.showToast);
+
+  const [addOpen, setAddOpen] = useState(false);
+  const [editing, setEditing] = useState<AffiliatedDoctor | null>(null);
+  const [removing, setRemoving] = useState<AffiliatedDoctor | null>(null);
+
+  const affiliations = provider.affiliated_doctors ?? [];
+  const doctorById = useMemo(() => new Map(providers.map((p) => [p.id, p])), [providers]);
+  const services = provider.consultation_types;
+  const clinics = provider.clinic_locations;
+
+  // Services that need a doctor but have nobody assigned — the reason this
+  // section exists, so it's surfaced rather than left implicit.
+  const doctorServices = services.filter(requiresDoctor);
+  const unstaffedServices = doctorServices.filter(
+    (s) => !affiliations.some((a) => a.service_ids.includes(s.id))
+  );
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+        <div className="flex items-center gap-2">
+          <Stethoscope className="h-4 w-4 text-slate-400" />
+          <div>
+            <p className="text-sm font-medium text-slate-900">רופאים משויכים</p>
+            <p className="text-xs text-slate-500">
+              {affiliations.length} רופאים · {doctorServices.length - unstaffedServices.length} מתוך{" "}
+              {doctorServices.length} שירותים מאוישים
+            </p>
+          </div>
+        </div>
+        <Button size="sm" onClick={() => setAddOpen(true)}>
+          <UserPlus className="h-4 w-4" /> הוספת רופא/ה
+        </Button>
+      </Card>
+
+      {affiliations.length > 0 && unstaffedServices.length > 0 && (
+        <div className="flex items-start gap-2 rounded-lg border border-warning-border bg-warning-bg px-3 py-2 text-sm text-warning-text">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            {unstaffedServices.length} שירותים עדיין ללא רופא/ה משויך/ת:{" "}
+            {unstaffedServices.map((s) => s.name).join(", ")}
+          </span>
+        </div>
+      )}
+
+      {affiliations.length === 0 ? (
+        <EmptyState
+          icon={<Stethoscope className="h-10 w-10" />}
+          title="לא שויכו עדיין רופאים"
+          description="כל שירות המבוסס על ייעוץ מתבצע בפועל על ידי רופא/ה. הוסיפו את הרופאים הפועלים אצלכם ושייכו אותם לשירותים הרלוונטיים."
+        />
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {affiliations.map((affiliation) => {
+            const doctor = doctorById.get(affiliation.doctor_provider_id);
+            if (!doctor) return null;
+            const linkedServices = services.filter((s) => affiliation.service_ids.includes(s.id));
+            const otherOrgs = (doctor.organization_provider_ids ?? []).filter((id) => id !== provider.id);
+            return (
+              <Card key={affiliation.id} className="p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <Avatar name={doctor.display_name} src={doctor.image_url} className="h-10 w-10 text-xs" />
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-slate-900">
+                        {doctor.title} {doctor.display_name}
+                      </p>
+                      <p className="truncate text-xs text-slate-500">{doctor.specialty}</p>
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                        {affiliation.role && <Badge tone="info">{affiliation.role}</Badge>}
+                        {doctor.license_number && (
+                          <span className="flex items-center gap-1 text-[11px] text-slate-400">
+                            <BadgeCheck className="h-3 w-3" /> {doctor.license_number}
+                          </span>
+                        )}
+                        {otherOrgs.length > 0 && (
+                          <Badge tone="purple">משויך/ת ל-{otherOrgs.length} ארגונים נוספים</Badge>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    <button
+                      onClick={() => setEditing(affiliation)}
+                      className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"
+                      aria-label="עריכת שיוך"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => setRemoving(affiliation)}
+                      className="rounded-md p-1.5 text-red-500 hover:bg-red-50"
+                      aria-label="הסרת שיוך"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-3">
+                  <p className="mb-1 text-[11px] font-medium text-slate-500">שירותים משויכים</p>
+                  {linkedServices.length === 0 ? (
+                    <p className="text-xs text-slate-400">לא שויכו שירותים</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1">
+                      {linkedServices.map((s) => (
+                        <Badge key={s.id} tone="slate">
+                          {s.name}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {(affiliation.clinic_ids?.length ?? 0) > 0 && (
+                  <p className="mt-2 flex items-center gap-1 text-[11px] text-slate-500">
+                    <MapPin className="h-3 w-3" />
+                    {clinics
+                      .filter((c) => affiliation.clinic_ids!.includes(c.id))
+                      .map((c) => c.name)
+                      .join(" · ")}
+                  </p>
+                )}
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      <AddDoctorDialog
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        services={services}
+        clinics={clinics}
+        alreadyAffiliatedIds={affiliations.map((a) => a.doctor_provider_id)}
+        findMatchingDoctors={findMatchingDoctors}
+        onCreate={(data) => {
+          const result = addAffiliatedDoctor(provider.id, data);
+          if (!result.ok) {
+            showToast(result.error ?? "שגיאה בהוספת הרופא/ה", { variant: "destructive" });
+            return false;
+          }
+          showToast("הרופא/ה נוסף/ה ושויך/ה", {
+            description: "הרישיון יועבר לאימות צוות Healson",
+            variant: "success",
+          });
+          setAddOpen(false);
+          return true;
+        }}
+        onLink={(doctorId, data) => {
+          const result = linkExistingDoctorToOrganization(provider.id, doctorId, data);
+          if (!result.ok) {
+            showToast(result.error ?? "שגיאה בשיוך", { variant: "destructive" });
+            return false;
+          }
+          showToast("הרופא/ה הקיים/ת שויך/ה לארגון", { variant: "success" });
+          setAddOpen(false);
+          return true;
+        }}
+      />
+
+      <EditAffiliationDialog
+        affiliation={editing}
+        doctor={editing ? doctorById.get(editing.doctor_provider_id) : undefined}
+        services={services}
+        clinics={clinics}
+        onClose={() => setEditing(null)}
+        onSave={(data) => {
+          if (editing) updateAffiliatedDoctor(provider.id, editing.id, data);
+          setEditing(null);
+        }}
+      />
+
+      <ConfirmDialog
+        open={!!removing}
+        onClose={() => setRemoving(null)}
+        title="הסרת שיוך רופא/ה"
+        description="הרופא/ה יוסר/תוסר מהארגון ומהשירותים המשויכים. רשומת הרופא/ה עצמה נשמרת במערכת."
+        destructive
+        confirmLabel="הסר שיוך"
+        onConfirm={() => {
+          if (removing) removeAffiliatedDoctor(provider.id, removing.id);
+        }}
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Add flow — search existing first, create only if genuinely new
+// ---------------------------------------------------------------------------
+
+interface AffiliationInput {
+  role?: string;
+  service_ids?: string[];
+  clinic_ids?: string[];
+}
+
+function AddDoctorDialog({
+  open,
+  onClose,
+  services,
+  clinics,
+  alreadyAffiliatedIds,
+  findMatchingDoctors,
+  onCreate,
+  onLink,
+}: {
+  open: boolean;
+  onClose: () => void;
+  services: ConsultationType[];
+  clinics: Clinic[];
+  alreadyAffiliatedIds: string[];
+  findMatchingDoctors: (q: {
+    license_number?: string;
+    phone?: string;
+    email?: string;
+    full_name?: string;
+  }) => ProviderProfile[];
+  onCreate: (data: Parameters<ReturnType<typeof useStore.getState>["addAffiliatedDoctor"]>[1]) => boolean;
+  onLink: (doctorId: string, data: AffiliationInput) => boolean;
+}) {
+  const skillDomains = useStore((s) => s.skillDomains);
+
+  const [title, setTitle] = useState(TITLES[0]);
+  const [fullName, setFullName] = useState("");
+  const [specialty, setSpecialty] = useState("");
+  const [licenseNumber, setLicenseNumber] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [licenseFile, setLicenseFile] = useState<File | null>(null);
+  const [role, setRole] = useState("");
+  const [serviceIds, setServiceIds] = useState<string[]>([]);
+  const [clinicIds, setClinicIds] = useState<string[]>([]);
+  const [dismissedMatches, setDismissedMatches] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  // Live duplicate detection — runs on every keystroke of the identifying
+  // fields, so the "this doctor already exists" prompt appears while the user
+  // is still typing rather than only on submit.
+  const matches = useMemo(() => {
+    if (!open) return [];
+    return findMatchingDoctors({
+      license_number: licenseNumber.trim() || undefined,
+      phone: phone.replace(/\D/g, "").length >= 9 ? phone : undefined,
+      email: email.trim() || undefined,
+      full_name: fullName.trim().length >= 3 ? fullName.trim() : undefined,
+    });
+  }, [open, findMatchingDoctors, licenseNumber, phone, email, fullName]);
+
+  const newMatches = matches.filter((m) => !alreadyAffiliatedIds.includes(m.id));
+  const alreadyLinked = matches.filter((m) => alreadyAffiliatedIds.includes(m.id));
+  const showMatches = !dismissedMatches && (newMatches.length > 0 || alreadyLinked.length > 0);
+
+  function reset() {
+    setTitle(TITLES[0]);
+    setFullName("");
+    setSpecialty("");
+    setLicenseNumber("");
+    setPhone("");
+    setEmail("");
+    setLicenseFile(null);
+    setRole("");
+    setServiceIds([]);
+    setClinicIds([]);
+    setDismissedMatches(false);
+  }
+
+  function handleClose() {
+    reset();
+    onClose();
+  }
+
+  async function handleCreate() {
+    if (!fullName.trim() || !specialty) return;
+    setBusy(true);
+    let uploaded: UploadedFile | undefined;
+    try {
+      if (licenseFile) {
+        uploaded = {
+          file_name: licenseFile.name,
+          uploaded_at: new Date().toISOString(),
+          data_url: await fileToDataUrl(licenseFile),
+        };
+      }
+    } catch {
+      uploaded = undefined;
+    }
+    const ok = onCreate({
+      display_name: fullName.trim(),
+      title,
+      specialty,
+      license_number: licenseNumber.trim() || undefined,
+      contact_phone: phone.trim() || undefined,
+      contact_email: email.trim() || undefined,
+      license_file: uploaded,
+      role: role.trim() || undefined,
+      service_ids: serviceIds,
+      clinic_ids: clinicIds,
+    });
+    setBusy(false);
+    if (ok) reset();
+  }
+
+  return (
+    <Dialog open={open} onClose={handleClose} title="הוספת רופא/ה לארגון" className="max-w-2xl">
+      <div className="flex flex-col gap-3">
+        <p className="flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          <Search className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          התחילו להזין את פרטי הרופא/ה. אם הרופא/ה כבר קיים/ת במערכת — נזהה זאת ונציע לשייך את הרשומה
+          הקיימת, כדי שלא ייווצרו כפילויות.
+        </p>
+
+        {/* Duplicate detection banner. */}
+        {showMatches && (
+          <div className="rounded-xl border border-info-border bg-info-bg p-3">
+            <div className="mb-2 flex items-start gap-2">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-info-text" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-info-text">נמצאה רשומת רופא/ה קיימת במערכת</p>
+                <p className="text-xs text-info-text/80">
+                  בחרו את הרופא/ה הקיים/ת כדי לשייך אותו/ה לארגון — הרשומה נשמרת אחת בלבד.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDismissedMatches(true)}
+                className="shrink-0 text-[11px] font-medium text-info-text hover:underline"
+              >
+                זה לא אותו/ה רופא/ה
+              </button>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              {newMatches.map((m) => (
+                <div
+                  key={m.id}
+                  className="flex flex-wrap items-center gap-2 rounded-lg border border-info-border bg-white px-3 py-2"
+                >
+                  <Avatar name={m.display_name} className="h-8 w-8 text-[11px]" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-slate-900">
+                      {m.title} {m.display_name}
+                    </p>
+                    <p className="truncate text-[11px] text-slate-500">
+                      {m.specialty}
+                      {m.license_number ? ` · רישיון ${m.license_number}` : ""}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      const ok = onLink(m.id, {
+                        role: role.trim() || undefined,
+                        service_ids: serviceIds,
+                        clinic_ids: clinicIds,
+                      });
+                      // Same as the create path: clear the form, or reopening
+                      // the dialog re-fires the duplicate banner for the
+                      // doctor that was just linked.
+                      if (ok) reset();
+                    }}
+                  >
+                    <Link2 className="h-3.5 w-3.5" /> שייך רופא/ה קיים/ת
+                  </Button>
+                </div>
+              ))}
+              {alreadyLinked.map((m) => (
+                <div
+                  key={m.id}
+                  className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-500"
+                >
+                  <Avatar name={m.display_name} className="h-8 w-8 text-[11px]" />
+                  <span className="flex-1 truncate">
+                    {m.title} {m.display_name}
+                  </span>
+                  <Badge tone="success">כבר משויך/ת לארגון</Badge>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Select label="תואר" value={title} onChange={(e) => setTitle(e.target.value)}>
+            {TITLES.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </Select>
+          <Input
+            label="שם מלא"
+            className="sm:col-span-2"
+            value={fullName}
+            onChange={(e) => {
+              setFullName(e.target.value);
+              setDismissedMatches(false);
+            }}
+            required
+          />
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Select label="תחום התמחות" value={specialty} onChange={(e) => setSpecialty(e.target.value)} required>
+            <option value="">בחר/י תחום התמחות</option>
+            {skillDomains.map((d) => (
+              <option key={d.id} value={d.name_he}>
+                {d.name_he}
+              </option>
+            ))}
+          </Select>
+          <Input
+            label="מספר רישיון רפואי"
+            icon={<BadgeCheck className="h-4 w-4" />}
+            value={licenseNumber}
+            onChange={(e) => {
+              setLicenseNumber(e.target.value);
+              setDismissedMatches(false);
+            }}
+            hint="המזהה החזק ביותר לאיתור רופא/ה קיים/ת"
+          />
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Input
+            type="tel"
+            label="טלפון"
+            value={phone}
+            onChange={(e) => {
+              setPhone(e.target.value);
+              setDismissedMatches(false);
+            }}
+          />
+          <Input
+            type="email"
+            label="אימייל"
+            value={email}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              setDismissedMatches(false);
+            }}
+          />
+        </div>
+
+        <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+          רישיון רפואי (PDF / JPG / PNG)
+          <span className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-2.5 text-sm text-slate-600 transition-colors hover:border-primary hover:bg-primary/5">
+            <Upload className="h-4 w-4 shrink-0" />
+            <span className="truncate">{licenseFile ? licenseFile.name : "בחר קובץ"}</span>
+            <input
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png"
+              className="hidden"
+              onChange={(e) => setLicenseFile(e.target.files?.[0] ?? null)}
+            />
+          </span>
+        </label>
+
+        <Input label="תפקיד בארגון (לא חובה)" placeholder="רופא/ה בכיר/ה" value={role} onChange={(e) => setRole(e.target.value)} />
+
+        <ServicePicker services={services} value={serviceIds} onChange={setServiceIds} />
+        <ClinicPicker clinics={clinics} value={clinicIds} onChange={setClinicIds} />
+
+        <Button onClick={handleCreate} loading={busy} disabled={!fullName.trim() || !specialty}>
+          <Plus className="h-4 w-4" /> יצירת רשומה חדשה ושיוך לארגון
+        </Button>
+      </div>
+    </Dialog>
+  );
+}
+
+function EditAffiliationDialog({
+  affiliation,
+  doctor,
+  services,
+  clinics,
+  onClose,
+  onSave,
+}: {
+  affiliation: AffiliatedDoctor | null;
+  doctor?: ProviderProfile;
+  services: ConsultationType[];
+  clinics: Clinic[];
+  onClose: () => void;
+  onSave: (data: Partial<Pick<AffiliatedDoctor, "role" | "service_ids" | "clinic_ids">>) => void;
+}) {
+  return (
+    <Dialog
+      open={!!affiliation}
+      onClose={onClose}
+      title={doctor ? `${doctor.title} ${doctor.display_name}` : "עריכת שיוך"}
+      description="תפקיד בארגון, שירותים ומיקומים"
+      className="max-w-lg"
+    >
+      {affiliation && (
+        <EditAffiliationForm
+          key={affiliation.id}
+          affiliation={affiliation}
+          services={services}
+          clinics={clinics}
+          onSave={onSave}
+        />
+      )}
+    </Dialog>
+  );
+}
+
+function EditAffiliationForm({
+  affiliation,
+  services,
+  clinics,
+  onSave,
+}: {
+  affiliation: AffiliatedDoctor;
+  services: ConsultationType[];
+  clinics: Clinic[];
+  onSave: (data: Partial<Pick<AffiliatedDoctor, "role" | "service_ids" | "clinic_ids">>) => void;
+}) {
+  const [role, setRole] = useState(affiliation.role ?? "");
+  const [serviceIds, setServiceIds] = useState<string[]>(affiliation.service_ids);
+  const [clinicIds, setClinicIds] = useState<string[]>(affiliation.clinic_ids ?? []);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <Input label="תפקיד בארגון" value={role} onChange={(e) => setRole(e.target.value)} />
+      <ServicePicker services={services} value={serviceIds} onChange={setServiceIds} />
+      <ClinicPicker clinics={clinics} value={clinicIds} onChange={setClinicIds} />
+      <Button
+        onClick={() => onSave({ role: role.trim() || undefined, service_ids: serviceIds, clinic_ids: clinicIds })}
+      >
+        שמור שיוך
+      </Button>
+    </div>
+  );
+}
+
+function ServicePicker({
+  services,
+  value,
+  onChange,
+}: {
+  services: ConsultationType[];
+  value: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  return (
+    <div className="rounded-lg border border-slate-200 p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
+          <Stethoscope className="h-3.5 w-3.5 text-slate-400" /> שירותים שהרופא/ה מבצע/ת
+        </span>
+        {services.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onChange(value.length === services.length ? [] : services.map((s) => s.id))}
+            className="text-[11px] font-medium text-primary hover:underline"
+          >
+            {value.length === services.length ? "נקה הכל" : "בחר הכל"}
+          </button>
+        )}
+      </div>
+      {services.length === 0 ? (
+        <p className="text-xs text-slate-400">אין עדיין שירותים בקטלוג — הוסיפו שירותים כדי לשייך אותם לרופאים.</p>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {services.map((s) => {
+            const picked = value.includes(s.id);
+            return (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => onChange(picked ? value.filter((id) => id !== s.id) : [...value, s.id])}
+                className={cn(
+                  "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                  picked
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-slate-200 text-slate-600 hover:border-slate-300"
+                )}
+              >
+                {s.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ClinicPicker({
+  clinics,
+  value,
+  onChange,
+}: {
+  clinics: Clinic[];
+  value: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  if (clinics.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-slate-200 p-3">
+      <span className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
+        <MapPin className="h-3.5 w-3.5 text-slate-400" /> מיקומים
+      </span>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {clinics.map((c) => {
+          const picked = value.includes(c.id);
+          return (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => onChange(picked ? value.filter((id) => id !== c.id) : [...value, c.id])}
+              className={cn(
+                "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                picked
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-slate-200 text-slate-600 hover:border-slate-300"
+              )}
+            >
+              {c.name}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

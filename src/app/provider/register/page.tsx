@@ -44,10 +44,9 @@ import {
   DOCTOR_SUBTYPE_LABELS,
   DoctorSubtype,
   KupahArrangement,
-  ORGANIZATION_MEMBER_TYPES,
   PRIVATE_INSURANCE_COMPANIES,
   ProviderType,
-  PROVIDER_TYPE_LABELS,
+  PROVIDER_TYPE_SERVICE_CATEGORIES,
   UploadedFile,
 } from "@/types";
 import { KupahArrangementPicker, MultiSelectPills } from "@/components/provider/KupahArrangementPicker";
@@ -227,7 +226,13 @@ const STORE_SUBTYPES_BY_CATEGORY: Record<string, string[]> = {
 };
 
 const SURGERY_TYPES = ["כירורגיה קטנה", "כירורגיה בינונית", "כירורגיה גדולה/מורכבת — רק בבית חולים"];
-const INSTITUTE_TYPES = ["טיפולים", "אבחונים", "בדיקות הדמיות", "מרפאות"];
+
+// Outpatient clinics and medical institutes each have their own service
+// vocabulary — defined once in @/types (PROVIDER_TYPE_SERVICE_CATEGORIES) and
+// reused by the provider's own catalog editor, so what's picked here is
+// exactly what shows up later in the portal.
+const OUTPATIENT_SERVICE_TYPES = PROVIDER_TYPE_SERVICE_CATEGORIES.outpatient_clinic ?? [];
+const INSTITUTE_SERVICE_TYPES = PROVIDER_TYPE_SERVICE_CATEGORIES.medical_institute ?? [];
 
 interface TypeFieldConfig {
   icon: React.ReactNode;
@@ -264,7 +269,13 @@ interface TypeFieldConfig {
   showPrivateInsurance?: boolean;
   showSubSpecialties?: boolean;
   showLocationCount?: boolean;
-  showMemberProviderTypes?: boolean;
+  // Hospitals are composed of other provider types, but the applicant doesn't
+  // declare them: Healson's ops team maps and links them after onboarding.
+  // This renders that as a read-only explanation, never as a picker.
+  showOrganizationCompositionNote?: boolean;
+  // Explains, in the application itself, that this provider type operates
+  // under a parent medical organization Healson links it to.
+  parentOrganizationNote?: string;
   excludeOnlineServiceArea?: boolean;
   extraServiceAreas?: string[];
 }
@@ -322,27 +333,6 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
     showLocationCount: true,
     extraServiceAreas: ["עד הבית"],
   },
-  other_medical: {
-    icon: <ClipboardPlus className="h-5 w-5" />,
-    label: "נותן שירות רפואי אחר",
-    description: "נותן שירות רפואי שאינו נכלל בקטגוריות הקיימות",
-    nameLabel: "שם מלא",
-    showContactName: true,
-    contactNameLabel: "שם איש קשר (לא חובה)",
-    contactNameRequired: false,
-    showContactPhone: true,
-    showContactEmail: true,
-    specialtyLabel: "תיאור סוג השירות",
-    specialtyOptions: [],
-    freeTextSpecialty: true,
-    showLicenseNumber: false,
-    licenseNumberLabel: "מספר רישיון / תעודת הסמכה",
-    licenseFileLabel: "רישיון / תעודת הסמכה מקצועית, אם קיימת (לא חובה, PDF / JPG / PNG)",
-    licenseFileRequired: false,
-    showDescription: true,
-    showLocationCount: true,
-    extraServiceAreas: ["עד הבית"],
-  },
   store: {
     icon: <Store className="h-5 w-5" />,
     label: "חנות לממכר מוצרי בריאות",
@@ -378,7 +368,7 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
     showKupot: true,
     showPrivateInsurance: true,
     showLocationCount: true,
-    showMemberProviderTypes: true,
+    showOrganizationCompositionNote: true,
     excludeOnlineServiceArea: true,
   },
   outpatient_clinic: {
@@ -389,7 +379,7 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
     showContactName: true,
     contactNameLabel: "שם איש קשר",
     specialtyLabel: "סוג השירותים במרפאה",
-    specialtyOptions: INSTITUTE_TYPES,
+    specialtyOptions: OUTPATIENT_SERVICE_TYPES,
     multiSpecialty: true,
     showBusinessRegNumber: true,
     licenseNumberLabel: "מספר רישיון מרפאה (משרד הבריאות)",
@@ -398,7 +388,8 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
     showKupot: true,
     showPrivateInsurance: true,
     showLocationCount: true,
-    showMemberProviderTypes: true,
+    parentOrganizationNote:
+      "מרפאות חוץ משויכות לארגון רפואי. לאחר השלמת ההצטרפות, צוות Healson יקשר את המרפאה לארגון הרלוונטי במערכת.",
     excludeOnlineServiceArea: true,
   },
   medical_institute: {
@@ -408,8 +399,8 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
     nameLabel: "שם המכון",
     showContactName: true,
     contactNameLabel: " שם איש קשר ",
-    specialtyLabel: "סוג המכון",
-    specialtyOptions: INSTITUTE_TYPES,
+    specialtyLabel: "סוגי השירותים במכון",
+    specialtyOptions: INSTITUTE_SERVICE_TYPES,
     multiSpecialty: true,
     showBusinessRegNumber: true,
     licenseNumberLabel: "מספר רישיון מכון (משרד הבריאות)",
@@ -472,7 +463,7 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
   },
 };
 
-type ProviderCategory = "individual" | "organization" | "store" | "other_medical";
+type ProviderCategory = "individual" | "organization" | "store";
 
 const CATEGORY_CONFIG: Record<ProviderCategory, { label: string; description: string; icon: React.ReactNode }> = {
   individual: {
@@ -481,7 +472,7 @@ const CATEGORY_CONFIG: Record<ProviderCategory, { label: string; description: st
     icon: <UserIcon className="h-5 w-5" />,
   },
   organization: {
-    label: "ארגון בריאות",
+    label: "יחידה רפואית",
     description: "גוף המפעיל מספר מחלקות, סניפים או שירותים",
     icon: <Network className="h-5 w-5" />,
   },
@@ -490,22 +481,16 @@ const CATEGORY_CONFIG: Record<ProviderCategory, { label: string; description: st
     description: "חנות מוצרי בריאות, ציוד רפואי, אופטיקה ומוצרי טיפוח רפואי",
     icon: <Store className="h-5 w-5" />,
   },
-  other_medical: {
-    label: "נותן שירות רפואי אחר",
-    description: "נותן שירות רפואי שאינו נכלל בקטגוריות הקיימות",
-    icon: <ClipboardPlus className="h-5 w-5" />,
-  },
 };
 
 // individual/organization gather several ProviderTypes behind an extra
-// "type" sub-step; store/other_medical each map to exactly one ProviderType,
+// "type" sub-step; "store" maps to exactly one ProviderType,
 // so selecting the category (selectCategory below) skips straight to the
 // form instead of showing a sub-step with a single, redundant option.
 const CATEGORY_TYPES: Record<ProviderCategory, ProviderType[]> = {
   individual: ["doctor", "caregiver"],
   organization: ["hospital", "outpatient_clinic", "medical_institute", "lab", "medical_call_center", "insurance_agency"],
   store: ["store"],
-  other_medical: ["other_medical"],
 };
 
 function categoryForType(type: ProviderType): ProviderCategory {
@@ -700,6 +685,7 @@ export default function ProviderRegisterPage() {
   const submitProviderApplication = useStore((s) => s.submitProviderApplication);
   const verifyProviderApplicationOtp = useStore((s) => s.verifyProviderApplicationOtp);
   const resendProviderApplicationOtp = useStore((s) => s.resendProviderApplicationOtp);
+  const updateCurrentUserDetails = useStore((s) => s.updateCurrentUserDetails);
   const demoApproveProvider = useStore((s) => s.demoApproveProvider);
   const demoRejectProvider = useStore((s) => s.demoRejectProvider);
   const verifyProviderLicense = useStore((s) => s.verifyProviderLicense);
@@ -731,7 +717,12 @@ export default function ProviderRegisterPage() {
   const [specialtyMulti, setSpecialtyMulti] = useState<string[]>([]);
   const [licenseNumber, setLicenseNumber] = useState("");
   const [businessRegNumber, setBusinessRegNumber] = useState("");
-  const phone = user?.phone ?? "";
+  // Name + phone are pulled from the account created in step 1, but stay
+  // editable here: an applicant who mistyped either — or whose account was
+  // opened by someone else on their behalf — must be able to correct them
+  // once they've picked their provider type, before the application is sent.
+  // (Email stays read-only: it's the login identifier.)
+  const [accountPhone, setAccountPhone] = useState(user?.phone ?? "");
   const email = user?.email ?? "";
   const [licenseFile, setLicenseFile] = useState<File | null>(null);
   const [doctorSubtype, setDoctorSubtype] = useState<DoctorSubtype>("physician");
@@ -744,7 +735,6 @@ export default function ProviderRegisterPage() {
   const [otherSubSpecialty, setOtherSubSpecialty] = useState("");
   const [locationCount, setLocationCount] = useState("");
   const [storeStructure, setStoreStructure] = useState<"single" | "chain">("single");
-  const [memberProviderTypes, setMemberProviderTypes] = useState<ProviderType[]>([]);
   const [otpCode, setOtpCode] = useState("");
   const [error, setErrorMessage] = useState("");
   const [errorNonce, setErrorNonce] = useState(0);
@@ -800,7 +790,6 @@ export default function ProviderRegisterPage() {
         setSubSpecialties(provider.sub_specialties ?? []);
         setLocationCount(provider.location_count != null ? String(provider.location_count) : "");
         setStoreStructure(type === "store" && (provider.location_count ?? 1) > 1 ? "chain" : "single");
-        setMemberProviderTypes(provider.member_provider_types ?? []);
         setPhase("form");
       }
     }
@@ -813,6 +802,9 @@ export default function ProviderRegisterPage() {
   const config = providerType ? TYPE_CONFIG[providerType] : null;
   const isDoctor = providerType === "doctor";
   const isSurgeon = isDoctor && doctorSubtype === "surgeon";
+  // For individual provider types the "name" field IS the person's name (and
+  // therefore the account holder's); organizations name the business instead.
+  const nameIsPerson = providerType === "doctor" || providerType === "caregiver";
   // See TypeFieldConfig.licenseOnlyForSpecialty — for "caregiver", the
   // richer (ex-nurse) fields only apply once "סיעוד" is picked as the
   // specialty; every other type has no gate and is always true.
@@ -845,9 +837,6 @@ export default function ProviderRegisterPage() {
     }
     if (isSurgeon && !surgicalPrivilegesHospital) {
       return "רופא/ה מנתח/ת נדרש/ת לציין את בית החולים בו יש הרשאת ניתוח";
-    }
-    if (config.showMemberProviderTypes && memberProviderTypes.length === 0) {
-      return "נא לבחור לפחות סוג ספק אחד הפועל בארגון";
     }
     if (config.multiSpecialty && specialtyMulti.length === 0) {
       return `נא לבחור לפחות אפשרות אחת עבור ${config.specialtyLabel}`;
@@ -918,7 +907,14 @@ export default function ProviderRegisterPage() {
         ? subSpecialties.map((s) => (s === "אחר" && otherSubSpecialty.trim() ? otherSubSpecialty.trim() : s))
         : undefined,
       location_count: config.showLocationCount && locationCount ? Number(locationCount) : undefined,
-      member_provider_types: config.showMemberProviderTypes ? memberProviderTypes : undefined,
+    });
+    // Mirror the (editable) identity details back onto the login account, so
+    // the name/phone the applicant corrected here are the ones the platform
+    // uses everywhere. For an organization the account holder is the contact
+    // person, not the organization's own name.
+    updateCurrentUserDetails({
+      full_name: nameIsPerson ? fullName : contactName || user?.full_name,
+      phone: accountPhone,
     });
     const result = submitProviderApplication(provider.id);
     setLoading(false);
@@ -977,7 +973,7 @@ export default function ProviderRegisterPage() {
     setCategory(c);
     const types = CATEGORY_TYPES[c];
     if (types.length === 1) {
-      // store/other_medical map to exactly one ProviderType — skip the
+      // "store" maps to exactly one ProviderType — skip the
       // redundant "type" sub-step and go straight to the form.
       selectType(types[0]);
     } else {
@@ -989,7 +985,13 @@ export default function ProviderRegisterPage() {
   function selectType(t: ProviderType) {
     setProviderType(t);
     setFormStep(0);
-    setContactName("");
+    // For an individual the name field IS the account holder's name, so it
+    // stays seeded from step 1. For an organization that field names the
+    // business instead — move the person's name to the contact field and
+    // clear the business name so it isn't pre-filled with a person.
+    const isPerson = t === "doctor" || t === "caregiver";
+    if (!isPerson && fullName === user?.full_name) setFullName("");
+    setContactName(isPerson ? "" : user?.full_name ?? "");
     setContactPhone("");
     setContactEmail("");
     setSpecialty("");
@@ -1005,7 +1007,6 @@ export default function ProviderRegisterPage() {
     setOtherSubSpecialty("");
     setLocationCount("");
     setStoreStructure("single");
-    setMemberProviderTypes([]);
     setPhase("form");
   }
 
@@ -1116,7 +1117,7 @@ export default function ProviderRegisterPage() {
           </div>
           <h1 className="text-lg font-semibold text-slate-900">אימות מספר טלפון</h1>
           <p className="text-sm text-slate-500 mt-1">
-            שלחנו קוד אימות בן 6 ספרות למספר <bdi className="font-medium text-slate-700">{phone}</bdi>
+            שלחנו קוד אימות בן 6 ספרות למספר <bdi className="font-medium text-slate-700">{accountPhone}</bdi>
           </p>
         </div>
         {error && (
@@ -1323,6 +1324,13 @@ export default function ProviderRegisterPage() {
         </div>
       )}
 
+      {config.parentOrganizationNote && (
+        <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-info-border bg-info-bg px-3.5 py-3 text-sm text-info-text">
+          <Building2 className="mt-0.5 h-4 w-4 shrink-0" />
+          <p className="leading-relaxed">{config.parentOrganizationNote}</p>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         {currentFormStepKey === "details" && (
         <>
@@ -1398,8 +1406,10 @@ export default function ProviderRegisterPage() {
               type="tel"
               label="טלפון (חשבון הכניסה שלך)"
               icon={<Phone className="h-4 w-4" />}
-              value={phone}
-              disabled
+              value={accountPhone}
+              onChange={(e) => setAccountPhone(e.target.value)}
+              hint="קוד האימות יישלח למספר זה"
+              required
             />
             <Input
               type="email"
@@ -1407,9 +1417,15 @@ export default function ProviderRegisterPage() {
               label="אימייל (חשבון הכניסה שלך)"
               icon={<Mail className="h-4 w-4" />}
               value={email}
+              hint="כתובת הכניסה לחשבון — לא ניתנת לשינוי כאן"
               disabled
             />
           </div>
+          <p className="-mt-1 text-xs text-slate-500">
+            {nameIsPerson
+              ? "השם המלא והטלפון נמשכו מהחשבון שיצרת — ניתן לעדכן אותם כאן, והם יישמרו גם בפרטי החשבון."
+              : "הטלפון ושם איש הקשר נמשכו מהחשבון שיצרת — ניתן לעדכן אותם כאן, והם יישמרו גם בפרטי החשבון."}
+          </p>
 
           {config.showContactName && !config.contactNameFirst && extraFieldsGate && (
             <Input
@@ -1510,14 +1526,15 @@ export default function ProviderRegisterPage() {
             )}
           </AnimatePresence>
 
-          {config.showMemberProviderTypes && (
-            <MultiSelectPills
-              label="אילו סוגי ספקים פועלים בארגון (ניתן לבחור יותר מאחד)"
-              options={ORGANIZATION_MEMBER_TYPES}
-              value={memberProviderTypes}
-              onChange={(v) => setMemberProviderTypes(v as ProviderType[])}
-              getLabel={(t) => PROVIDER_TYPE_LABELS[t as ProviderType]}
-            />
+          {config.showOrganizationCompositionNote && (
+            <div className="flex items-start gap-2 rounded-lg border border-info-border bg-info-bg px-3 py-2.5 text-xs text-info-text">
+              <Network className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                <strong className="font-semibold">סוגי הספקים הפועלים בארגון —</strong> אין צורך להזין אותם כאן.
+                צוות Healson מזין ומקשר את הספקים הפועלים בארגון (מחלקות, מרפאות חוץ, מכונים ורופאים) לאחר
+                השלמת ההצטרפות.
+              </span>
+            </div>
           )}
 
           {config.showBusinessRegNumber && extraFieldsGate && (

@@ -4,6 +4,7 @@
 // a calendar nor S/K/B/H agreements) — expressed as data so the dashboard
 // doesn't need 11 hand-built screens.
 import { LocationType, ProviderProfile, ProviderType } from "@/types";
+import { hasAnyAvailability } from "./schedule";
 
 export interface ProviderTypeSetupConfig {
   catalogLabel: string; // tab title, plural: "ייעוצים" / "מוצרים" / "בדיקות"
@@ -22,6 +23,10 @@ export interface ProviderTypeSetupConfig {
   locationLabelSingular: string;
   locationLabelPlural: string;
   showAvailability: boolean;
+  // Organization types whose consultation-based services are delivered by
+  // doctors — they get a "רופאים" section for managing the doctors affiliated
+  // with them and which services each one delivers (§PRV-07).
+  showAffiliatedDoctors?: boolean;
 }
 
 const DURATION_FIELD = {
@@ -55,18 +60,6 @@ export const PROVIDER_SETUP_CONFIG: Record<ProviderType, ProviderTypeSetupConfig
     locationLabelPlural: "מיקומי טיפול",
     showAvailability: true,
   },
-  other_medical: {
-    ...DURATION_FIELD,
-    catalogLabel: "שירותים",
-    catalogItemLabel: "שירות",
-    useSkillTreeCatalog: true,
-    showExamsCatalog: false,
-    showAgreements: true,
-    locationTypes: ["clinic", "home_visit"],
-    locationLabelSingular: "מיקום",
-    locationLabelPlural: "מיקומים",
-    showAvailability: true,
-  },
   lab: {
     catalogLabel: "בדיקות",
     catalogItemLabel: "בדיקה",
@@ -92,6 +85,7 @@ export const PROVIDER_SETUP_CONFIG: Record<ProviderType, ProviderTypeSetupConfig
     locationLabelSingular: "מרפאה",
     locationLabelPlural: "מרפאות",
     showAvailability: true,
+    showAffiliatedDoctors: true,
   },
   medical_institute: {
     ...DURATION_FIELD,
@@ -104,6 +98,7 @@ export const PROVIDER_SETUP_CONFIG: Record<ProviderType, ProviderTypeSetupConfig
     locationLabelSingular: "סניף",
     locationLabelPlural: "סניפים",
     showAvailability: true,
+    showAffiliatedDoctors: true,
   },
   hospital: {
     ...DURATION_FIELD,
@@ -186,7 +181,11 @@ export function isLocationsComplete(provider: ProviderProfile): boolean {
 }
 
 export function isAvailabilityComplete(provider: ProviderProfile): boolean {
-  return provider.clinic_locations.some((c) => Object.values(c.hours).some((h) => h !== null));
+  return provider.clinic_locations.some(hasAnyAvailability);
+}
+
+export function isAffiliatedDoctorsComplete(provider: ProviderProfile): boolean {
+  return (provider.affiliated_doctors?.length ?? 0) > 0;
 }
 
 export function isSetupReadyToPublish(provider: ProviderProfile): boolean {
@@ -209,6 +208,7 @@ export function getFirstIncompleteStepKey(provider: ProviderProfile): string | u
     { done: isCatalogComplete(provider), key: "catalog" },
     ...(config.locationTypes.length > 0 ? [{ done: isLocationsComplete(provider), key: "locations" }] : []),
     ...(config.showAvailability ? [{ done: isAvailabilityComplete(provider), key: "availability" }] : []),
+    ...(config.showAffiliatedDoctors ? [{ done: isAffiliatedDoctorsComplete(provider), key: "doctors" }] : []),
   ];
   return steps.find((s) => !s.done)?.key;
 }
@@ -239,6 +239,9 @@ export function getNextProviderAction(provider: ProviderProfile): string | null 
     }
     if (config.showAvailability && !isAvailabilityComplete(provider)) {
       return `חסרה זמינות פעילה עבור אחד ה${config.locationLabelPlural} שלך.`;
+    }
+    if (config.showAffiliatedDoctors && !isAffiliatedDoctorsComplete(provider)) {
+      return "הוסיפו את הרופאים המשויכים ושייכו אותם לשירותי הייעוץ שלכם.";
     }
     if (provider.go_live_requested_at) {
       return "ביקשת פרסום — ממתינים לאישור Go-Live סופי של צוות Healson.";

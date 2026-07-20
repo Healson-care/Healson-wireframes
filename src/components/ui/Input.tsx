@@ -7,10 +7,13 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   icon?: ReactNode;
   label?: string;
   error?: string;
+  /** Helper text under the field. Suppressed while `error` is showing, so the
+   * two never stack and compete for the same slot. */
+  hint?: ReactNode;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ className, icon, label, error, id, ...props }, ref) => {
+  ({ className, icon, label, error, hint, id, ...props }, ref) => {
     return (
       <div className="flex flex-col gap-1.5 w-full">
         {label && (
@@ -36,7 +39,11 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             {...props}
           />
         </div>
-        {error && <span className="text-xs text-danger-text">{error}</span>}
+        {error ? (
+          <span className="text-xs text-danger-text">{error}</span>
+        ) : (
+          hint && <span className="text-xs text-slate-500">{hint}</span>
+        )}
       </div>
     );
   }

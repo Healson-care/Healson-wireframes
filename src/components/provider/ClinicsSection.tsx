@@ -96,14 +96,19 @@ export function ClinicsSection({
 
   function handleSave() {
     const id = editingId ?? generateId("clinic");
+    const existing = editingId ? clinics.find((c) => c.id === editingId) : undefined;
     const newClinic: Clinic = {
+      // Spread the existing record first so scheduling data owned by the
+      // availability screen (schedule / schedule_exceptions / hours) survives
+      // an edit here — this dialog only owns the location's identity fields.
+      ...existing,
       id,
       name: form.name,
       address: form.address,
       city: form.city,
       phone: form.phone,
-      is_primary: editingId ? clinics.find((c) => c.id === editingId)?.is_primary ?? false : clinics.length === 0,
-      hours: editingId ? clinics.find((c) => c.id === editingId)?.hours ?? EMPTY_HOURS : EMPTY_HOURS,
+      is_primary: existing?.is_primary ?? clinics.length === 0,
+      hours: existing?.hours ?? EMPTY_HOURS,
       location_type: locationType,
     };
 

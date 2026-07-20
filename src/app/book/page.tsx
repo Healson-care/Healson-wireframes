@@ -291,6 +291,7 @@ export default function BookPage() {
               appointments={appointments}
               onSelectSlot={selectSlot}
               onJoinWaitlist={(date, time, label) => setWaitlistSlot({ date, time, label })}
+              serviceId={consultation?.id}
             />
           </motion.div>
         )}

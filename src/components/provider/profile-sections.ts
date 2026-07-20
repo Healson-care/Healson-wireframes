@@ -65,7 +65,18 @@ export function getProfileSections(setupConfig: ProviderTypeSetupConfig): Profil
             href: "/provider/profile/availability",
             label: "זמינות",
             icon: CalendarClock,
-            description: "שעות פעילות שבועיות ותאריכים חסומים",
+            description: "משמרות, הפסקות, חריגות ותאריכים חסומים",
+          },
+        ]
+      : []),
+    ...(setupConfig.showAffiliatedDoctors
+      ? [
+          {
+            key: "doctors",
+            href: "/provider/profile/doctors",
+            label: "רופאים",
+            icon: Stethoscope,
+            description: "הרופאים הפועלים בארגון והשירותים שכל אחד מבצע",
           },
         ]
       : []),
