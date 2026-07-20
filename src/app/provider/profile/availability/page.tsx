@@ -7,7 +7,10 @@ import { getProviderSetupConfig } from "@/lib/provider-setup";
 
 export default function ProviderAvailabilityPage() {
   return (
-    <ProfilePageFrame title="זמינות ולוח זמנים" description="שעות פעילות שבועיות ותאריכים חסומים">
+    <ProfilePageFrame
+      title="זמינות ולוח זמנים"
+      description="משמרות, הפסקות, חריגות ותאריכים חסומים — לכל מיקום בנפרד"
+    >
       {({ provider, update }) => {
         const setupConfig = getProviderSetupConfig(provider.provider_type);
         return (
@@ -15,6 +18,7 @@ export default function ProviderAvailabilityPage() {
             <AvailabilitySection
               clinics={provider.clinic_locations}
               onChange={(clinics) => update({ clinic_locations: clinics })}
+              services={provider.consultation_types}
               locationLabelSingular={setupConfig.locationLabelSingular}
               locationLabelPlural={setupConfig.locationLabelPlural}
             />

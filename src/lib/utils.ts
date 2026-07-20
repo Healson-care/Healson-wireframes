@@ -19,10 +19,22 @@ export function formatCurrency(value: number): string {
   return `₪${Math.round(value).toLocaleString("he-IL")}`;
 }
 
+/** A yyyy-MM-dd key `days` from today, in the **local** calendar.
+ *
+ * Deliberately not `toISOString().slice(0, 10)`: that converts to UTC first,
+ * so in any timezone ahead of UTC (Israel, +2/+3) every evening produces
+ * tomorrow's key. The scheduling engine (src/lib/schedule.ts) matches blocked
+ * dates, schedule exceptions and booked appointments by exact date-key
+ * equality against locally-derived keys, so a mixed convention silently
+ * applies a closure — or an occupied slot — to the wrong day. */
 export function isoDateDaysFromNow(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  return toLocalDateKey(d);
+}
+
+export function toLocalDateKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 export function isoTimestampHoursFromNow(hours: number): string {

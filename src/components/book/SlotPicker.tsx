@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { BellRing, Clock, MapPin } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
-import { buildMonth, MonthDay } from "@/lib/scheduling";
+import { buildMonth, MonthDay, serviceOfferedAt } from "@/lib/scheduling";
 import { cn } from "@/lib/utils";
 import { Appointment, ProviderProfile } from "@/types";
 
@@ -21,23 +21,37 @@ export function SlotPicker({
   appointments,
   onSelectSlot,
   onJoinWaitlist,
+  serviceId,
 }: {
   provider: ProviderProfile;
   appointments: Appointment[];
   onSelectSlot: (date: string, time: string, label: string, clinicId: string) => void;
   // date/time/label/clinicId are omitted for a general "any time works" request.
   onJoinWaitlist: (date?: string, time?: string, label?: string, clinicId?: string) => void;
+  // The service being booked. A provider can dedicate a shift to a subset of
+  // their services (e.g. surgeries only in the afternoon shift) — passing this
+  // restricts the offered slots to shifts that actually host that service.
+  serviceId?: string;
 }) {
-  // Skipped entirely when the provider only has one location — no need to
+  // Only locations that actually offer the service being booked — a service
+  // linked to one branch must not be bookable at another.
+  const bookableClinics = useMemo(
+    () =>
+      provider.clinic_locations.filter((c) => !serviceId || serviceOfferedAt(provider, serviceId, c.id)),
+    [provider, serviceId]
+  );
+  const service = serviceId ? provider.consultation_types.find((s) => s.id === serviceId) : undefined;
+
+  // Skipped entirely when there's only one bookable location — no need to
   // make patients pick between clinics that don't exist.
   const [selectedClinicId, setSelectedClinicId] = useState<string | null>(
-    provider.clinic_locations.length === 1 ? provider.clinic_locations[0].id : null
+    bookableClinics.length === 1 ? bookableClinics[0].id : null
   );
   const [monthOffset, setMonthOffset] = useState(0);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [pendingSlot, setPendingSlot] = useState<{ date: string; time: string; label: string } | null>(null);
 
-  const selectedClinic = provider.clinic_locations.find((c) => c.id === selectedClinicId) ?? null;
+  const selectedClinic = bookableClinics.find((c) => c.id === selectedClinicId) ?? null;
 
   const monthDate = useMemo(() => {
     const d = new Date();
@@ -47,8 +61,16 @@ export function SlotPicker({
   }, [monthOffset]);
 
   const monthDays = useMemo(
-    () => (selectedClinic ? buildMonth(provider, appointments, monthDate, selectedClinic) : []),
-    [provider, appointments, monthDate, selectedClinic]
+    () =>
+      selectedClinic
+        ? buildMonth(provider, appointments, monthDate, selectedClinic, {
+            serviceId,
+            // Size slots to the service itself, so a 90-minute procedure is
+            // never offered in the last hour before the shift closes.
+            durationMinutes: service?.duration_minutes,
+          })
+        : [],
+    [provider, appointments, monthDate, selectedClinic, serviceId, service?.duration_minutes]
   );
 
   // Naturally resets when the month changes — a selected date string from a
@@ -71,7 +93,7 @@ export function SlotPicker({
           </p>
         </div>
         <div className="flex flex-col gap-2.5">
-          {provider.clinic_locations.map((clinic) => (
+          {bookableClinics.map((clinic) => (
             <button
               key={clinic.id}
               onClick={() => setSelectedClinicId(clinic.id)}
@@ -98,7 +120,7 @@ export function SlotPicker({
         <p className="text-slate-500 text-sm mt-1">
           זמינות אצל {provider.title} {provider.display_name}
         </p>
-        {provider.clinic_locations.length > 1 && (
+        {bookableClinics.length > 1 && (
           <button
             onClick={() => setSelectedClinicId(null)}
             className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"

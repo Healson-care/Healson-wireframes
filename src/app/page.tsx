@@ -72,6 +72,7 @@ export default function LandingPage() {
   const router = useRouter();
   const currentUser = useStore((s) => s.currentUser);
   const loginAsDemo = useStore((s) => s.loginAsDemo);
+  const loginAsDemoUser = useStore((s) => s.loginAsDemoUser);
   const logout = useStore((s) => s.logout);
   const showToast = useStore((s) => s.showToast);
   const [secureLoginOpen, setSecureLoginOpen] = useState(false);
@@ -91,8 +92,11 @@ export default function LandingPage() {
     setTimeout(() => router.push(homeForRole(role)), 50);
   }
 
-  function completeProviderLogin() {
-    loginAsDemo("provider");
+  // The secure-login dialog decides which seeded provider account to open
+  // (single practitioner vs. medical unit), so sign in as that exact user
+  // rather than "the first provider".
+  function completeProviderLogin(userId: string) {
+    if (!loginAsDemoUser(userId)) loginAsDemo("provider");
     setSecureLoginOpen(false);
     router.push(homeForRole("provider"));
   }

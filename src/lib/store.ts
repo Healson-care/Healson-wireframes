@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import {
+  AffiliatedDoctor,
   Appointment,
   Branch,
   CatalogItem,
@@ -139,6 +140,15 @@ interface AuthState {
   resetPassword: (newPassword: string) => { ok: boolean };
   logout: () => void;
   loginAsDemo: (role: Role, patientVariant?: "new" | "existing") => void;
+  // Signs in as one *specific* seeded demo account rather than "the first user
+  // with this role" — used by the secure-provider-login demo, where the
+  // visitor picks which kind of provider portal to see (single practitioner
+  // vs. medical unit). Returns false when the id isn't a known user.
+  loginAsDemoUser: (userId: string) => boolean;
+  // Lets a signed-in user correct the identity details captured at signup
+  // (name + phone) — the provider application form exposes both once a
+  // provider type is picked, so the account isn't locked to a typo.
+  updateCurrentUserDetails: (data: { full_name?: string; phone?: string }) => void;
   completePatientRegistration: (
     userId: string,
     data: {
@@ -215,6 +225,45 @@ interface EntitiesState {
   suspendProvider: (id: string) => void;
   reinstateProvider: (id: string) => void;
   signProviderAgreement: (id: string) => void;
+
+  // --- Affiliated doctors (§PRV-07, organizations only) -------------------
+  // A doctor exists once in the platform. Before creating a new record the UI
+  // calls findMatchingDoctors() with whatever identifying details have been
+  // typed so far; if it returns anything, the user is offered the existing
+  // record instead of creating a duplicate.
+  findMatchingDoctors: (query: {
+    license_number?: string;
+    phone?: string;
+    email?: string;
+    full_name?: string;
+  }) => ProviderProfile[];
+  addAffiliatedDoctor: (
+    organizationId: string,
+    data: {
+      display_name: string;
+      title?: string;
+      specialty: string;
+      sub_specialties?: string[];
+      license_number?: string;
+      contact_phone?: string;
+      contact_email?: string;
+      license_file?: UploadedFile;
+      role?: string;
+      service_ids?: string[];
+      clinic_ids?: string[];
+    }
+  ) => { ok: boolean; error?: string; doctorId?: string };
+  linkExistingDoctorToOrganization: (
+    organizationId: string,
+    doctorProviderId: string,
+    data?: { role?: string; service_ids?: string[]; clinic_ids?: string[] }
+  ) => { ok: boolean; error?: string };
+  updateAffiliatedDoctor: (
+    organizationId: string,
+    affiliationId: string,
+    data: Partial<Pick<AffiliatedDoctor, "role" | "service_ids" | "clinic_ids">>
+  ) => void;
+  removeAffiliatedDoctor: (organizationId: string, affiliationId: string) => void;
   setProviderCommission: (id: string, rate: number) => void;
   setDefaultCommissionRate: (rate: number) => void;
   setServiceTypeCommissionRate: (type: ServiceType, rate: number | undefined) => void;
@@ -433,6 +482,27 @@ export const useStore = create<Store>()(
           return;
         }
         set({ currentUser: user });
+      },
+
+      loginAsDemoUser: (userId) => {
+        const user = get().users.find((u) => u.id === userId);
+        if (!user) return false;
+        set({ currentUser: user });
+        return true;
+      },
+
+      updateCurrentUserDetails: (data) => {
+        const current = get().currentUser;
+        if (!current) return;
+        const next: User = {
+          ...current,
+          ...(data.full_name !== undefined ? { full_name: data.full_name } : {}),
+          ...(data.phone !== undefined ? { phone: data.phone } : {}),
+        };
+        set((s) => ({
+          currentUser: next,
+          users: s.users.map((u) => (u.id === next.id ? next : u)),
+        }));
       },
 
       verifyLoginSmsOtp: (code) => {
@@ -794,6 +864,137 @@ export const useStore = create<Store>()(
       suspendProvider: (id) => get().updateProviderById(id, { status: "suspended" }),
       reinstateProvider: (id) => get().updateProviderById(id, { status: "approved" }),
       signProviderAgreement: (id) => get().updateProviderById(id, { agreement_signed_at: new Date().toISOString() }),
+
+      // --- Affiliated doctors -------------------------------------------
+      findMatchingDoctors: (query) => {
+        const norm = (v?: string) => (v ?? "").trim().toLowerCase();
+        const digits = (v?: string) => (v ?? "").replace(/\D/g, "");
+        const license = norm(query.license_number);
+        const phone = digits(query.phone);
+        const email = norm(query.email);
+        const name = norm(query.full_name);
+        if (!license && !phone && !email && !name) return [];
+        return get().providers.filter((p) => {
+          if (p.provider_type && p.provider_type !== "doctor") return false;
+          // License number is the authoritative identifier; phone/email are
+          // strong signals; an exact name match is the weakest but still worth
+          // surfacing so the user can confirm rather than duplicate.
+          if (license && norm(p.license_number) === license) return true;
+          if (phone && (digits(p.contact_phone) === phone || digits(p.user_id ? get().users.find((u) => u.id === p.user_id)?.phone : undefined) === phone)) {
+            return true;
+          }
+          if (email && norm(p.contact_email) === email) return true;
+          if (name && norm(p.display_name) === name) return true;
+          return false;
+        });
+      },
+
+      addAffiliatedDoctor: (organizationId, data) => {
+        const org = get().providers.find((p) => p.id === organizationId);
+        if (!org) return { ok: false, error: "הארגון לא נמצא" };
+        if (data.license_number) {
+          const clash = get().providers.find(
+            (p) => p.license_number && p.license_number.trim() === data.license_number!.trim()
+          );
+          if (clash) {
+            return {
+              ok: false,
+              error: `מספר הרישיון ${data.license_number} כבר רשום במערכת עבור ${clash.display_name}. יש לשייך את הרופא/ה הקיים/ת במקום ליצור רשומה חדשה.`,
+            };
+          }
+        }
+        // A doctor added by an organization is a real doctor record in the
+        // platform — created in pending_review so Ops still verify the license
+        // exactly as they would for a self-registered doctor.
+        const doctor: ProviderProfile = {
+          id: generateId("prov"),
+          provider_type: "doctor",
+          display_name: data.display_name,
+          title: data.title,
+          specialty: data.specialty,
+          sub_specialties: data.sub_specialties,
+          license_number: data.license_number,
+          contact_phone: data.contact_phone,
+          contact_email: data.contact_email,
+          license_file: data.license_file,
+          doctor_subtype: "physician",
+          is_published: false,
+          status: "pending_review",
+          organization_provider_ids: [organizationId],
+          agreements: [],
+          consultation_types: [],
+          exam_types: [],
+          clinic_locations: [],
+          referral_forms: [],
+          created_date: new Date().toISOString(),
+        };
+        set((s) => ({ providers: [...s.providers, doctor] }));
+        get().linkExistingDoctorToOrganization(organizationId, doctor.id, {
+          role: data.role,
+          service_ids: data.service_ids,
+          clinic_ids: data.clinic_ids,
+        });
+        return { ok: true, doctorId: doctor.id };
+      },
+
+      linkExistingDoctorToOrganization: (organizationId, doctorProviderId, data) => {
+        const org = get().providers.find((p) => p.id === organizationId);
+        const doctor = get().providers.find((p) => p.id === doctorProviderId);
+        if (!org || !doctor) return { ok: false, error: "לא נמצאה רשומת רופא/ה לשיוך" };
+        if ((org.affiliated_doctors ?? []).some((a) => a.doctor_provider_id === doctorProviderId)) {
+          return { ok: false, error: `${doctor.display_name} כבר משויך/ת לארגון` };
+        }
+        const affiliation: AffiliatedDoctor = {
+          id: generateId("affdoc"),
+          doctor_provider_id: doctorProviderId,
+          role: data?.role,
+          service_ids: data?.service_ids ?? [],
+          clinic_ids: data?.clinic_ids ?? [],
+          added_at: new Date().toISOString(),
+        };
+        get().updateProviderById(organizationId, {
+          affiliated_doctors: [...(org.affiliated_doctors ?? []), affiliation],
+        });
+        // Keep the inverse link on the doctor in sync so their own profile can
+        // show where they practice.
+        get().updateProviderById(doctorProviderId, {
+          organization_provider_ids: [
+            ...new Set([...(doctor.organization_provider_ids ?? []), organizationId]),
+          ],
+        });
+        return { ok: true };
+      },
+
+      updateAffiliatedDoctor: (organizationId, affiliationId, data) => {
+        const org = get().providers.find((p) => p.id === organizationId);
+        if (!org) return;
+        get().updateProviderById(organizationId, {
+          affiliated_doctors: (org.affiliated_doctors ?? []).map((a) =>
+            a.id === affiliationId ? { ...a, ...data } : a
+          ),
+        });
+      },
+
+      removeAffiliatedDoctor: (organizationId, affiliationId) => {
+        const org = get().providers.find((p) => p.id === organizationId);
+        if (!org) return;
+        const affiliation = (org.affiliated_doctors ?? []).find((a) => a.id === affiliationId);
+        get().updateProviderById(organizationId, {
+          affiliated_doctors: (org.affiliated_doctors ?? []).filter((a) => a.id !== affiliationId),
+        });
+        // Unlink the inverse reference, but never delete the doctor record —
+        // they may be affiliated with other organizations, or stand alone.
+        if (affiliation) {
+          const doctor = get().providers.find((p) => p.id === affiliation.doctor_provider_id);
+          if (doctor) {
+            get().updateProviderById(doctor.id, {
+              organization_provider_ids: (doctor.organization_provider_ids ?? []).filter(
+                (id) => id !== organizationId
+              ),
+            });
+          }
+        }
+      },
       setProviderCommission: (id, rate) => get().updateProviderById(id, { commission_rate: rate }),
       setDefaultCommissionRate: (rate) => set({ defaultCommissionRate: rate }),
       setServiceTypeCommissionRate: (type, rate) =>
@@ -991,7 +1192,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 16,
+      version: 17,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
       // records), the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER seed
       // account, the v3 -> v4 AppointmentStatus rename ("ממתין לאישור" ->
@@ -1030,7 +1231,13 @@ export const useStore = create<Store>()(
       // ConsultationType.required_documents (pre-appointment document
       // checklist), plus new hand-seeded demo PatientDocument rows for it —
       // without the bump, existing persisted state keeps the old document set.
-      migrate: (persistedState, version) => (version < 16 ? ({} as Store) : (persistedState as Store)),
+      // v16 -> v17 is the provider-management upgrade: the "other_medical"
+      // ProviderType was removed, Clinic gained the shift-based
+      // schedule/schedule_exceptions model (replacing single-range `hours`),
+      // ProviderProfile gained affiliated_doctors, and two organization demo
+      // accounts (מכון רפואי / מרפאת חוץ) plus their doctors were seeded.
+      // Persisted state from v16 has none of that, so reseed clean.
+      migrate: (persistedState, version) => (version < 17 ? ({} as Store) : (persistedState as Store)),
       // Uploaded files (photos/PDFs) are stored as base64 data URLs inside
       // this same persisted blob (no real backend — see file.ts). If a
       // single write ever still exceeds the browser's localStorage quota

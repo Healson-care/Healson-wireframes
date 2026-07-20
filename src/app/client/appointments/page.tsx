@@ -414,6 +414,9 @@ function RescheduleDialog({
             appointments={otherAppointments}
             onSelectSlot={(date, time, _label, clinicId) => onRescheduled(appointment.id, date, time, clinicId)}
             onJoinWaitlist={(date, time, label) => setWaitlistSlot({ date, time, label })}
+            serviceId={
+              provider.consultation_types.find((s) => s.name === appointment.service_name)?.id
+            }
           />
         )}
       </Dialog>

@@ -40,7 +40,8 @@ export function BlockedDatesSection({
         <p className="text-sm font-medium text-slate-800">תאריכים חסומים</p>
       </div>
       <p className="text-xs text-slate-500 mb-3">
-        תאריכים אלה ייחסמו לחלוטין להזמנת תורים על ידי מטופלים, גם אם הם נכללים בשעות הפעילות השבועיות שהוגדרו.
+        חסימה גורפת בכל המיקומים שלך — התאריך ייסגר להזמנות בכל היומנים, גם אם הוא נכלל בלוח הזמנים השבועי.
+        לסגירה או שינוי שעות במיקום מסוים בלבד, השתמשו ב&quot;חריגות בלוח הזמנים&quot; שמעל.
       </p>
       <div className="flex flex-wrap items-end gap-2 mb-3">
         <Input type="date" label="תאריך" value={date} onChange={(e) => setDate(e.target.value)} className="w-40" />

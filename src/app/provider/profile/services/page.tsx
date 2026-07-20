@@ -24,6 +24,7 @@ export default function ProviderServicesPage() {
                 providerId={provider.id}
                 itemLabel={setupConfig.catalogItemLabel}
                 providerSpecialty={provider.specialty}
+                providerType={provider.provider_type}
               />
             ) : (
               <PriceListSection
