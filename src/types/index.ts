@@ -7,6 +7,23 @@ export type Kupah = "כללית" | "מכבי" | "מאוחדת" | "לאומית";
 
 export const KUPOT: Kupah[] = ["כללית", "מכבי", "מאוחדת", "לאומית"];
 
+export type Gender = "זכר" | "נקבה";
+export const GENDERS: Gender[] = ["זכר", "נקבה"];
+
+// Picked, not typed — see InsuranceProfileForm.
+export const B_INSURANCE_COMPANIES = [
+  "כלל ביטוח",
+  "הראל ביטוח",
+  "מגדל ביטוח",
+  "הפניקס",
+  "מנורה מבטחים",
+  "איילון",
+  "הכשרה ביטוח",
+  "שירביט",
+  "AIG",
+  "ליברה",
+];
+
 export type CommunicationLanguage = "he" | "en";
 export const COMMUNICATION_LANGUAGES: CommunicationLanguage[] = ["he", "en"];
 export const COMMUNICATION_LANGUAGE_LABELS: Record<CommunicationLanguage, string> = {
@@ -20,9 +37,6 @@ export const NOTIFICATION_CHANNEL_LABELS: Record<NotificationChannel, string> = 
   email: "מייל",
   whatsapp: "וואטסאפ",
 };
-
-export type Gender = "זכר" | "נקבה";
-export const GENDERS: Gender[] = ["זכר", "נקבה"];
 
 // ---------------------------------------------------------------------------
 // SKBH insurance layers (§2.2) — every patient holds at least S+H, and may
@@ -323,6 +337,25 @@ export interface DsrRequest {
   requested_at: string;
   resolved_at?: string;
   notes?: string;
+}
+
+// A patient/applicant clicked "לא קיבלתי את הקוד" after resending an OTP
+// twice — a signal something's actually broken (wrong number, carrier
+// filtering, etc.), not just an impatient user. Not a DsrRequest: this can
+// happen before a Patient record even exists (mid-registration, only the
+// User account is there yet), so it can't carry a patient_id.
+export type OtpIssueChannel = "sms" | "email";
+export type OtpIssueContext = "registration" | "login";
+export type OtpIssueStatus = "פתוח" | "טופל";
+export const OTP_ISSUE_STATUSES: OtpIssueStatus[] = ["פתוח", "טופל"];
+
+export interface OtpIssueReport {
+  id: string;
+  channel: OtpIssueChannel;
+  contact: string; // phone or email the code was supposedly sent to
+  context: OtpIssueContext;
+  status: OtpIssueStatus;
+  reported_at: string;
 }
 
 export interface Patient {

@@ -30,6 +30,8 @@ import {
   NOTIFICATION_CHANNEL_LABELS,
   NotificationChannel,
   Patient,
+  Gender,
+  GENDERS,
 } from "@/types";
 import { formatDateHe, isValidIsraeliId } from "@/lib/utils";
 import { ShieldOff, FileDown, Lock, UserRound, SlidersHorizontal, ShieldCheck, ShieldPlus } from "lucide-react";
@@ -211,10 +213,12 @@ export default function ClientProfilePage() {
                   value={insurance.address}
                   onChange={(e) => setInsurance({ ...insurance, address: e.target.value })}
                 />
-                <Select label="מגדר" value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value as Gender })}>
-                  <option value="" disabled>
-                    בחר/י
-                  </option>
+                <Select
+                  label="מגדר"
+                  value={form.gender}
+                  onChange={(e) => setForm({ ...form, gender: e.target.value as Gender })}
+                >
+                  <option value="">לא צוין</option>
                   {GENDERS.map((g) => (
                     <option key={g} value={g}>
                       {g}

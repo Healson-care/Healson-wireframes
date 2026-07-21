@@ -153,6 +153,7 @@ function PatientsTab({
   function handleSubmit(values: PatientFormValues) {
     const patch = {
       ...values,
+      gender: values.gender || undefined,
       k_level: values.k_level || undefined,
       b_insurance_company: values.has_b_insurance ? values.b_insurance_company : undefined,
       b_policy_number: values.has_b_insurance ? values.b_policy_number : undefined,
@@ -326,6 +327,7 @@ function PatientsTab({
                 id_number: editPatient.id_number ?? "",
                 id_document_type: editPatient.id_document_type ?? "id",
                 date_of_birth: editPatient.date_of_birth ?? "",
+                gender: editPatient.gender ?? "",
                 parent_name: editPatient.parent_name ?? "",
                 kupah: editPatient.kupah,
                 k_level: editPatient.k_level ?? "",

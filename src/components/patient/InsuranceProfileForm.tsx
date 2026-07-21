@@ -1,7 +1,7 @@
 "use client";
 
 import { Input, Select } from "@/components/ui/Input";
-import { KUPOT, K_LEVELS_BY_KUPAH, Kupah, KLevel } from "@/types";
+import { B_INSURANCE_COMPANIES, KUPOT, K_LEVELS_BY_KUPAH, Kupah, KLevel } from "@/types";
 
 export interface InsuranceProfileValue {
   kupah: Kupah;
@@ -74,12 +74,18 @@ export function InsuranceProfileForm({
 
       {value.has_b_insurance && (
         <div className="grid grid-cols-2 gap-2">
-          <Input
+          <Select
             label="חברת ביטוח"
-            placeholder="כלל / הראל / מגדל..."
             value={value.b_insurance_company}
             onChange={(e) => onChange({ ...value, b_insurance_company: e.target.value })}
-          />
+          >
+            <option value="">בחרו חברה</option>
+            {B_INSURANCE_COMPANIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </Select>
           <Input
             label="מספר פוליסה (אופציונלי)"
             value={value.b_policy_number}
