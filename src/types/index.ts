@@ -7,6 +7,20 @@ export type Kupah = "כללית" | "מכבי" | "מאוחדת" | "לאומית";
 
 export const KUPOT: Kupah[] = ["כללית", "מכבי", "מאוחדת", "לאומית"];
 
+export type CommunicationLanguage = "he" | "en";
+export const COMMUNICATION_LANGUAGES: CommunicationLanguage[] = ["he", "en"];
+export const COMMUNICATION_LANGUAGE_LABELS: Record<CommunicationLanguage, string> = {
+  he: "עברית",
+  en: "אנגלית",
+};
+
+export type NotificationChannel = "email" | "whatsapp";
+export const NOTIFICATION_CHANNELS: NotificationChannel[] = ["email", "whatsapp"];
+export const NOTIFICATION_CHANNEL_LABELS: Record<NotificationChannel, string> = {
+  email: "מייל",
+  whatsapp: "וואטסאפ",
+};
+
 // ---------------------------------------------------------------------------
 // SKBH insurance layers (§2.2) — every patient holds at least S+H, and may
 // additionally hold K (supplemental HMO insurance) and/or B (private health
@@ -324,11 +338,14 @@ export interface Patient {
   has_b_insurance?: boolean;
   b_insurance_company?: string;
   b_policy_number?: string;
+  communication_language?: CommunicationLanguage;
+  notification_channel?: NotificationChannel;
   status: PatientStatus;
   assigned_provider?: string; // ProviderProfile id
   created_date: string;
   user_id?: string;
   processing_restricted?: boolean; // §11.2 / ADM-08 — blocks new data processing (bookings/orders) when true
+  notes?: string; // internal staff notes — never shown to the patient
 }
 
 export interface Lead {
@@ -355,6 +372,69 @@ export type DayKey =
 
 export type ClinicHours = Record<DayKey, [string, string] | null>;
 
+// ---------------------------------------------------------------------------
+// Availability (§PRV-05) — a real scheduling model, not a single daily range.
+//
+// A location's week is a list of *shifts* per day (a day can have several:
+// "בוקר 08:00-12:00" + "אחה״צ 16:00-19:00" — split hours), each shift may
+// carve out mid-shift breaks, may run on its own slot length, and may be
+// limited to a subset of the services offered at that location (so e.g. only
+// surgeries are bookable in the afternoon shift). Days with no shifts are
+// simply not active.
+//
+// `Clinic.hours` (the old single-range-per-day model) is kept for backward
+// compatibility with data already persisted in localStorage/seed — read it
+// only through `getWeeklySchedule()` in src/lib/schedule.ts, which converts a
+// legacy `hours` record into an equivalent one-shift-per-day schedule.
+// ---------------------------------------------------------------------------
+export const DEFAULT_SLOT_MINUTES = 30;
+export const SLOT_MINUTE_OPTIONS = [10, 15, 20, 30, 45, 60, 90] as const;
+
+export interface ScheduleBreak {
+  id: string;
+  start: string; // HH:mm
+  end: string; // HH:mm
+  label?: string;
+}
+
+export interface ScheduleShift {
+  id: string;
+  start: string; // HH:mm
+  end: string; // HH:mm
+  label?: string; // "משמרת בוקר" — free text, optional
+  slot_minutes?: number; // defaults to DEFAULT_SLOT_MINUTES
+  breaks?: ScheduleBreak[];
+  // ConsultationType ids bookable in this shift. Empty/undefined means "every
+  // service offered at this location" — the common case, so a provider who
+  // doesn't care about per-shift service scoping never has to touch it.
+  service_ids?: string[];
+}
+
+export type WeeklySchedule = Record<DayKey, ScheduleShift[]>;
+
+// A one-off override for a specific date, on top of the weekly schedule:
+// either fully closed (חופשה/חג) or a different set of shifts for that day.
+export interface ScheduleException {
+  id: string;
+  date: string; // yyyy-MM-dd
+  closed: boolean;
+  shifts?: ScheduleShift[]; // only when closed === false
+  reason?: string;
+}
+
+// A function, not a shared constant — each caller needs its own day arrays.
+export function emptyWeeklySchedule(): WeeklySchedule {
+  return {
+    sunday: [],
+    monday: [],
+    tuesday: [],
+    wednesday: [],
+    thursday: [],
+    friday: [],
+    saturday: [],
+  };
+}
+
 // A provider location's kind — drives which fields are required and how
 // its weekly hours should be read (e.g. "home_visit" hours are when the
 // provider travels to patients, not when a physical site is staffed).
@@ -373,7 +453,13 @@ export interface Clinic {
   city: string;
   phone: string;
   is_primary: boolean;
+  /** @deprecated legacy single-range-per-day hours — read via getWeeklySchedule() */
   hours: ClinicHours;
+  // The real availability model (see ScheduleShift above). Undefined on
+  // records created before the scheduler existed — getWeeklySchedule()
+  // derives an equivalent schedule from `hours` in that case.
+  schedule?: WeeklySchedule;
+  schedule_exceptions?: ScheduleException[];
   location_type?: LocationType;
 }
 
@@ -425,6 +511,15 @@ export interface ConsultationType {
   prices: PriceByLayer[];
   catalog_item_id?: string; // links back to a CatalogItem chosen from the Skill Tree
   service_type?: ProviderServiceType;
+  // Provider-type-specific category (see PROVIDER_TYPE_SERVICE_CATEGORIES) —
+  // set instead of relying on service_type alone for organization types whose
+  // catalogue has its own vocabulary ("בדיקות עד הבית", "בחירת מנתח"…).
+  service_category?: string;
+  // Ministry-of-Health procedure code (§PRV-09). Mandatory for the clinical
+  // service types that have an official code — test / imaging / procedure /
+  // surgery — chosen from the searchable code book in src/lib/moh-codes.ts.
+  // Consultations and internal/product-like entries have no MOH code.
+  moh_code?: string;
   linked_clinic_ids?: string[]; // Clinic ("calendar") ids this service can be booked against
   // Requires a referral/pre-authorization from the patient's kupah before
   // booking — relevant across every service_type, so kept ungated.
@@ -490,10 +585,12 @@ export interface ProviderAgreement {
 // "caregiver" covers both nurses and complementary/alternative-medicine
 // therapists (the applicant picks a sub-type within the form); "hospital"
 // covers both general hospitals and standalone surgical facilities.
+// NOTE: "נותן שירות רפואי אחר" (other_medical) was removed from the product —
+// every provider now picks a concrete type, so there is no catch-all option in
+// any provider-type picker.
 export type ProviderType =
   | "doctor"
   | "caregiver"
-  | "other_medical"
   | "store"
   | "pharmacy"
   | "hospital"
@@ -506,7 +603,6 @@ export type ProviderType =
 export const PROVIDER_TYPES: ProviderType[] = [
   "doctor",
   "caregiver",
-  "other_medical",
   "store",
   "pharmacy",
   "hospital",
@@ -520,7 +616,6 @@ export const PROVIDER_TYPES: ProviderType[] = [
 export const PROVIDER_TYPE_LABELS: Record<ProviderType, string> = {
   doctor: "רופא/ה",
   caregiver: "מטפל/ת",
-  other_medical: "נותן שירות רפואי אחר",
   store: "חנות",
   pharmacy: "בית מרקחת",
   hospital: "בית חולים",
@@ -534,7 +629,6 @@ export const PROVIDER_TYPE_LABELS: Record<ProviderType, string> = {
 export const PROVIDER_TYPE_DESCRIPTIONS: Record<ProviderType, string> = {
   doctor: "רופא/ה עצמאי/ת עם רישיון עיסוק ממשרד הבריאות",
   caregiver: "אח/ות או נותן/ת טיפול משלים ופרא-רפואי",
-  other_medical: "נותן שירות רפואי שאינו נכלל בקטגוריות הקיימות",
   store: "חנות מוצרי בריאות, ציוד רפואי או אופטיקה",
   pharmacy: "בית מרקחת עם רוקח אחראי",
   hospital: "בית חולים / מרכז רפואי המפעיל מחלקות אשפוז וחדרי ניתוח",
@@ -544,6 +638,152 @@ export const PROVIDER_TYPE_DESCRIPTIONS: Record<ProviderType, string> = {
   medical_call_center: "מוקד טלפוני לייעוץ, טריאז' ותמיכה רפואית מרחוק",
   insurance_agency: "סוכנות המתווכת פוליסות ביטוח בריאות ושירותים משלימים",
 };
+
+// ---------------------------------------------------------------------------
+// Per-provider-type service catalogue (§PRV-02).
+//
+// Organization provider types don't all sell the same kinds of things: a
+// מרפאת חוץ offers consultations and diagnostics, while a מכון רפואי also
+// sells procedures, surgeries, home visits and equipment. These lists are the
+// single source of truth for BOTH ends of the flow:
+//   1. the "סוג השירותים" pick in the join application (provider/register), and
+//   2. the "סוג שירות" classification when adding an item to the provider's
+//      own catalog (ServiceCatalogSection).
+// A type with no entry here falls back to the generic PROVIDER_SERVICE_TYPES
+// classification above.
+// ---------------------------------------------------------------------------
+export const PROVIDER_TYPE_SERVICE_CATEGORIES: Partial<Record<ProviderType, string[]>> = {
+  outpatient_clinic: ["ייעוץ", "חוות דעת נוספת", "ייעוץ חוזר", "אבחונים", "בדיקות", "טיפולים"],
+  medical_institute: [
+    "טיפולים",
+    "פעולות",
+    "בדיקות",
+    "בדיקות עד הבית",
+    "ניתוחים",
+    "בחירת מנתח",
+    "שירותים נוספים",
+    "ייעוץ",
+    "חוות דעת נוספת",
+    "טיפולים עד הבית",
+    "ציוד רפואי",
+    "ייעוץ עד הבית",
+  ],
+};
+
+export function getProviderServiceCategories(type?: ProviderType): string[] | undefined {
+  return type ? PROVIDER_TYPE_SERVICE_CATEGORIES[type] : undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Affiliated doctors (§PRV-07) — every consultation-based service is actually
+// delivered by a doctor, so an organization (מרפאת חוץ / מכון רפואי) manages
+// the doctors working under it and which of its services each one delivers.
+//
+// A doctor is never duplicated: the record points at a real doctor
+// ProviderProfile (`doctor_provider_id`). Adding a doctor who already exists
+// in the platform links the existing record instead of creating a second one
+// — see linkExistingDoctorToOrganization / addAffiliatedDoctor in store.ts.
+// ---------------------------------------------------------------------------
+export interface AffiliatedDoctor {
+  id: string;
+  doctor_provider_id: string; // ProviderProfile.id of a provider_type "doctor"
+  role?: string; // "רופא בכיר", "מנהל יחידה"… free text
+  service_ids: string[]; // ConsultationType ids of the organization's catalog
+  clinic_ids?: string[]; // organization locations the doctor works at
+  // The doctor's own week inside the unit (§PRV-08). In a medical unit
+  // availability is owned by the *resource* that delivers the service, not by
+  // the unit as a whole — a doctor with no schedule of their own simply has no
+  // bookable slots (their services fall back to the unit's general hours).
+  schedule?: WeeklySchedule;
+  schedule_exceptions?: ScheduleException[];
+  added_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Medical units (§PRV-08) — מכון רפואי / מרפאת חוץ.
+//
+// A unit is a single site (the unit IS the branch — no sub-branches), and what
+// it sells is delivered by one of two kinds of *resource*:
+//   • מתקן  — a machine/room with its own queue: "MRI 1", "CT 1", "חדר פעולות".
+//   • רופא  — an affiliated doctor (see AffiliatedDoctor above).
+// Each resource keeps its own weekly schedule and the services linked to it
+// ("MRI ראש" and "MRI בטן" hang off MRI 1), and each resource is booked
+// independently — MRI 1, CT 1 and a doctor can all run at the same hour.
+// The unit-level week ("זמינות כללית") is the unit's opening hours plus the
+// combined picture of every resource — see src/lib/unit-resources.ts.
+// ---------------------------------------------------------------------------
+export const UNIT_PROVIDER_TYPES: ProviderType[] = ["medical_institute", "outpatient_clinic"];
+
+export function isUnitProviderType(type?: ProviderType): boolean {
+  return !!type && UNIT_PROVIDER_TYPES.includes(type);
+}
+
+export type FacilityKind =
+  | "mri"
+  | "ct"
+  | "ultrasound"
+  | "xray"
+  | "mammography"
+  | "pet_ct"
+  | "bone_density"
+  | "endoscopy"
+  | "cardiology"
+  | "treatment_room"
+  | "procedure_room"
+  | "operating_room"
+  | "sampling_station"
+  | "other";
+
+export const FACILITY_KINDS: FacilityKind[] = [
+  "mri",
+  "ct",
+  "ultrasound",
+  "xray",
+  "mammography",
+  "pet_ct",
+  "bone_density",
+  "endoscopy",
+  "cardiology",
+  "treatment_room",
+  "procedure_room",
+  "operating_room",
+  "sampling_station",
+  "other",
+];
+
+export const FACILITY_KIND_LABELS: Record<FacilityKind, string> = {
+  mri: "MRI",
+  ct: "CT",
+  ultrasound: "אולטרסאונד",
+  xray: "רנטגן",
+  mammography: "ממוגרפיה",
+  pet_ct: "PET-CT",
+  bone_density: "צפיפות עצם",
+  endoscopy: "אנדוסקופיה",
+  cardiology: "מכשור קרדיולוגי",
+  treatment_room: "חדר טיפולים",
+  procedure_room: "חדר פעולות",
+  operating_room: "חדר ניתוח",
+  sampling_station: "עמדת דגימות",
+  other: "אחר",
+};
+
+/** A bookable machine/room inside a medical unit — its own queue, its own
+ * week, and the services performed on it. */
+export interface ProviderFacility {
+  id: string;
+  name: string; // "MRI 1" — free text, this is what the schedule is labelled by
+  kind: FacilityKind;
+  model?: string; // "Siemens Magnetom Vida 3T"
+  room?: string; // "חדר 4, קומה -1"
+  is_active: boolean;
+  // ConsultationType ids performed on this facility ("MRI ראש", "MRI בטן"…).
+  // Empty means the facility exists but nothing is bookable on it yet.
+  service_ids: string[];
+  schedule?: WeeklySchedule;
+  schedule_exceptions?: ScheduleException[];
+  created_at: string;
+}
 
 // Provider types a member (child) provider belongs to — excludes
 // "hospital", since a hospital is made up of the other provider types
@@ -598,7 +838,18 @@ export interface ProviderProfile {
   service_areas?: string[];
   sub_specialties?: string[];
   location_count?: number;
-  member_provider_types?: ProviderType[]; // organization only — which provider types operate under it
+  member_provider_types?: ProviderType[]; // organization only — which provider types operate under it (set by Healson ops, not self-declared)
+  // Organization only (outpatient_clinic / medical_institute) — doctors
+  // working under this organization and the services each one delivers.
+  affiliated_doctors?: AffiliatedDoctor[];
+  // Medical units only (§PRV-08) — the unit's machines/rooms, each with its own
+  // queue and week. Together with affiliated_doctors these are the unit's
+  // bookable resources.
+  facilities?: ProviderFacility[];
+  // Doctor only — organizations this doctor is affiliated with (the inverse
+  // of affiliated_doctors, kept in sync by the store so a doctor's own
+  // profile can show where they practice).
+  organization_provider_ids?: string[];
   license_verified_at?: string;
   // Set once the provider clicks "שלח לבדיקת Healson" on /apply, after
   // registering + logging in and filling out their profile — this is the
@@ -657,6 +908,12 @@ export interface Appointment {
   provider_name: string;
   service_name: string;
   clinic_id?: string; // which of the provider's clinic_locations this was booked at
+  // For medical units (§PRV-08): which resource — a facility (MRI-1, CT-1) or an
+  // affiliated doctor — actually holds this appointment. Capacity is counted per
+  // resource, so two appointments at the same time on different resources are
+  // legitimate. Undefined on unit appointments booked before the resource model
+  // existed (and on every non-unit provider, which has a single calendar).
+  resource_id?: string;
   date: string; // yyyy-MM-dd
   time: string; // HH:mm
   duration_minutes: number;

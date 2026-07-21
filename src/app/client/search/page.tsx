@@ -322,6 +322,7 @@ export default function ClientSearchPage() {
                 onSelectSlot={selectSlot}
                 onJoinWaitlist={(date, time, label) => setWaitlistSlot({ date, time, label })}
                 onClinicChange={setDiscoveryClinicId}
+                serviceId={consultation?.id}
               />
             </motion.div>
           )}

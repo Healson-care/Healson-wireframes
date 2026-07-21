@@ -9,6 +9,7 @@ import {
   Stethoscope,
   ShoppingCart,
   CalendarDays,
+  CalendarCheck,
   Users,
   Settings,
   UserRound,
@@ -42,7 +43,10 @@ interface NavGroup {
 const NAV_GROUPS: NavGroup[] = [
   {
     label: "ראשי",
-    items: [{ href: "/dashboard", label: "לוח בקרה", icon: Home }],
+    items: [
+      { href: "/today", label: "היום שלי", icon: CalendarCheck },
+      { href: "/dashboard", label: "לוח בקרה", icon: Home },
+    ],
   },
   {
     label: "תפעול",

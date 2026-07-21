@@ -339,7 +339,7 @@ export default function AdminDashboardHome() {
               {recentAppointments.map((a) => (
                 <Link
                   key={a.id}
-                  href="/appointments"
+                  href={`/appointments?appointment=${a.id}&date=${a.date}`}
                   className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm transition-colors hover:bg-slate-100"
                 >
                   <div>
@@ -360,7 +360,7 @@ export default function AdminDashboardHome() {
               {recentPatients.map((p) => (
                 <Link
                   key={p.id}
-                  href="/crm"
+                  href={`/crm/${p.id}`}
                   className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm transition-colors hover:bg-slate-100"
                 >
                   <div>

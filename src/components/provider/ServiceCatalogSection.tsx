@@ -10,6 +10,9 @@ import { Badge } from "@/components/ui/Badge";
 import { useStore } from "@/lib/store";
 import { formatCurrency, generateId } from "@/lib/utils";
 import { LayerPriceInputs, emptyLayerPrices } from "@/components/provider/PriceListSection";
+import { MohCodePicker } from "@/components/provider/MohCodePicker";
+import { OpenDecisionNote } from "@/components/ui/Misc";
+import { findMohCode, requiresMohCode } from "@/lib/moh-codes";
 import {
   ANESTHESIA_TYPE_LABELS,
   ANESTHESIA_TYPES,
@@ -21,8 +24,11 @@ import {
   PROVIDER_SERVICE_TYPE_LABELS,
   PROVIDER_SERVICE_TYPES,
   ProviderServiceType,
+  ProviderType,
+  getProviderServiceCategories,
+  isUnitProviderType,
 } from "@/types";
-import { Plus, Pencil, Trash2, Stethoscope, MapPin } from "lucide-react";
+import { Plus, Pencil, Trash2, Stethoscope, MapPin, MonitorCog } from "lucide-react";
 
 /** Provider-side catalog editor for medical-service provider types (§PRV-02)
  * — the provider picks services from the admin-managed Skill Tree
@@ -34,6 +40,7 @@ export function ServiceCatalogSection({
   providerId,
   itemLabel,
   providerSpecialty,
+  providerType,
 }: {
   items: ConsultationType[];
   onChange: (items: ConsultationType[]) => void;
@@ -43,7 +50,15 @@ export function ServiceCatalogSection({
   // skill domain name_he (see medical-tree.ts), the picker below defaults to
   // and stays scoped to that one domain instead of showing all of them.
   providerSpecialty?: string;
+  // Organization types (מרפאת חוץ / מכון רפואי) classify their catalog with
+  // their own service vocabulary rather than the generic 7 service types —
+  // the same list the applicant picked from during registration.
+  providerType?: ProviderType;
 }) {
+  const serviceCategories = getProviderServiceCategories(providerType);
+  // A medical unit has a single site, so a service isn't linked to a location —
+  // it's linked to the resource that performs it (§PRV-08).
+  const isUnit = isUnitProviderType(providerType);
   const skillDomains = useStore((s) => s.skillDomains);
   const skillSubdomains = useStore((s) => s.skillSubdomains);
   const catalog = useStore((s) => s.catalog);
@@ -62,6 +77,7 @@ export function ServiceCatalogSection({
   const [duration, setDuration] = useState("30");
   const [prices, setPrices] = useState<Record<InsuranceLayer, string>>(emptyLayerPrices());
   const [serviceType, setServiceType] = useState<ProviderServiceType>("consultation");
+  const [serviceCategory, setServiceCategory] = useState<string>("");
   const [showAllDomains, setShowAllDomains] = useState(!matchedDomain);
   const [requiresReferral, setRequiresReferral] = useState(false);
   const [requiresFasting, setRequiresFasting] = useState(false);
@@ -71,6 +87,7 @@ export function ServiceCatalogSection({
   const [requiresHospital, setRequiresHospital] = useState(false);
   const [requiresContrast, setRequiresContrast] = useState(false);
   const [hasRadiation, setHasRadiation] = useState(false);
+  const [mohCode, setMohCode] = useState<string | undefined>(undefined);
 
   const availableCatalog = useMemo(
     () => catalog.filter((c) => c.is_active && (c.provider_id == null || c.provider_id === providerId)),
@@ -94,6 +111,7 @@ export function ServiceCatalogSection({
     setDuration("30");
     setPrices(emptyLayerPrices());
     setServiceType("consultation");
+    setServiceCategory(serviceCategories?.[0] ?? "");
     setShowAllDomains(!matchedDomain);
     setRequiresReferral(false);
     setRequiresFasting(false);
@@ -103,6 +121,7 @@ export function ServiceCatalogSection({
     setRequiresHospital(false);
     setRequiresContrast(false);
     setHasRadiation(false);
+    setMohCode(undefined);
     setOpen(true);
   }
 
@@ -118,6 +137,7 @@ export function ServiceCatalogSection({
     item.prices.forEach((p) => (map[p.layer] = String(p.price)));
     setPrices(map);
     setServiceType(item.service_type ?? "consultation");
+    setServiceCategory(item.service_category ?? serviceCategories?.[0] ?? "");
     setShowAllDomains(!matchedDomain || itemDomainId !== matchedDomain.id);
     setRequiresReferral(item.requires_referral ?? false);
     setRequiresFasting(item.requires_fasting ?? false);
@@ -127,6 +147,7 @@ export function ServiceCatalogSection({
     setRequiresHospital(item.requires_hospital ?? false);
     setRequiresContrast(item.requires_contrast ?? false);
     setHasRadiation(item.has_radiation ?? false);
+    setMohCode(item.moh_code);
     setOpen(true);
   }
 
@@ -140,6 +161,10 @@ export function ServiceCatalogSection({
       prices: INSURANCE_LAYERS.filter((l) => prices[l] !== "").map((l) => ({ layer: l, price: Number(prices[l]) || 0 })),
       catalog_item_id: catalogItem?.id ?? editingExisting?.catalog_item_id,
       service_type: serviceType,
+      service_category: serviceCategories ? serviceCategory || undefined : editingExisting?.service_category,
+      // Only the coded clinical types carry a MOH code — switching an item to
+      // "ייעוץ" must not leave a stale imaging code behind.
+      moh_code: requiresMohCode(serviceType) ? mohCode : undefined,
       // Location linking is owned by the clinics screen now — preserve whatever
       // links already exist, never reset them from here.
       linked_clinic_ids: editingExisting?.linked_clinic_ids ?? [],
@@ -167,7 +192,11 @@ export function ServiceCatalogSection({
     return skillSubdomains.find((d) => d.id === id)?.name_he ?? "";
   }
 
-  const canSave = editingId ? true : !!catalogItemId;
+  const needsMohCode = requiresMohCode(serviceType);
+  const canSave =
+    (editingId ? true : !!catalogItemId) &&
+    (!serviceCategories || !!serviceCategory) &&
+    (!needsMohCode || !!mohCode);
 
   return (
     <div>
@@ -194,9 +223,18 @@ export function ServiceCatalogSection({
                           {domainName(catalogItem.skill_domain_id)} · {subdomainName(catalogItem.skill_subdomain_id)}
                         </Badge>
                       )}
-                      {item.service_type && <Badge tone="blue">{PROVIDER_SERVICE_TYPE_LABELS[item.service_type]}</Badge>}
+                      {item.service_category ? (
+                        <Badge tone="blue">{item.service_category}</Badge>
+                      ) : (
+                        item.service_type && <Badge tone="blue">{PROVIDER_SERVICE_TYPE_LABELS[item.service_type]}</Badge>
+                      )}
                       <span className="text-xs text-slate-500">{item.duration_minutes} דק׳</span>
                     </div>
+                    {item.moh_code && (
+                      <p className="mt-1 text-[11px] text-slate-500" title={findMohCode(item.moh_code)?.name_he}>
+                        קוד משרד הבריאות: <span className="font-medium text-slate-700">{item.moh_code}</span>
+                      </p>
+                    )}
                     <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                       {item.requires_referral && <Badge tone="amber">דורש הפניה</Badge>}
                       {item.requires_fasting && <Badge tone="amber">דורש צום</Badge>}
@@ -206,7 +244,11 @@ export function ServiceCatalogSection({
                       {item.has_radiation && <Badge tone="purple">קרינה מייננת</Badge>}
                     </div>
                     <div className="mt-1.5">
-                      {(item.linked_clinic_ids?.length ?? 0) > 0 ? (
+                      {isUnit ? (
+                        <span className="flex items-center gap-1 text-[11px] text-slate-500">
+                          <MonitorCog className="h-3 w-3" /> שייכו למתקן או לרופא/ה כדי לפתוח תורים
+                        </span>
+                      ) : (item.linked_clinic_ids?.length ?? 0) > 0 ? (
                         <span className="flex items-center gap-1 text-[11px] text-slate-500">
                           <MapPin className="h-3 w-3" />
                           מוצע ב-{item.linked_clinic_ids!.length} מיקומים
@@ -317,15 +359,62 @@ export function ServiceCatalogSection({
           )}
 
           <div className="grid sm:grid-cols-2 gap-3">
-            <Select label="סוג שירות" value={serviceType} onChange={(e) => setServiceType(e.target.value as ProviderServiceType)}>
+            {/* Organization types classify by their own catalogue (§PRV-02);
+                everyone else keeps the generic 7-way classification. */}
+            {serviceCategories ? (
+              <Select
+                label="סוג השירות"
+                value={serviceCategory}
+                onChange={(e) => setServiceCategory(e.target.value)}
+                required
+              >
+                <option value="">בחר/י סוג שירות</option>
+                {serviceCategories.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              <Select label="סוג שירות" value={serviceType} onChange={(e) => setServiceType(e.target.value as ProviderServiceType)}>
+                {PROVIDER_SERVICE_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {PROVIDER_SERVICE_TYPE_LABELS[t]}
+                  </option>
+                ))}
+              </Select>
+            )}
+            <Input label="משך (דקות)" type="number" value={duration} onChange={(e) => setDuration(e.target.value)} required />
+          </div>
+
+          {/* The category above drives the patient-facing grouping; the
+              clinical classification below still decides which prep fields
+              (fasting, anesthesia, contrast…) are relevant. */}
+          {serviceCategories && (
+            <Select
+              label="סיווג קליני (קובע אילו שדות הכנה נדרשים)"
+              value={serviceType}
+              onChange={(e) => setServiceType(e.target.value as ProviderServiceType)}
+            >
               {PROVIDER_SERVICE_TYPES.map((t) => (
                 <option key={t} value={t}>
                   {PROVIDER_SERVICE_TYPE_LABELS[t]}
                 </option>
               ))}
             </Select>
-            <Input label="משך (דקות)" type="number" value={duration} onChange={(e) => setDuration(e.target.value)} required />
-          </div>
+          )}
+
+          {/* Ministry of Health code (§PRV-09) — mandatory for the clinical
+              types that have one, absent for consultations/products. */}
+          {needsMohCode ? (
+            <MohCodePicker serviceType={serviceType} value={mohCode} onChange={setMohCode} />
+          ) : (
+            <OpenDecisionNote className="mb-0">
+              <b>שאלה פתוחה:</b> ל{PROVIDER_SERVICE_TYPE_LABELS[serviceType]} אין קוד רשמי של משרד הבריאות. עדיין
+              לא הוחלט איך מקודדים שירותים פנימיים כאלה — קוד פנימי של Healson, קוד שהספק מגדיר בעצמו, או ללא קוד
+              כלל. עד להחלטה השירות נשמר לפי שמו מה-Skill Tree בלבד.
+            </OpenDecisionNote>
+          )}
 
           <div className="flex flex-col gap-2 rounded-lg border border-slate-200 p-3">
             <label className="flex items-center gap-2 text-sm cursor-pointer">
@@ -407,8 +496,18 @@ export function ServiceCatalogSection({
           </div>
 
           <p className="flex items-start gap-1.5 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
-            <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-            שיוך השירות למיקומים נעשה בלשונית &quot;מרפאות&quot; — שם בוחרים לכל מיקום אילו שירותים מוצעים בו.
+            {isUnit ? (
+              <>
+                <MonitorCog className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                ליחידה רפואית אין סניפים — היחידה עצמה היא הסניף. את השירות משייכים למתקן (MRI 1, CT 1) בלשונית
+                &quot;מתקנים&quot;, או לרופא/ה בלשונית &quot;רופאים&quot; — שם גם נקבעת הזמינות שלו.
+              </>
+            ) : (
+              <>
+                <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                שיוך השירות למיקומים נעשה בלשונית &quot;מרפאות&quot; — שם בוחרים לכל מיקום אילו שירותים מוצעים בו.
+              </>
+            )}
           </p>
 
           <p className="text-xs text-slate-400">מחיר לשכבת ביטוח — השאירו ריק אם הספק לא עובד מול שכבה זו</p>

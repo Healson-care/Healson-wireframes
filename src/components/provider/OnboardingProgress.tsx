@@ -17,6 +17,8 @@ import {
   isCatalogComplete,
   isLocationsComplete,
   isAvailabilityComplete,
+  isAffiliatedDoctorsComplete,
+  isFacilitiesComplete,
 } from "@/lib/provider-setup";
 
 interface Step {
@@ -54,8 +56,21 @@ export function OnboardingProgress({ provider, className }: { provider: Provider
     ...(setupConfig.locationTypes.length > 0
       ? [{ key: "locations", ok: isLocationsComplete(provider), label: setupConfig.locationLabelPlural, href: "/provider/profile/clinics" }]
       : []),
+    ...(setupConfig.showFacilities
+      ? [{ key: "facilities", ok: isFacilitiesComplete(provider), label: "מתקנים", href: "/provider/profile/facilities" }]
+      : []),
     ...(setupConfig.showAvailability
       ? [{ key: "availability", ok: isAvailabilityComplete(provider), label: "זמינות", href: "/provider/profile/availability" }]
+      : []),
+    ...(setupConfig.showAffiliatedDoctors
+      ? [
+          {
+            key: "doctors",
+            ok: isAffiliatedDoctorsComplete(provider),
+            label: "רופאים",
+            href: "/provider/profile/doctors",
+          },
+        ]
       : []),
   ];
   const percent = Math.round((steps.filter((s) => s.ok).length / steps.length) * 100);

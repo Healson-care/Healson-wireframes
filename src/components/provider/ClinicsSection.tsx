@@ -29,6 +29,8 @@ export function ClinicsSection({
   allowedLocationTypes = ["clinic"],
   locationLabelSingular = "מרפאה",
   locationLabelPlural = "מרפאות",
+  singleLocation = false,
+  unitName,
   services = [],
   onServicesChange,
 }: {
@@ -37,6 +39,15 @@ export function ClinicsSection({
   allowedLocationTypes?: LocationType[];
   locationLabelSingular?: string;
   locationLabelPlural?: string;
+  /** Medical units (§PRV-08): the unit IS the site — exactly one address
+   * record, never a list. The add/delete/primary affordances and the
+   * per-location service linking all disappear, since there is nothing to
+   * choose between: every service of the unit is delivered at the unit. */
+  singleLocation?: boolean;
+  /** The unit's own name (ProviderProfile.display_name). In single-location
+   * mode the site has no separate name — it IS the unit — so the name field is
+   * dropped and this value is stored on the location record instead. */
+  unitName?: string;
   /** The provider's catalog items. Service↔location linking is owned HERE (the
    * location side): each location picks which services it offers, which writes
    * back to each service's `linked_clinic_ids`. */
@@ -96,14 +107,20 @@ export function ClinicsSection({
 
   function handleSave() {
     const id = editingId ?? generateId("clinic");
+    const existing = editingId ? clinics.find((c) => c.id === editingId) : undefined;
     const newClinic: Clinic = {
+      // Spread the existing record first so scheduling data owned by the
+      // availability screen (schedule / schedule_exceptions / hours) survives
+      // an edit here — this dialog only owns the location's identity fields.
+      ...existing,
       id,
-      name: form.name,
+      // A unit's site carries the unit's own name — never a second one.
+      name: singleLocation ? unitName ?? form.name : form.name,
       address: form.address,
       city: form.city,
       phone: form.phone,
-      is_primary: editingId ? clinics.find((c) => c.id === editingId)?.is_primary ?? false : clinics.length === 0,
-      hours: editingId ? clinics.find((c) => c.id === editingId)?.hours ?? EMPTY_HOURS : EMPTY_HOURS,
+      is_primary: existing?.is_primary ?? clinics.length === 0,
+      hours: existing?.hours ?? EMPTY_HOURS,
       location_type: locationType,
     };
 
@@ -112,7 +129,10 @@ export function ClinicsSection({
     } else {
       onChange([...clinics, newClinic]);
     }
-    applyServiceLinks(id);
+    // A single-site unit has nothing to link against — every service is
+    // delivered at the unit, and which *resource* delivers it is set on the
+    // מתקנים / רופאים screens instead.
+    if (!singleLocation) applyServiceLinks(id);
     setOpen(false);
   }
 
@@ -134,18 +154,32 @@ export function ClinicsSection({
     }
   }
 
+  const hideAdd = singleLocation && clinics.length > 0;
+
   return (
     <div>
-      <div className="flex justify-end mb-3">
-        <Button size="sm" onClick={openCreate}>
-          <Plus className="h-4 w-4" /> הוסף {locationLabelSingular}
-        </Button>
-      </div>
+      {singleLocation && (
+        <p className="mb-3 flex items-start gap-1.5 rounded-lg border border-info-border bg-info-bg px-3 py-2 text-xs text-info-text">
+          <MapPinned className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          ליחידה רפואית אין סניפים — היחידה עצמה היא הסניף. כאן מגדירים את כתובת היחידה ופרטי ההתקשרות שלה; חלוקת
+          העבודה בתוך היחידה נעשית דרך המתקנים והרופאים.
+        </p>
+      )}
+      {!hideAdd && (
+        <div className="flex justify-end mb-3">
+          <Button size="sm" onClick={openCreate}>
+            <Plus className="h-4 w-4" /> {singleLocation ? "הגדרת פרטי היחידה" : `הוסף ${locationLabelSingular}`}
+          </Button>
+        </div>
+      )}
 
       {clinics.length === 0 ? (
-        <EmptyState icon={<MapPin className="h-10 w-10" />} title={`אין ${locationLabelPlural} מוגדרות`} />
+        <EmptyState
+          icon={<MapPin className="h-10 w-10" />}
+          title={singleLocation ? "טרם הוגדרו פרטי היחידה" : `אין ${locationLabelPlural} מוגדרות`}
+        />
       ) : (
-        <div className="grid sm:grid-cols-2 gap-3">
+        <div className={singleLocation ? "grid gap-3" : "grid sm:grid-cols-2 gap-3"}>
           {clinics.map((c) => {
             const linked = servicesAtClinic(c.id);
             return (
@@ -154,7 +188,11 @@ export function ClinicsSection({
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-medium text-slate-900">{c.name}</p>
-                      {c.is_primary && <Badge tone="green">{locationLabelSingular} ראשית</Badge>}
+                      {singleLocation ? (
+                        <Badge tone="green">היחידה עצמה</Badge>
+                      ) : (
+                        c.is_primary && <Badge tone="green">{locationLabelSingular} ראשית</Badge>
+                      )}
                       {allowedLocationTypes.length > 1 && (
                         <Badge tone="slate">{LOCATION_TYPE_LABELS[c.location_type ?? "clinic"]}</Badge>
                       )}
@@ -163,7 +201,7 @@ export function ClinicsSection({
                       <p className="text-xs text-slate-500 mt-1">{c.address}{c.address && c.city ? ", " : ""}{c.city}</p>
                     )}
                     <p className="text-xs text-slate-400">{c.phone}</p>
-                    <div className="mt-1.5">
+                    <div className={singleLocation ? "hidden" : "mt-1.5"}>
                       {linked.length > 0 ? (
                         <span className="flex items-center gap-1 text-[11px] text-slate-500">
                           <Stethoscope className="h-3 w-3" /> {linked.length} שירותים מוצעים כאן
@@ -179,12 +217,14 @@ export function ClinicsSection({
                     <button onClick={() => openEdit(c)} className="p-1.5 rounded-md hover:bg-slate-100 text-slate-500">
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
-                    <button onClick={() => setDeleteId(c.id)} className="p-1.5 rounded-md hover:bg-red-50 text-red-500">
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    {!singleLocation && (
+                      <button onClick={() => setDeleteId(c.id)} className="p-1.5 rounded-md hover:bg-red-50 text-red-500">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
-                {!c.is_primary && (
+                {!singleLocation && !c.is_primary && (
                   <button
                     onClick={() => setPrimary(c.id)}
                     className="mt-3 flex items-center gap-1 text-xs text-primary hover:underline"
@@ -201,7 +241,18 @@ export function ClinicsSection({
       <Dialog
         open={open}
         onClose={() => setOpen(false)}
-        title={editingId ? `עריכת ${locationLabelSingular}` : `${locationLabelSingular} חדש/ה`}
+        title={
+          singleLocation
+            ? "פרטי היחידה"
+            : editingId
+              ? `עריכת ${locationLabelSingular}`
+              : `${locationLabelSingular} חדש/ה`
+        }
+        description={
+          singleLocation
+            ? `${unitName ?? ""} — שם היחידה נערך בלשונית "הגדרות"`.trim()
+            : undefined
+        }
         className="max-w-xl"
       >
         <div className="flex flex-col gap-3">
@@ -220,7 +271,14 @@ export function ClinicsSection({
                 ))}
               </Select>
             )}
-            <Input label={`שם ה${locationLabelSingular}`} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+            {!singleLocation && (
+              <Input
+                label={`שם ה${locationLabelSingular}`}
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                required
+              />
+            )}
             <Input label="עיר" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} required={isPhysical} />
             <Input label="כתובת" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} required={isPhysical} />
             <Input label="טלפון" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} required />
@@ -238,8 +296,10 @@ export function ClinicsSection({
           )}
 
           {/* Service↔location linking lives here: the location picks which
-              services it offers (a service may be offered at several locations). */}
-          <div>
+              services it offers (a service may be offered at several locations).
+              A single-site unit skips it — every service is delivered at the
+              unit, and the resource that delivers it is picked elsewhere. */}
+          <div className={singleLocation ? "hidden" : undefined}>
             <p className="text-sm font-medium text-slate-700 mb-2">שירותים המוצעים במיקום זה</p>
             {services.length === 0 ? (
               <p className="flex items-center gap-1.5 rounded-lg bg-warning-bg border border-warning-border px-3 py-2 text-xs text-warning-text">
@@ -263,9 +323,11 @@ export function ClinicsSection({
           </div>
 
           <p className="text-xs text-slate-500">
-            את שעות הפעילות אפשר להגדיר בשלב הבא, בלשונית &quot;זמינות&quot;.
+            {singleLocation
+              ? 'את שעות הפעילות של היחידה — ואת לוחות הזמנים של כל מתקן ורופא/ה — מגדירים בלשונית "זמינות".'
+              : 'את שעות הפעילות אפשר להגדיר בשלב הבא, בלשונית "זמינות".'}
           </p>
-          <Button onClick={handleSave}>שמור {locationLabelSingular}</Button>
+          <Button onClick={handleSave}>שמור {singleLocation ? "פרטי היחידה" : locationLabelSingular}</Button>
         </div>
       </Dialog>
 
