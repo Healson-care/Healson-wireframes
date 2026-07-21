@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { AlertCircle, ArrowLeft, Calendar, CheckCircle2, Receipt } from "lucide-react";
+import { AlertCircle, ArrowLeft, Calendar, CheckCircle2, Receipt, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { ServiceItemCard } from "@/components/book/ServiceItemCard";
 import { useStore } from "@/lib/store";
-import { ProviderProfile } from "@/types";
+import { PROVIDER_SERVICE_TYPE_LABELS, ProviderProfile } from "@/types";
 
 // Deterministic (not Math.random) so it stays pure during render — the
 // spread still reads as organic confetti thanks to the sine-based offsets.
@@ -43,6 +44,7 @@ export function BookingConfirmation({
   homeHref,
   homeLabel,
   appointmentId,
+  bookedServiceName,
 }: {
   provider: ProviderProfile;
   selectedSlot: { date: string; time: string; label: string };
@@ -50,14 +52,23 @@ export function BookingConfirmation({
   homeHref: string;
   homeLabel: string;
   appointmentId: string;
+  // Excluded from "שירותים רלוונטיים נוספים" below so the doctor's own just-
+  // booked service doesn't show up as a suggestion for themselves.
+  bookedServiceName?: string;
 }) {
   const documents = useStore((s) => s.documents);
+  const showToast = useStore((s) => s.showToast);
   // Everything still waiting on the patient for this specific appointment —
   // the questionnaire (if any) plus any named required_documents checklist
   // items (see ConsultationType.required_documents), not just the
   // questionnaire alone.
   const pendingDocs = documents.filter((d) => d.appointment_id === appointmentId && d.status === "ממתין למילוי");
   const appointmentHref = `/client/appointments?appointment=${appointmentId}`;
+
+  // Placeholder cross-sell (§future: real recommendations based on the
+  // service just booked) — for now, surfaces this doctor's other services
+  // as "you might also need" so the concept/UI exists ahead of that logic.
+  const otherServices = provider.consultation_types.filter((ct) => ct.name !== bookedServiceName).slice(0, 3);
 
   return (
     <div className="max-w-md mx-auto text-center">
@@ -76,7 +87,7 @@ export function BookingConfirmation({
       </p>
       <p className="text-xs text-slate-400 mt-1">מספר תיק לקוח #{confirmation.fileNumber}</p>
 
-      <div className="mt-5 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-right">
+      <div className="mt-5 flex flex-col items-stretch gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-right sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
           <Receipt className="h-5 w-5 shrink-0 text-slate-500" />
           <div>
@@ -85,7 +96,7 @@ export function BookingConfirmation({
           </div>
         </div>
         <Link href={`/client/documents?appointment=${appointmentId}`}>
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" className="w-full sm:w-auto">
             צפייה בקבלה
           </Button>
         </Link>
@@ -126,6 +137,30 @@ export function BookingConfirmation({
           </Button>
         </Link>
       </div>
+
+      {otherServices.length > 0 && (
+        <div className="mt-8 text-right">
+          <p className="flex items-center justify-center gap-1.5 text-sm font-semibold text-slate-700 mb-1">
+            <Sparkles className="h-4 w-4 text-primary" /> שירותים רלוונטיים נוספים
+          </p>
+          <p className="text-xs text-slate-400 text-center mb-3">
+            בהתאם לשירות שהזמנת, אולי יעניין אתכם גם:
+          </p>
+          <div className="grid gap-2.5 sm:grid-cols-2">
+            {otherServices.map((ct) => (
+              <ServiceItemCard
+                key={ct.id}
+                name={ct.name}
+                durationMinutes={ct.duration_minutes}
+                tag={ct.service_type ? PROVIDER_SERVICE_TYPE_LABELS[ct.service_type] : undefined}
+                onSelect={() =>
+                  showToast("בקרוב", { description: "הזמנה ישירה של שירות מוצע תתאפשר כאן בהמשך" })
+                }
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

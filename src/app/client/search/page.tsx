@@ -5,10 +5,13 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
 import { ClientLayout } from "@/components/layouts/ClientLayout";
+import { Button } from "@/components/ui/Button";
 import { useStore } from "@/lib/store";
 import { useCurrentPatient } from "@/lib/useCurrentPatient";
 import { resolveProviderPrice } from "@/lib/pricing";
-import { ProviderDiscovery } from "@/components/book/ProviderDiscovery";
+import { BookingStepper, BookingStepperMode } from "@/components/book/BookingStepper";
+import { ServiceDiscovery, SelectedServiceItem } from "@/components/book/ServiceDiscovery";
+import { DoctorPicker } from "@/components/book/DoctorPicker";
 import { SlotPicker } from "@/components/book/SlotPicker";
 import { PaymentPanel } from "@/components/book/PaymentPanel";
 import { BookingConfirmation } from "@/components/book/BookingConfirmation";
@@ -17,7 +20,7 @@ import { buildIcsDataUrl } from "@/lib/utils";
 import { POST_REGISTER_REDIRECT_KEY } from "@/lib/constants";
 import { ProviderProfile } from "@/types";
 
-const HOLD_SECONDS = 180;
+const HOLD_SECONDS = 600;
 
 const stepVariants = {
   initial: { opacity: 0, y: 16 },
@@ -39,6 +42,13 @@ export default function ClientSearchPage() {
   const patient = useCurrentPatient();
 
   const [step, setStep] = useState(0);
+  const [discoveryMode, setDiscoveryMode] = useState<BookingStepperMode>("service");
+  // Purely for the progress meter — ServiceDiscovery/SlotPicker each cover
+  // two conceptual steps on one screen, so these track which sub-choice is
+  // still in progress within the current `step` without adding new screens.
+  const [discoveryDoctorForItems, setDiscoveryDoctorForItems] = useState<ProviderProfile | null>(null);
+  const [discoveryClinicId, setDiscoveryClinicId] = useState<string | null>(null);
+  const [selectedItem, setSelectedItem] = useState<SelectedServiceItem | null>(null);
   const [selectedProvider, setSelectedProvider] = useState<ProviderProfile | null>(null);
 
   const [selectedSlot, setSelectedSlot] = useState<{ date: string; time: string; label: string } | null>(null);
@@ -55,10 +65,40 @@ export default function ClientSearchPage() {
     icsUrl: string;
   } | null>(null);
 
-  const consultation = selectedProvider?.consultation_types[0];
+  // Re-matched against the chosen doctor's own consultation_types (no shared
+  // catalog id) — falls back to their first service only if the match
+  // somehow fails, which DoctorPicker's own filtering should already prevent.
+  const consultation = selectedProvider
+    ? selectedProvider.consultation_types.find(
+        (ct) => selectedItem && ct.name === selectedItem.name && ct.service_type === selectedItem.service_type
+      ) ?? selectedProvider.consultation_types[0]
+    : undefined;
   const resolvedPrice =
     consultation && selectedProvider ? resolveProviderPrice(consultation.prices, selectedProvider.agreements, patient) : null;
   const price = resolvedPrice?.price ?? consultation?.prices.find((p) => p.layer === "H")?.price ?? 0;
+  // Always the private/out-of-pocket price, regardless of which layer this
+  // patient actually qualifies for — shown alongside `price` so the payment
+  // summary can show "full price" vs. "your price" as two distinct lines.
+  const fullPrice = consultation?.prices.find((p) => p.layer === "H")?.price ?? price;
+
+  // Maps the real `step` (which screen is showing) plus the two in-screen
+  // sub-choices above onto the 6-item progress meter — see BookingStepper.
+  const visualStep =
+    step === 0
+      ? discoveryMode === "doctor"
+        ? discoveryDoctorForItems
+          ? 1
+          : 0
+        : 0
+      : step === 1
+      ? 1
+      : step === 2
+      ? (discoveryClinicId ? 3 : 2)
+      : step === 3
+      ? 4
+      : step === 4
+      ? 5
+      : step;
 
   // Creating the appointment here (not at payment time) is deliberate: from
   // the moment a slot is picked it's "ממתין לתשלום מקדמה" in the patient's
@@ -90,7 +130,7 @@ export default function ClientSearchPage() {
     setSelectedSlot({ date, time, label });
     // eslint-disable-next-line react-hooks/purity -- event handler, not render logic
     setHoldExpiresAt(Date.now() + HOLD_SECONDS * 1000);
-    setStep(2);
+    setStep(3);
   }
 
   // Leaving the payment step without paying — hold timeout or manual back —
@@ -108,16 +148,37 @@ export default function ClientSearchPage() {
     setPendingAppointmentId(null);
     setSelectedSlot(null);
     setHoldExpiresAt(null);
-    setStep(1);
+    setStep(2);
   }, [pendingAppointmentId, showToast, updateAppointment]);
 
   function handleReset() {
     setStep(0);
+    setDiscoveryMode("service");
+    setDiscoveryDoctorForItems(null);
+    setDiscoveryClinicId(null);
+    setSelectedItem(null);
     setSelectedProvider(null);
     setSelectedSlot(null);
     setHoldExpiresAt(null);
     setPendingAppointmentId(null);
     setConfirmation(null);
+  }
+
+  // Shared by both discovery paths: browsing services first (DoctorPicker
+  // already knows selectedItem) and browsing by doctor first (ServiceDiscovery
+  // hands the item back together with the provider, skipping DoctorPicker).
+  function selectProviderForItem(item: SelectedServiceItem, p: ProviderProfile) {
+    if (!patient) {
+      showToast("השלימו הרשמה כדי לקבוע תור", {
+        description: "כדי לראות מחירים ולקבוע תור נדרש פרופיל מטופל",
+      });
+      sessionStorage.setItem(POST_REGISTER_REDIRECT_KEY, "/client/search");
+      router.push("/register");
+      return;
+    }
+    setSelectedItem(item);
+    setSelectedProvider(p);
+    setStep(2);
   }
 
   function handlePay() {
@@ -198,13 +259,15 @@ export default function ClientSearchPage() {
       const fileNumber = Math.random().toString(36).slice(2, 8).toUpperCase();
       setConfirmation({ fileNumber, price, icsUrl });
       setPaying(false);
-      setStep(3);
+      setStep(4);
     }, 1200);
   }
 
   return (
     <ClientLayout>
       <div className="max-w-2xl mx-auto">
+        <BookingStepper step={visualStep} mode={discoveryMode} />
+
         {step === 0 && (
           <p
             className={`text-xs rounded-lg px-3 py-2 mb-4 border ${
@@ -218,93 +281,99 @@ export default function ClientSearchPage() {
         )}
 
         <AnimatePresence mode="wait">
-          <motion.div
-            key={step}
-            initial={{ opacity: 0, x: 16 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -16 }}
-            transition={{ duration: 0.18, ease: "easeOut" }}
-          >
-            {step === 0 && (
-              <ProviderDiscovery
+          {step === 0 && (
+            <motion.div key="step0" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition}>
+              <ServiceDiscovery
                 providers={providers}
                 patient={patient}
                 title="קבע תור חדש"
                 description="חיפוש חופשי, או לפי סוג השירות — המחיר יוצג לפי הביטוח שלכם"
-                onSelect={(p) => {
-                  if (!patient) {
-                    showToast("השלימו הרשמה כדי לקבוע תור", {
-                      description: "כדי לראות מחירים ולקבוע תור נדרש פרופיל מטופל",
-                    });
-                    sessionStorage.setItem(POST_REGISTER_REDIRECT_KEY, "/client/search");
-                    router.push("/register");
-                    return;
-                  }
-                  setSelectedProvider(p);
+                onSelectItem={(item) => {
+                  setSelectedItem(item);
                   setStep(1);
                 }}
+                onSelectItemWithProvider={selectProviderForItem}
+                onDoctorForItemsChange={setDiscoveryDoctorForItems}
+                onModeChange={setDiscoveryMode}
               />
-            )}
+            </motion.div>
+          )}
 
-            {step === 1 && selectedProvider && (
-              <motion.div key="step1" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition}>
-                <button onClick={() => setStep(0)} className="text-sm text-primary mb-4 flex items-center gap-1">
-                  <ArrowRight className="h-3.5 w-3.5" /> בחירת רופא אחר
-                </button>
-                <SlotPicker
-                  provider={selectedProvider}
-                  appointments={appointments}
-                  onSelectSlot={selectSlot}
-                  onJoinWaitlist={(date, time, label) => setWaitlistSlot({ date, time, label })}
-                />
-              </motion.div>
-            )}
+          {step === 1 && selectedItem && (
+            <motion.div key="step1" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition}>
+              <DoctorPicker
+                providers={providers}
+                item={selectedItem}
+                patient={patient}
+                onBack={() => setStep(0)}
+                onSelect={(p) => selectProviderForItem(selectedItem, p)}
+              />
+            </motion.div>
+          )}
 
-            {step === 2 && selectedProvider && selectedSlot && holdExpiresAt && (
-              <motion.div key="step2" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition} className="max-w-md mx-auto">
-                <button
-                  onClick={() => {
-                    abandonHold();
-                    setStep(1);
-                  }}
-                  className="text-sm text-primary mb-4 flex items-center gap-1"
-                >
-                  <ArrowRight className="h-3.5 w-3.5" /> שינוי תור
-                </button>
-                <PaymentPanel
-                  provider={selectedProvider}
-                  selectedSlot={selectedSlot}
-                  kupah={patient?.kupah}
-                  layer={resolvedPrice?.layer}
-                  price={price}
-                  holdExpiresAt={holdExpiresAt}
-                  onExpire={handleHoldExpire}
-                  payMethod={payMethod}
-                  onPayMethodChange={setPayMethod}
-                  paying={paying}
-                  onPay={handlePay}
-                />
-              </motion.div>
-            )}
+          {step === 2 && selectedProvider && (
+            <motion.div key="step2" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition}>
+              <button onClick={() => setStep(1)} className="text-sm text-primary mb-4 flex items-center gap-1">
+                <ArrowRight className="h-3.5 w-3.5" /> בחירת רופא אחר
+              </button>
+              <SlotPicker
+                provider={selectedProvider}
+                appointments={appointments}
+                onSelectSlot={selectSlot}
+                onJoinWaitlist={(date, time, label) => setWaitlistSlot({ date, time, label })}
+                onClinicChange={setDiscoveryClinicId}
+              />
+            </motion.div>
+          )}
 
-            {step === 3 && confirmation && selectedProvider && selectedSlot && pendingAppointmentId && (
-              <motion.div key="step3" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition}>
-                <BookingConfirmation
-                  provider={selectedProvider}
-                  selectedSlot={selectedSlot}
-                  confirmation={confirmation}
-                  homeHref="/client/appointments"
-                  homeLabel="התורים שלי"
-                  appointmentId={pendingAppointmentId}
-                />
-                <div className="text-center mt-4">
-                  <button onClick={handleReset} className="text-sm text-slate-400 hover:text-primary">
-                    חיפוש שירות נוסף
-                  </button>
-                </div>
-              </motion.div>
-            )}
-          </motion.div>
+          {step === 3 && selectedProvider && selectedSlot && holdExpiresAt && (
+            <motion.div key="step3" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition} className="max-w-md mx-auto">
+              <button
+                onClick={() => {
+                  abandonHold();
+                  setStep(2);
+                }}
+                className="text-sm text-primary mb-4 flex items-center gap-1"
+              >
+                <ArrowRight className="h-3.5 w-3.5" /> שינוי תור
+              </button>
+              <PaymentPanel
+                provider={selectedProvider}
+                itemName={consultation?.name}
+                clinicId={discoveryClinicId ?? undefined}
+                selectedSlot={selectedSlot}
+                kupah={patient?.kupah}
+                layer={resolvedPrice?.layer}
+                price={price}
+                fullPrice={fullPrice}
+                holdExpiresAt={holdExpiresAt}
+                onExpire={handleHoldExpire}
+                payMethod={payMethod}
+                onPayMethodChange={setPayMethod}
+                paying={paying}
+                onPay={handlePay}
+              />
+            </motion.div>
+          )}
+
+          {step === 4 && confirmation && selectedProvider && selectedSlot && pendingAppointmentId && (
+            <motion.div key="step4" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition}>
+              <BookingConfirmation
+                provider={selectedProvider}
+                selectedSlot={selectedSlot}
+                confirmation={confirmation}
+                homeHref="/client/appointments"
+                homeLabel="התורים שלי"
+                appointmentId={pendingAppointmentId}
+                bookedServiceName={consultation?.name}
+              />
+              <div className="flex justify-center mt-4">
+                <Button variant="outline" onClick={handleReset}>
+                  חיפוש שירות נוסף
+                </Button>
+              </div>
+            </motion.div>
+          )}
         </AnimatePresence>
       </div>
 

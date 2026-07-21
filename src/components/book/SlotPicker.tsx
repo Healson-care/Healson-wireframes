@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BellRing, Clock, MapPin } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
@@ -21,12 +21,17 @@ export function SlotPicker({
   appointments,
   onSelectSlot,
   onJoinWaitlist,
+  onClinicChange,
 }: {
   provider: ProviderProfile;
   appointments: Appointment[];
   onSelectSlot: (date: string, time: string, label: string, clinicId: string) => void;
   // date/time/label/clinicId are omitted for a general "any time works" request.
   onJoinWaitlist: (date?: string, time?: string, label?: string, clinicId?: string) => void;
+  // Fires whenever the clinic sub-choice resolves or clears — same screen as
+  // the date/time picker, but the page's progress meter needs to know
+  // whether the patient is still choosing a location or already past it.
+  onClinicChange?: (clinicId: string | null) => void;
 }) {
   // Skipped entirely when the provider only has one location — no need to
   // make patients pick between clinics that don't exist.
@@ -36,6 +41,13 @@ export function SlotPicker({
   const [monthOffset, setMonthOffset] = useState(0);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [pendingSlot, setPendingSlot] = useState<{ date: string; time: string; label: string } | null>(null);
+
+  useEffect(() => {
+    onClinicChange?.(selectedClinicId);
+    // Only meant to notify the parent's stepper display of this sub-view's
+    // phase, not to re-run for changing callback identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedClinicId]);
 
   const selectedClinic = provider.clinic_locations.find((c) => c.id === selectedClinicId) ?? null;
 
@@ -110,7 +122,7 @@ export function SlotPicker({
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex items-center justify-between mb-4">
-          <Button variant="outline" size="sm" onClick={() => setMonthOffset((o) => o - 1)} disabled={monthOffset === 0}>
+          <Button variant="outline" onClick={() => setMonthOffset((o) => o - 1)} disabled={monthOffset === 0}>
             חודש קודם
           </Button>
           <span className="text-sm font-semibold text-slate-800">
@@ -118,7 +130,6 @@ export function SlotPicker({
           </span>
           <Button
             variant="outline"
-            size="sm"
             onClick={() => setMonthOffset((o) => o + 1)}
             disabled={monthOffset >= MAX_MONTHS_AHEAD}
           >
@@ -147,7 +158,7 @@ export function SlotPicker({
                 disabled={status === "none"}
                 onClick={() => setSelectedDate(day.date)}
                 className={cn(
-                  "flex flex-col items-center justify-center gap-1 rounded-lg py-2 text-sm font-medium transition-colors",
+                  "flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg py-2 text-sm font-medium transition-colors",
                   status === "none" && "text-slate-300 cursor-default",
                   status !== "none" && !isSelected && "text-slate-700 hover:bg-slate-100",
                   isSelected && "bg-primary text-white"

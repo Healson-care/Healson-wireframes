@@ -1,19 +1,34 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Info, MessageCircle, Search, Stethoscope, Upload } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowRight, Info, MessageCircle, Search, Stethoscope, Upload } from "lucide-react";
 import { Input, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/Misc";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/Tabs";
+import { BookingStepperMode } from "@/components/book/BookingStepper";
 import { DoctorCard } from "@/components/book/DoctorCard";
+import { ServiceItemCard } from "@/components/book/ServiceItemCard";
 import { getRegionForCity } from "@/lib/constants";
 import { nextAvailableInDays } from "@/lib/scheduling";
 import { resolveProviderPrice } from "@/lib/pricing";
+import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
-import { Patient, ProviderProfile, ProviderServiceType } from "@/types";
+import { Patient, PROVIDER_SERVICE_TYPE_LABELS, ProviderProfile, ProviderServiceType } from "@/types";
 
 type ServiceTab = "consultation" | "diagnostics" | "extra";
+// Reuses BookingStepperMode's "service" | "doctor" union — same concept.
+type DiscoveryMode = BookingStepperMode;
+
+// The item the patient picks here — a specific ConsultationType a provider
+// offers, identified by name+service_type since providers don't share a
+// catalog id. DoctorPicker re-matches this against each provider's own
+// consultation_types to find the exact entry (price/duration) to book.
+export interface SelectedServiceItem {
+  name: string;
+  service_type: ProviderServiceType;
+  duration_minutes: number;
+}
 
 // Each search tab covers a group of the provider's own consultation_types
 // (service_type), which is where each provider's real services now live —
@@ -43,20 +58,49 @@ const PRICE_RANGES: { value: string; label: string; min: number; max: number }[]
   { value: "high", label: "600 ₪ ומעלה", min: 600, max: Infinity },
 ];
 
-export function ProviderDiscovery({
+export function ServiceDiscovery({
   providers,
   patient,
   title = "קבע תור חדש",
   description = "חיפוש חופשי, או לפי סוג השירות שאתם מחפשים",
-  onSelect,
+  onSelectItem,
+  onSelectItemWithProvider,
+  onDoctorForItemsChange,
+  onModeChange,
 }: {
   providers: ProviderProfile[];
   patient?: Patient | null;
   title?: string;
   description?: string;
-  onSelect: (provider: ProviderProfile) => void;
+  onSelectItem: (item: SelectedServiceItem) => void;
+  // "Search by doctor" path: patient already knows who they want, so this
+  // hands back both the item and the provider together (skips DoctorPicker).
+  onSelectItemWithProvider: (item: SelectedServiceItem, provider: ProviderProfile) => void;
+  // Fires whenever the doctor-mode sub-view moves between "picking a doctor"
+  // and "picking that doctor's service" — same screen, but the page's
+  // progress meter needs to know which of the two is still in progress.
+  onDoctorForItemsChange?: (provider: ProviderProfile | null) => void;
+  // Fires the moment the patient toggles "לפי שירות"/"לפי רופא" — the page's
+  // progress meter needs this live, not just once a final selection is made,
+  // otherwise it keeps showing the old order while the patient is browsing.
+  onModeChange?: (mode: DiscoveryMode) => void;
 }) {
   const showToast = useStore((s) => s.showToast);
+
+  const [mode, setMode] = useState<DiscoveryMode>("service");
+  const [doctorForItems, setDoctorForItems] = useState<ProviderProfile | null>(null);
+
+  useEffect(() => {
+    onDoctorForItemsChange?.(doctorForItems);
+    // Only meant to notify the parent's stepper display of this sub-view's
+    // phase, not to re-run for changing callback identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doctorForItems]);
+
+  useEffect(() => {
+    onModeChange?.(mode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
 
   const [activeTab, setActiveTab] = useState<ServiceTab>("consultation");
   const [query, setQuery] = useState("");
@@ -75,7 +119,19 @@ export function ProviderDiscovery({
     setSpecialty("");
   }
 
+  function changeMode(next: DiscoveryMode) {
+    setMode(next);
+    setDoctorForItems(null);
+  }
+
   const publishedProviders = useMemo(() => providers.filter((p) => p.is_published), [providers]);
+
+  // "לפי רופא" path — browse doctors directly, then pick from everything
+  // that specific doctor offers (across every service_type, not just one tab).
+  const doctorResults = useMemo(() => {
+    if (!query) return publishedProviders;
+    return publishedProviders.filter((p) => `${p.display_name} ${p.specialty}`.includes(query));
+  }, [publishedProviders, query]);
 
   // Providers who offer at least one active service matching the active tab
   // — each provider now owns their own services directly (consultation_types
@@ -122,6 +178,32 @@ export function ProviderDiscovery({
 
   const canSearch = activeTab !== "consultation" || !!specialty;
 
+  // Distinct bookable items (by name+service_type) across the currently
+  // filtered providers — this is what patients pick from, so the next step
+  // (DoctorPicker) always knows exactly which service to price/book, instead
+  // of guessing at a provider's first consultation_types entry.
+  const items = useMemo(() => {
+    const types = SERVICE_TAB_TYPES[activeTab];
+    const map = new Map<string, { item: SelectedServiceItem; providerCount: number }>();
+    filteredProviders.forEach((p) => {
+      p.consultation_types
+        .filter((ct) => ct.service_type && types.includes(ct.service_type))
+        .forEach((ct) => {
+          const key = `${ct.service_type}:${ct.name}`;
+          const existing = map.get(key);
+          if (existing) {
+            existing.providerCount += 1;
+          } else {
+            map.set(key, {
+              item: { name: ct.name, service_type: ct.service_type as ProviderServiceType, duration_minutes: ct.duration_minutes },
+              providerCount: 1,
+            });
+          }
+        });
+    });
+    return Array.from(map.values()).sort((a, b) => a.item.name.localeCompare(b.item.name, "he"));
+  }, [filteredProviders, activeTab]);
+
   return (
     <div>
       <div className="text-center mb-6">
@@ -129,6 +211,93 @@ export function ProviderDiscovery({
         <p className="text-slate-500 mt-2">{description}</p>
       </div>
 
+      <div className="flex justify-center mb-5">
+        <div className="inline-flex rounded-lg bg-slate-100 p-1 text-sm">
+          <button
+            type="button"
+            onClick={() => changeMode("service")}
+            className={cn(
+              "min-h-9 rounded-md px-3.5 py-1.5 font-medium transition-colors",
+              mode === "service" ? "bg-white text-primary shadow-sm" : "text-slate-500 hover:text-slate-700"
+            )}
+          >
+            לפי שירות
+          </button>
+          <button
+            type="button"
+            onClick={() => changeMode("doctor")}
+            className={cn(
+              "min-h-9 rounded-md px-3.5 py-1.5 font-medium transition-colors",
+              mode === "doctor" ? "bg-white text-primary shadow-sm" : "text-slate-500 hover:text-slate-700"
+            )}
+          >
+            לפי רופא
+          </button>
+        </div>
+      </div>
+
+      {mode === "doctor" ? (
+        doctorForItems ? (
+          <div>
+            <button
+              onClick={() => setDoctorForItems(null)}
+              className="text-sm text-primary mb-4 flex items-center gap-1"
+            >
+              <ArrowRight className="h-3.5 w-3.5" /> בחירת רופא אחר
+            </button>
+            <div className="text-center mb-6">
+              <h2 className="text-xl font-bold text-slate-900">
+                {doctorForItems.title} {doctorForItems.display_name}
+              </h2>
+              <p className="text-slate-500 text-sm mt-1">אילו מהשירותים שהרופא/ה מציע/ה תרצו לקבוע?</p>
+            </div>
+            {doctorForItems.consultation_types.length === 0 ? (
+              <EmptyState icon={<Stethoscope className="h-10 w-10" />} title="לרופא/ה זה אין שירותים זמינים כרגע" />
+            ) : (
+              <div className="grid sm:grid-cols-2 gap-3">
+                {doctorForItems.consultation_types.map((ct) => (
+                  <ServiceItemCard
+                    key={ct.id}
+                    name={ct.name}
+                    durationMinutes={ct.duration_minutes}
+                    tag={ct.service_type ? PROVIDER_SERVICE_TYPE_LABELS[ct.service_type] : undefined}
+                    onSelect={() =>
+                      onSelectItemWithProvider(
+                        {
+                          name: ct.name,
+                          service_type: (ct.service_type ?? "consultation") as ProviderServiceType,
+                          duration_minutes: ct.duration_minutes,
+                        },
+                        doctorForItems
+                      )
+                    }
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div>
+            <Input
+              placeholder="חיפוש חופשי — שם רופא / תחום"
+              icon={<Search className="h-4 w-4" />}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="mb-5"
+            />
+            {doctorResults.length === 0 ? (
+              <EmptyState icon={<Stethoscope className="h-10 w-10" />} title="לא נמצאו רופאים מתאימים" description="נסו לשנות את החיפוש" />
+            ) : (
+              <div className="grid sm:grid-cols-2 gap-4">
+                {doctorResults.map((p) => (
+                  <DoctorCard key={p.id} provider={p} patient={patient} onSelect={() => setDoctorForItems(p)} />
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      ) : (
+        <>
       <Input
         placeholder="חיפוש חופשי — שם רופא / תחום"
         icon={<Search className="h-4 w-4" />}
@@ -230,20 +399,28 @@ export function ProviderDiscovery({
 
       <div className="flex justify-center mb-6">
         <Button size="lg" disabled={!canSearch} onClick={() => setSearched(true)}>
-          <Search className="h-4 w-4" /> חפש רופאים
+          <Search className="h-4 w-4" /> חפש שירותים
         </Button>
       </div>
 
       {searched &&
-        (filteredProviders.length === 0 ? (
-          <EmptyState icon={<Stethoscope className="h-10 w-10" />} title="לא נמצאו רופאים מתאימים" description="נסו לשנות את הסינון" />
+        (items.length === 0 ? (
+          <EmptyState icon={<Stethoscope className="h-10 w-10" />} title="לא נמצאו שירותים מתאימים" description="נסו לשנות את הסינון" />
         ) : (
-          <div className="grid sm:grid-cols-2 gap-4">
-            {filteredProviders.map((p) => (
-              <DoctorCard key={p.id} provider={p} patient={patient} onSelect={() => onSelect(p)} />
+          <div className="grid sm:grid-cols-2 gap-3">
+            {items.map(({ item, providerCount }) => (
+              <ServiceItemCard
+                key={`${item.service_type}:${item.name}`}
+                name={item.name}
+                durationMinutes={item.duration_minutes}
+                providerCount={providerCount}
+                onSelect={() => onSelectItem(item)}
+              />
             ))}
           </div>
         ))}
+        </>
+      )}
     </div>
   );
 }

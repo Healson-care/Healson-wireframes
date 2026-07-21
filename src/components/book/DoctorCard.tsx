@@ -6,19 +6,23 @@ import { Avatar } from "@/components/ui/Misc";
 import { resolvePriceBreakdown } from "@/lib/pricing";
 import { InsurancePriceBlock } from "@/components/book/InsurancePriceBlock";
 import { yearsSince } from "@/lib/utils";
-import { Patient, ProviderProfile } from "@/types";
+import { ConsultationType, Patient, ProviderProfile } from "@/types";
 
 export function DoctorCard({
   provider,
   patient,
+  consultationType,
   onSelect,
 }: {
   provider: ProviderProfile;
   patient?: Patient | null;
+  // The specific service the patient already chose (via ServiceDiscovery) —
+  // falls back to the provider's first service only when none was passed.
+  consultationType?: ConsultationType;
   onSelect: () => void;
 }) {
   const primaryClinic = provider.clinic_locations.find((c) => c.is_primary) ?? provider.clinic_locations[0];
-  const consultation = provider.consultation_types[0];
+  const consultation = consultationType ?? provider.consultation_types[0];
   const breakdown = consultation ? resolvePriceBreakdown(consultation.prices, provider.agreements, patient) : null;
   const experienceYears = yearsSince(provider.license_issue_date);
 
