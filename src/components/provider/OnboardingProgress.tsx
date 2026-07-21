@@ -3,12 +3,13 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, Circle, Clock, Rocket, ArrowLeft } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Circle, Clock, Rocket, ArrowLeft } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { ProgressRing } from "@/components/ui/Progress";
 import { AgreementSignSection } from "@/components/provider/AgreementSignSection";
+import { DemoPanel } from "@/components/provider/DemoPanel";
 import { cn } from "@/lib/utils";
 import type { ProviderProfile } from "@/types";
 import {
@@ -98,6 +99,19 @@ export function OnboardingProgress({ provider, className }: { provider: Provider
         className
       )}
     >
+      {/* requestProviderChanges drops the provider back to onboarding and stores
+          the reviewer's reason — until now it surfaced only in the notifications
+          bell, so a provider who never opened it had no idea what to fix. Shown
+          until the next go-live request (which clears the banner condition). */}
+      {provider.rejection_reason && !goLiveRequested && (
+        <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-warning-border bg-warning-bg p-3.5" role="alert">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+          <div className="text-sm text-warning-text">
+            <p className="font-semibold">צוות Healson ביקש תיקונים לפני הפרסום:</p>
+            <p className="mt-0.5 leading-relaxed">{provider.rejection_reason}</p>
+          </div>
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-5">
         <ProgressRing percent={percent} size={72} tone={goLiveRequested ? "info" : "primary"} label="הושלם" textClassName="text-slate-900" />
         <div className="min-w-[220px] flex-1">
@@ -152,15 +166,11 @@ export function OnboardingProgress({ provider, className }: { provider: Provider
       </div>
 
       {goLiveRequested && (
-        <div className="mt-4 rounded-xl border border-dashed border-amber-300 bg-amber-50/60 p-4">
-          <p className="mb-1 text-xs font-semibold text-amber-700">🎮 מצב הדגמה</p>
-          <p className="mb-3 text-xs text-amber-700/80">
-            לצורך הדגמת המוצר בלבד — סמלץ את אישור הפרסום של צוות Healson:
-          </p>
+        <DemoPanel className="mt-4" description="לצורך הדגמת המוצר בלבד — סמלץ את אישור הפרסום של צוות Healson:">
           <Button onClick={() => approveProviderGoLive(provider.id)} variant="outline" className="border-primary/40 text-primary">
             <Rocket className="h-4 w-4" /> אשר פרסום ועבור לפורטל החי (דמו)
           </Button>
-        </div>
+        </DemoPanel>
       )}
 
       <Dialog open={signDialogOpen} onClose={() => setSignDialogOpen(false)} title="חתימה על ההסכם עם Healson">

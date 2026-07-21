@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ProviderLayout } from "@/components/layouts/ProviderLayout";
 import { useStore } from "@/lib/store";
@@ -9,7 +9,7 @@ import { Dialog } from "@/components/ui/Dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { ProviderStatusBadge, ProviderPublishedBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { Avatar, EmptyState, StatCard } from "@/components/ui/Misc";
+import { Avatar, EmptyState, SectionHeading, StatCard } from "@/components/ui/Misc";
 import { CardListSkeleton, Skeleton } from "@/components/ui/Skeleton";
 import { OnboardingProgress } from "@/components/provider/OnboardingProgress";
 import { ProviderJourney } from "@/components/provider/ProviderJourney";
@@ -184,16 +184,20 @@ export default function ProviderDashboardPage() {
     <ProviderLayout>
       {/* Greeting / operational header — identity, status and the primary
           publish action. Profile configuration lives under the פרופיל menu. */}
-      <div className={`mb-6 flex-wrap items-center justify-between gap-4 ${showWelcomeHero ? "hidden" : "flex"}`}>
+      <div
+        className={`animate-fade-slide-in mb-6 flex-wrap items-center justify-between gap-4 rounded-2xl border border-primary/15 bg-gradient-to-l from-primary/[0.06] via-white to-accent-bg/40 p-5 shadow-sm ${
+          showWelcomeHero ? "hidden" : "flex"
+        }`}
+      >
         <div className="flex items-center gap-3">
           <Avatar
             name={provider.display_name || currentUser.full_name}
             src={provider.image_url}
-            className="h-12 w-12 text-base ring-4 ring-white shadow-sm"
+            className="h-14 w-14 text-lg ring-4 ring-white shadow-md"
           />
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-lg sm:text-xl font-bold text-slate-900">
+              <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
                 שלום, {provider.title} {provider.display_name || currentUser.full_name}
               </h1>
               {/* A pending_review provider who hasn't sent the application yet
@@ -240,6 +244,19 @@ export default function ProviderDashboardPage() {
             with the setup steps locked; after it, OnboardingProgress unlocks
             the same steps. Both vanish once approved and the operational home
             takes over. */}
+        {/* Rejection reason as visible text — previously it lived only in the
+            status badge's hover tooltip, invisible on touch devices. */}
+        {provider.status === "rejected" && (
+          <div role="alert" className="flex items-start gap-2.5 rounded-xl border border-danger-border bg-danger-bg p-4">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
+            <div className="text-sm text-danger-text">
+              <p className="font-semibold">הבקשה נדחתה</p>
+              <p className="mt-0.5 leading-relaxed">
+                {provider.rejection_reason || "לא צוינה סיבה. לפרטים נוספים ניתן לפנות לצוות Healson."}
+              </p>
+            </div>
+          </div>
+        )}
         {isPendingReview && (
           <ProviderJourney provider={provider} displayName={provider.display_name || currentUser.full_name} />
         )}
@@ -283,33 +300,49 @@ export default function ProviderDashboardPage() {
             {/* When live, upcoming appointments are the primary content. */}
             {isLive && upcomingCard}
 
-            {/* KPIs. */}
+            {/* KPIs — cards enter with a slight stagger so the dashboard
+                builds up instead of popping in as one block. */}
             <section>
-              <SectionTitle>מדדים עיקריים</SectionTitle>
+              <SectionHeading>מדדים עיקריים</SectionHeading>
               <div className="grid gap-3 sm:grid-cols-3">
-                <StatCard
-                  label="מטופלים"
-                  value={myPatients.length}
-                  icon={<Users className="h-4 w-4" />}
-                  tone="blue"
-                  trend={myPatients.length > 0 ? patientsTrend : undefined}
-                  sparklineData={patientsMonthly}
-                />
-                <StatCard
-                  label="תורים סה״כ"
-                  value={myAppointments.length}
-                  icon={<CalendarDays className="h-4 w-4" />}
-                  tone="amber"
-                  sparklineData={appointmentsMonthly}
-                />
-                <StatCard
-                  label="הכנסות (הושלם)"
-                  value={formatCurrency(completedRevenue)}
-                  icon={<CreditCard className="h-4 w-4" />}
-                  tone="purple"
-                  trend={completedOrders.length > 0 ? revenueTrend : undefined}
-                  sparklineData={revenueMonthly}
-                />
+                {(
+                  [
+                    <StatCard
+                      key="patients"
+                      label="מטופלים"
+                      value={myPatients.length}
+                      icon={<Users className="h-4 w-4" />}
+                      tone="blue"
+                      trend={myPatients.length > 0 ? patientsTrend : undefined}
+                      sparklineData={patientsMonthly}
+                    />,
+                    <StatCard
+                      key="appointments"
+                      label="תורים סה״כ"
+                      value={myAppointments.length}
+                      icon={<CalendarDays className="h-4 w-4" />}
+                      tone="amber"
+                      sparklineData={appointmentsMonthly}
+                    />,
+                    <StatCard
+                      key="revenue"
+                      label="הכנסות (הושלם)"
+                      value={formatCurrency(completedRevenue)}
+                      icon={<CreditCard className="h-4 w-4" />}
+                      tone="purple"
+                      trend={completedOrders.length > 0 ? revenueTrend : undefined}
+                      sparklineData={revenueMonthly}
+                    />,
+                  ] as const
+                ).map((card, i) => (
+                  <div
+                    key={card.key}
+                    className="animate-fade-slide-in"
+                    style={{ animationDelay: `${80 + i * 70}ms`, animationFillMode: "backwards" }}
+                  >
+                    {card}
+                  </div>
+                ))}
               </div>
             </section>
 
@@ -317,8 +350,8 @@ export default function ProviderDashboardPage() {
             {!isLive && upcomingCard}
 
             {/* Recent activity. */}
-            <section>
-              <SectionTitle>פעילות אחרונה</SectionTitle>
+            <section className="animate-fade-slide-in" style={{ animationDelay: "220ms", animationFillMode: "backwards" }}>
+              <SectionHeading>פעילות אחרונה</SectionHeading>
               <Card>
                 <CardContent className="pt-4">
                   {activity.length === 0 ? (
@@ -382,6 +415,3 @@ export default function ProviderDashboardPage() {
   );
 }
 
-function SectionTitle({ children }: { children: ReactNode }) {
-  return <h2 className="mb-3 text-sm font-semibold text-slate-500">{children}</h2>;
-}

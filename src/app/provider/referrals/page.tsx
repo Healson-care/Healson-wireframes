@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ProviderLayout } from "@/components/layouts/ProviderLayout";
 import { useStore } from "@/lib/store";
 import { useCurrentProvider } from "@/lib/useCurrentPatient";
 import { PageHeader } from "@/components/ui/Misc";
+import { SaveIndicator } from "@/components/ui/SaveIndicator";
 import { StatusBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
@@ -30,6 +31,16 @@ export default function ProviderReferralsPage() {
   const [resultsText, setResultsText] = useState("");
   const [resultFile, setResultFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+
+  // The inline status <Select> auto-saves — per the save policy it confirms
+  // with a per-row "נשמר" flash rather than a toast.
+  const [statusSavedId, setStatusSavedId] = useState<string | null>(null);
+  const statusSavedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function flashStatusSaved(id: string) {
+    setStatusSavedId(id);
+    if (statusSavedTimer.current) clearTimeout(statusSavedTimer.current);
+    statusSavedTimer.current = setTimeout(() => setStatusSavedId(null), 2000);
+  }
 
   const myPatients = useMemo(
     () => patients.filter((p) => p.assigned_provider === provider?.id),
@@ -108,6 +119,7 @@ export default function ProviderReferralsPage() {
         rowKey={(r) => r.id}
         emptyIcon={<FileText className="h-10 w-10" />}
         emptyTitle="אין הפניות עדיין"
+        emptyDescription="הפניות מעבדה שתיצרו למטופלים יופיעו כאן, כולל מעקב סטטוס והעלאת תוצאות."
         columns={
           [
             {
@@ -132,7 +144,11 @@ export default function ProviderReferralsPage() {
                 <div className="flex items-center gap-2">
                   <Select
                     value={r.status}
-                    onChange={(e) => updateLabReferral(r.id, { status: e.target.value as ReferralStatus })}
+                    aria-label="סטטוס ההפניה"
+                    onChange={(e) => {
+                      updateLabReferral(r.id, { status: e.target.value as ReferralStatus });
+                      flashStatusSaved(r.id);
+                    }}
                     className="h-8 text-xs w-32"
                   >
                     {REFERRAL_STATUSES.map((s) => (
@@ -142,6 +158,7 @@ export default function ProviderReferralsPage() {
                     ))}
                   </Select>
                   {r.status !== "ממתין לעיבוד" && <StatusBadge status={r.status} kind="referral" />}
+                  <SaveIndicator visible={statusSavedId === r.id} />
                 </div>
               ),
             },

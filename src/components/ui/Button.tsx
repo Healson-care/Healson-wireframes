@@ -12,12 +12,18 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   loading?: boolean;
 }
 
+// Filled variants get a subtle top-to-bottom gradient + a tinted shadow in
+// their own hue — that pairing is what gives buttons perceptible depth.
 const variantClasses: Record<Variant, string> = {
-  primary: "bg-primary text-white shadow-sm hover:bg-primary-dark hover:shadow-md hover:-translate-y-px",
-  outline: "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400",
+  primary:
+    "bg-gradient-to-b from-primary to-primary-dark text-white shadow-sm shadow-primary/25 hover:shadow-md hover:shadow-primary/30 hover:brightness-105 hover:-translate-y-px",
+  outline:
+    "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400 hover:-translate-y-px hover:shadow-sm",
   ghost: "bg-transparent text-slate-700 hover:bg-slate-100",
-  destructive: "bg-danger text-white shadow-sm hover:bg-red-700 hover:shadow-md hover:-translate-y-px",
-  secondary: "bg-slate-900 text-white shadow-sm hover:bg-slate-800 hover:shadow-md hover:-translate-y-px",
+  destructive:
+    "bg-gradient-to-b from-danger to-red-700 text-white shadow-sm shadow-danger/25 hover:shadow-md hover:shadow-danger/30 hover:brightness-105 hover:-translate-y-px",
+  secondary:
+    "bg-gradient-to-b from-slate-800 to-slate-900 text-white shadow-sm shadow-slate-900/25 hover:shadow-md hover:brightness-110 hover:-translate-y-px",
 };
 
 const sizeClasses: Record<Size, string> = {

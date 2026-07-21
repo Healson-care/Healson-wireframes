@@ -14,7 +14,8 @@ import { VisitRecordsSection } from "@/components/provider/VisitRecordsSection";
 import { fileToDataUrl } from "@/lib/file";
 import { formatDateHe } from "@/lib/utils";
 import { Appointment } from "@/types";
-import { ShieldCheck, CalendarDays, FlaskConical, FileText } from "lucide-react";
+import Link from "next/link";
+import { ShieldCheck, CalendarDays, FlaskConical, FileText, ChevronRight } from "lucide-react";
 
 function calculateAge(dateOfBirth?: string): number | null {
   if (!dateOfBirth) return null;
@@ -82,6 +83,13 @@ export default function ProviderPatientChartPage() {
 
   return (
     <ProviderLayout>
+      <Link
+        href="/provider/patients"
+        className="focus-ring mb-2 inline-flex w-fit items-center gap-1 rounded-md text-sm font-medium text-slate-500 hover:text-primary"
+      >
+        <ChevronRight className="h-4 w-4" />
+        חזרה למטופלים
+      </Link>
       <PageHeader title={patient.full_name} description="תיק מטופל" />
 
       <Card className="mb-5 border-info-border bg-info-bg">
@@ -157,6 +165,7 @@ export default function ProviderPatientChartPage() {
                 rowKey={(a) => a.id}
                 emptyIcon={<CalendarDays className="h-10 w-10" />}
                 emptyTitle="אין תורים קודמים"
+                emptyDescription="תורים של המטופל/ת אצלך יופיעו כאן."
                 columns={
                   [
                     { key: "service", header: "שירות", render: (a) => <span className="font-medium text-slate-900">{a.service_name}</span> },

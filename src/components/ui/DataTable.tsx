@@ -118,7 +118,7 @@ export function DataTable<T>({
           </div>
         </div>
       )}
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="overflow-x-auto rounded-2xl border border-slate-200/80 bg-white shadow-sm">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-100 bg-slate-50/60">
@@ -136,17 +136,26 @@ export function DataTable<T>({
               {columns.map((col) => (
                 <th
                   key={col.key}
+                  aria-sort={
+                    col.sortable && sortKey === col.key
+                      ? sortDir === "asc"
+                        ? "ascending"
+                        : "descending"
+                      : undefined
+                  }
                   className={cn(
                     "px-3 py-2.5 text-right text-xs font-semibold text-slate-500 whitespace-nowrap",
-                    col.sortable && "cursor-pointer select-none hover:text-slate-800",
                     col.className
                   )}
-                  onClick={() => toggleSort(col)}
                 >
-                  <span className="inline-flex items-center gap-1">
-                    {col.header}
-                    {col.sortable &&
-                      (sortKey === col.key ? (
+                  {col.sortable ? (
+                    <button
+                      type="button"
+                      onClick={() => toggleSort(col)}
+                      className="focus-ring inline-flex select-none items-center gap-1 rounded hover:text-slate-800"
+                    >
+                      {col.header}
+                      {sortKey === col.key ? (
                         sortDir === "asc" ? (
                           <ArrowUp className="h-3 w-3" />
                         ) : (
@@ -154,8 +163,11 @@ export function DataTable<T>({
                         )
                       ) : (
                         <ChevronsUpDown className="h-3 w-3 text-slate-300" />
-                      ))}
-                  </span>
+                      )}
+                    </button>
+                  ) : (
+                    <span className="inline-flex items-center gap-1">{col.header}</span>
+                  )}
                 </th>
               ))}
               {rowActions && <th className="w-10 px-3 py-2.5" />}

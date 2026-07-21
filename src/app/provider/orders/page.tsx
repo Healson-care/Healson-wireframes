@@ -38,6 +38,7 @@ export default function ProviderOrdersPage() {
         rowKey={(o) => o.id}
         emptyIcon={<ShoppingCart className="h-10 w-10" />}
         emptyTitle="אין הזמנות עדיין"
+        emptyDescription="הזמנות שירותים ומוצרים של לקוחות יופיעו כאן ברגע שיתקבלו."
         columns={
           [
             {

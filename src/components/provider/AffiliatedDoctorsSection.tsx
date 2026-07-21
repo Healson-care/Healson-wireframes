@@ -254,7 +254,10 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
         clinics={clinics}
         onClose={() => setEditing(null)}
         onSave={(data) => {
-          if (editing) updateAffiliatedDoctor(provider.id, editing.id, data);
+          if (editing) {
+            updateAffiliatedDoctor(provider.id, editing.id, data);
+            showToast("פרטי השיוך עודכנו", { variant: "success" });
+          }
           setEditing(null);
         }}
       />
@@ -267,7 +270,10 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
         destructive
         confirmLabel="הסר שיוך"
         onConfirm={() => {
-          if (removing) removeAffiliatedDoctor(provider.id, removing.id);
+          if (removing) {
+            removeAffiliatedDoctor(provider.id, removing.id);
+            showToast("שיוך הרופא/ה הוסר", { variant: "success" });
+          }
         }}
       />
     </div>

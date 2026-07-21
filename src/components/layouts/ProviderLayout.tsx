@@ -112,7 +112,9 @@ export function ProviderLayout({ children }: { children: ReactNode }) {
   const stageBadgeClass = isApproved ? "bg-amber-100 text-amber-700" : "bg-info-bg text-info-text";
 
   return (
-    <div className="min-h-screen flex flex-col">
+    // A faint brand-colored wash under the header gives the portal an "app"
+    // feel instead of a flat gray page; it fades out after ~280px.
+    <div className="min-h-screen flex flex-col bg-[linear-gradient(180deg,rgba(13,125,111,0.06),transparent_280px)]">
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
           <Link href="/provider/dashboard" className="flex items-center gap-2">
@@ -126,7 +128,11 @@ export function ProviderLayout({ children }: { children: ReactNode }) {
                 href={item.href}
                 className={cn(
                   "flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                  pathname === item.href ? "bg-primary/10 text-primary" : "text-slate-600 hover:bg-slate-100"
+                  // startsWith so detail routes (e.g. a patient chart under
+                  // /provider/patients/[id]) keep their section highlighted.
+                  pathname === item.href || pathname.startsWith(item.href + "/")
+                    ? "bg-primary/10 text-primary"
+                    : "text-slate-600 hover:bg-slate-100"
                 )}
               >
                 <item.icon className="h-4 w-4" />
@@ -162,7 +168,7 @@ export function ProviderLayout({ children }: { children: ReactNode }) {
           <div className="flex items-center gap-2">
             {commandItems.length > 0 && <CommandPalette items={commandItems} />}
             <NotificationsBell notifications={notifications} />
-            <Link href="/" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" title="דף הבית">
+            <Link href="/" className="focus-ring rounded-lg p-2 text-slate-500 hover:bg-slate-100" title="דף הבית" aria-label="דף הבית">
               <Home className="h-4 w-4" />
             </Link>
             <DropdownMenu
@@ -195,20 +201,30 @@ export function ProviderLayout({ children }: { children: ReactNode }) {
       <main className="flex-1 mx-auto w-full max-w-7xl px-4 py-6 pb-24 md:pb-10">{children}</main>
 
       {mobileItems.length > 0 && (
-        <nav className="fixed bottom-0 inset-x-0 z-30 border-t border-slate-200 bg-white md:hidden">
-          <div className="flex items-stretch justify-around">
+        <nav className="fixed bottom-0 inset-x-0 z-30 border-t border-slate-200 bg-white/95 backdrop-blur md:hidden">
+          <div className="flex items-stretch justify-around pb-[env(safe-area-inset-bottom)]">
             {mobileItems.map((item) => {
-              const active = item.href === "/provider/profile" ? onProfile : pathname === item.href;
+              const active =
+                item.href === "/provider/profile"
+                  ? onProfile
+                  : pathname === item.href || pathname.startsWith(item.href + "/");
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "flex flex-1 flex-col items-center gap-1 py-2 text-[10px] font-medium",
+                    "flex flex-1 flex-col items-center gap-0.5 py-1.5 text-[10px] font-medium transition-colors",
                     active ? "text-primary" : "text-slate-500"
                   )}
                 >
-                  <item.icon className="h-5 w-5" />
+                  <span
+                    className={cn(
+                      "flex items-center justify-center rounded-full px-3.5 py-1 transition-colors",
+                      active && "bg-primary/10"
+                    )}
+                  >
+                    <item.icon className="h-5 w-5" />
+                  </span>
                   {item.label}
                 </Link>
               );

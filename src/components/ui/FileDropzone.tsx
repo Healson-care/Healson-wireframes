@@ -15,10 +15,16 @@ export function FileDropzone({
   file,
   onFileChange,
   accept = DEFAULT_ACCEPT,
+  existingFileName,
+  ariaLabel,
 }: {
   file: File | null;
   onFileChange: (file: File | null) => void;
   accept?: string;
+  /** Name of a file already persisted (e.g. saved in a draft). Shown as the
+   * current file when no new File is selected; picking a new file replaces it. */
+  existingFileName?: string;
+  ariaLabel?: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragActive, setDragActive] = useState(false);
@@ -39,20 +45,38 @@ export function FileDropzone({
     onFileChange(selected);
   }
 
-  if (file) {
+  if (file || existingFileName) {
     return (
       <div className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
         <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-slate-700">
           <FileText className="h-4 w-4 shrink-0 text-primary" />
-          <span className="truncate">{file.name}</span>
+          <span className="truncate">{file ? file.name : existingFileName}</span>
         </span>
-        <button
-          type="button"
-          onClick={() => handleFile(null)}
-          className="shrink-0 rounded-full p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-600"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        {file ? (
+          <button
+            type="button"
+            onClick={() => handleFile(null)}
+            aria-label="הסרת הקובץ"
+            className="focus-ring shrink-0 rounded-full p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-600"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            className="focus-ring shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-primary hover:bg-primary/10"
+          >
+            החלפה
+          </button>
+        )}
+        <input
+          ref={inputRef}
+          type="file"
+          accept={accept}
+          className="hidden"
+          onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
+        />
       </div>
     );
   }
@@ -61,6 +85,7 @@ export function FileDropzone({
     <div
       role="button"
       tabIndex={0}
+      aria-label={ariaLabel ?? "העלאת קובץ"}
       onClick={() => inputRef.current?.click()}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") inputRef.current?.click();

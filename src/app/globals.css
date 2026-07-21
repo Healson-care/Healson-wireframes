@@ -53,6 +53,10 @@
   --radius-md: 12px;
   --radius-lg: 16px;
   --radius-xl: 22px;
+
+  /* Keyboard-focus ring — single source of truth, applied via the .focus-ring
+     utility below so every interactive primitive shows the same ring. */
+  --focus-ring-color: color-mix(in srgb, var(--color-primary) 45%, transparent);
 }
 
 @theme inline {
@@ -114,6 +118,13 @@ body {
 
 * {
   scrollbar-width: thin;
+}
+
+/* Shared keyboard-focus ring (see --focus-ring-color). Only shows for
+   :focus-visible, so mouse clicks stay clean. */
+.focus-ring:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus-ring-color);
 }
 
 @keyframes fadeSlideIn {

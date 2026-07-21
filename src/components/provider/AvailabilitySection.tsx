@@ -174,6 +174,13 @@ export function ScheduleEditor<T extends ScheduleHolder>({
   const [copyTargets, setCopyTargets] = useState<DayKey[]>([]);
   const [exceptionOpen, setExceptionOpen] = useState(false);
   const [deleteException, setDeleteException] = useState<ScheduleException | null>(null);
+  // Deleting a shift kills real booking slots — always confirmed, matching the
+  // exception-delete flow above.
+  const [deleteShiftTarget, setDeleteShiftTarget] = useState<
+    | { kind: "week"; dayKey: DayKey; shift: ScheduleShift }
+    | { kind: "exception"; exception: ScheduleException; shift: ScheduleShift }
+    | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
 
   const weeklyHours = totalWeeklyHours(clinic);
@@ -307,7 +314,7 @@ export function ScheduleEditor<T extends ScheduleHolder>({
                           setError(null);
                           setDraft({ dayKey, shift, isNew: false });
                         }}
-                        onRemove={() => removeShift(dayKey, shift.id)}
+                        onRemove={() => setDeleteShiftTarget({ kind: "week", dayKey, shift })}
                       />
                     ))}
                   </div>
@@ -394,7 +401,8 @@ export function ScheduleEditor<T extends ScheduleHolder>({
                     <button
                       type="button"
                       onClick={() => setDeleteException(exception)}
-                      className="rounded-md p-1.5 text-red-500 hover:bg-red-50"
+                      aria-label="מחיקת חריגה"
+                      className="focus-ring rounded-md p-1.5 text-red-500 hover:bg-red-50"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -419,7 +427,7 @@ export function ScheduleEditor<T extends ScheduleHolder>({
                               isNew: false,
                             });
                           }}
-                          onRemove={() => removeExceptionShift(exception, shift.id)}
+                          onRemove={() => setDeleteShiftTarget({ kind: "exception", exception, shift })}
                         />
                       ))
                     )}
@@ -484,6 +492,28 @@ export function ScheduleEditor<T extends ScheduleHolder>({
         confirmLabel="מחק"
         onConfirm={() => {
           if (deleteException) saveExceptions(exceptions.filter((e) => e.id !== deleteException.id));
+        }}
+      />
+
+      <ConfirmDialog
+        open={!!deleteShiftTarget}
+        onClose={() => setDeleteShiftTarget(null)}
+        title="מחיקת משמרת"
+        description={
+          deleteShiftTarget
+            ? `המשמרת (${formatShift(deleteShiftTarget.shift)}) תימחק, ותורים חדשים לא יוצעו בשעות אלה.`
+            : ""
+        }
+        destructive
+        confirmLabel="מחק"
+        onConfirm={() => {
+          if (!deleteShiftTarget) return;
+          if (deleteShiftTarget.kind === "week") {
+            removeShift(deleteShiftTarget.dayKey, deleteShiftTarget.shift.id);
+          } else {
+            removeExceptionShift(deleteShiftTarget.exception, deleteShiftTarget.shift.id);
+          }
+          setDeleteShiftTarget(null);
         }}
       />
     </div>
@@ -718,7 +748,8 @@ function ShiftForm({
                 <button
                   type="button"
                   onClick={() => setBreaks(breaks.filter((x) => x.id !== b.id))}
-                  className="rounded-md p-1.5 text-red-500 hover:bg-red-50"
+                  aria-label="מחיקת הפסקה"
+                  className="focus-ring rounded-md p-1.5 text-red-500 hover:bg-red-50"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>

@@ -21,9 +21,8 @@ const RING_TONE: Record<Tone, string> = {
   info: "var(--color-info)",
 };
 
-/** Thin animated percent-complete bar. Same width-animation technique already
- * used inline in OnboardingChecklist.tsx, extracted so other screens (e.g. the
- * provider dashboard hero) can reuse it without duplicating the motion setup. */
+/** Thin animated percent-complete bar, reusable wherever a screen needs a
+ * width-animated progress line (e.g. the provider dashboard hero). */
 export function ProgressBar({
   percent,
   tone = "primary",
