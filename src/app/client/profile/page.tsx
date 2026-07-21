@@ -24,6 +24,8 @@ import {
   COMMUNICATION_LANGUAGE_LABELS,
   CommunicationLanguage,
   ConsentType,
+  Gender,
+  GENDERS,
   NOTIFICATION_CHANNELS,
   NOTIFICATION_CHANNEL_LABELS,
   NotificationChannel,
@@ -34,6 +36,20 @@ import { ShieldOff, FileDown, Lock, UserRound, SlidersHorizontal, ShieldCheck, S
 
 const OPEN_DSR_STATUSES = ["ממתין", "בטיפול"];
 
+// Read-only display for identity fields — deliberately not styled like an
+// input box, so it doesn't invite clicking/typing the way a disabled Input does.
+function LockedField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2.5">
+      <div className="min-w-0">
+        <p className="text-xs text-slate-500">{label}</p>
+        <p className="truncate text-sm font-medium text-slate-700">{value || "—"}</p>
+      </div>
+      <Lock className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+    </div>
+  );
+}
+
 export default function ClientProfilePage() {
   const currentUser = useStore((s) => s.currentUser);
   const updatePatient = useStore((s) => s.updatePatient);
@@ -41,7 +57,11 @@ export default function ClientProfilePage() {
   const dsrRequests = useStore((s) => s.dsrRequests);
   const patient = useCurrentPatient();
 
-  const [form, setForm] = useState({ email: "", phone: "" });
+  const [form, setForm] = useState<{ email: string; phone: string; gender: Gender | "" }>({
+    email: "",
+    phone: "",
+    gender: "",
+  });
   const [preferences, setPreferences] = useState<{
     communication_language: CommunicationLanguage;
     notification_channel: NotificationChannel;
@@ -57,7 +77,7 @@ export default function ClientProfilePage() {
   if (loadKey && loadKey !== loadedFor) {
     setLoadedFor(loadKey);
     if (patient) {
-      setForm({ email: patient.email ?? "", phone: patient.phone ?? "" });
+      setForm({ email: patient.email ?? "", phone: patient.phone ?? "", gender: patient.gender ?? "" });
       setPreferences({
         communication_language: patient.communication_language ?? "he",
         notification_channel: patient.notification_channel ?? "email",
@@ -88,6 +108,7 @@ export default function ClientProfilePage() {
       updatePatient(patient.id, {
         email: form.email,
         phone: form.phone,
+        gender: form.gender || undefined,
         communication_language: preferences.communication_language,
         notification_channel: preferences.notification_channel,
         kupah: insurance.kupah,
@@ -147,25 +168,13 @@ export default function ClientProfilePage() {
                     )}
                   </div>
                 )}
-                <Input label="שם מלא" value={patient?.full_name ?? ""} disabled icon={<Lock className="h-4 w-4" />} />
-                <Input
-                  label="תעודת זהות / דרכון"
-                  value={patient?.id_number ?? ""}
-                  disabled
-                  icon={<Lock className="h-4 w-4" />}
-                />
-                <Input
+                <LockedField label="שם מלא" value={patient?.full_name ?? ""} />
+                <LockedField label="תעודת זהות / דרכון" value={patient?.id_number ?? ""} />
+                <LockedField
                   label="תאריך לידה"
                   value={patient?.date_of_birth ? formatDateHe(patient.date_of_birth) : ""}
-                  disabled
-                  icon={<Lock className="h-4 w-4" />}
                 />
-                <Input
-                  label="שם הורה (אם המטופל קטין)"
-                  value={patient?.parent_name ?? ""}
-                  disabled
-                  icon={<Lock className="h-4 w-4" />}
-                />
+                <LockedField label="שם הורה (אם המטופל קטין)" value={patient?.parent_name ?? ""} />
                 <Button
                   type="button"
                   variant="outline"
@@ -196,6 +205,22 @@ export default function ClientProfilePage() {
                   onChange={(e) => setForm({ ...form, phone: e.target.value })}
                   required
                 />
+                <Input
+                  label="כתובת (אופציונלי)"
+                  placeholder="רחוב, מספר, עיר"
+                  value={insurance.address}
+                  onChange={(e) => setInsurance({ ...insurance, address: e.target.value })}
+                />
+                <Select label="מגדר" value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value as Gender })}>
+                  <option value="" disabled>
+                    בחר/י
+                  </option>
+                  {GENDERS.map((g) => (
+                    <option key={g} value={g}>
+                      {g}
+                    </option>
+                  ))}
+                </Select>
               </CardContent>
             </Card>
           </TabsContent>
@@ -242,7 +267,7 @@ export default function ClientProfilePage() {
                 <CardTitle>פרופיל ביטוחי</CardTitle>
               </CardHeader>
               <CardContent>
-                <InsuranceProfileForm value={insurance} onChange={setInsurance} />
+                <InsuranceProfileForm value={insurance} onChange={setInsurance} showAddress={false} />
               </CardContent>
             </Card>
           </TabsContent>

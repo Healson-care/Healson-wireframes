@@ -21,6 +21,9 @@ export const NOTIFICATION_CHANNEL_LABELS: Record<NotificationChannel, string> = 
   whatsapp: "וואטסאפ",
 };
 
+export type Gender = "זכר" | "נקבה";
+export const GENDERS: Gender[] = ["זכר", "נקבה"];
+
 // ---------------------------------------------------------------------------
 // SKBH insurance layers (§2.2) — every patient holds at least S+H, and may
 // additionally hold K (supplemental HMO insurance) and/or B (private health
@@ -331,6 +334,7 @@ export interface Patient {
   id_document_type?: "id" | "passport";
   id_document_photo?: UploadedFile;
   date_of_birth?: string;
+  gender?: Gender;
   address?: string;
   parent_name?: string;
   kupah: Kupah;
