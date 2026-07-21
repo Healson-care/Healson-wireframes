@@ -357,6 +357,7 @@ function AdminPatientChartPageContent() {
             </CardHeader>
             <CardContent className="flex flex-col gap-2 text-sm">
               <InfoRow label="גיל" value={age !== null ? `${age}` : "—"} />
+              {patient.gender && <InfoRow label="מגדר" value={patient.gender} />}
               <ContactRow
                 label="ת.ז"
                 value={patient.id_number || "—"}
@@ -665,6 +666,7 @@ function AdminPatientChartPageContent() {
         onSubmit={(values: PatientFormValues) => {
           updatePatient(patient.id, {
             ...values,
+            gender: values.gender || undefined,
             k_level: values.k_level || undefined,
             b_insurance_company: values.has_b_insurance ? values.b_insurance_company : undefined,
             b_policy_number: values.has_b_insurance ? values.b_policy_number : undefined,
@@ -680,6 +682,7 @@ function AdminPatientChartPageContent() {
           id_number: patient.id_number ?? "",
           id_document_type: patient.id_document_type ?? "id",
           date_of_birth: patient.date_of_birth ?? "",
+          gender: patient.gender ?? "",
           parent_name: patient.parent_name ?? "",
           kupah: patient.kupah,
           k_level: patient.k_level ?? "",
