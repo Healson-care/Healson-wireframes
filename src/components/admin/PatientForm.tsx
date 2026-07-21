@@ -5,7 +5,7 @@ import { Dialog } from "@/components/ui/Dialog";
 import { Input, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { InsuranceProfileForm, InsuranceProfileValue } from "@/components/patient/InsuranceProfileForm";
-import { KLevel, PATIENT_STATUSES, Patient } from "@/types";
+import { GENDERS, Gender, KLevel, PATIENT_STATUSES, Patient } from "@/types";
 
 export interface PatientFormValues {
   full_name: string;
@@ -14,6 +14,7 @@ export interface PatientFormValues {
   id_number: string;
   id_document_type: "id" | "passport";
   date_of_birth: string;
+  gender: Gender | "";
   parent_name: string;
   kupah: Patient["kupah"];
   k_level: KLevel | "";
@@ -31,6 +32,7 @@ const EMPTY: PatientFormValues = {
   id_number: "",
   id_document_type: "id",
   date_of_birth: "",
+  gender: "",
   parent_name: "",
   kupah: "כללית",
   k_level: "",
@@ -101,13 +103,27 @@ export function PatientForm({
           />
         </div>
 
-        <Input
-          type="date"
-          label="תאריך לידה"
-          required
-          value={form.date_of_birth}
-          onChange={(e) => setForm({ ...form, date_of_birth: e.target.value })}
-        />
+        <div className="grid grid-cols-2 gap-3">
+          <Input
+            type="date"
+            label="תאריך לידה"
+            required
+            value={form.date_of_birth}
+            onChange={(e) => setForm({ ...form, date_of_birth: e.target.value })}
+          />
+          <Select
+            label="מגדר"
+            value={form.gender}
+            onChange={(e) => setForm({ ...form, gender: e.target.value as Gender })}
+          >
+            <option value="">לא צוין</option>
+            {GENDERS.map((g) => (
+              <option key={g} value={g}>
+                {g}
+              </option>
+            ))}
+          </Select>
+        </div>
         <Input label="שם הורה (קטין)" value={form.parent_name} onChange={(e) => setForm({ ...form, parent_name: e.target.value })} />
 
         <InsuranceProfileForm value={insuranceValue} onChange={(v) => setForm({ ...form, ...v })} />

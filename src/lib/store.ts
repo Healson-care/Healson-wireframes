@@ -10,11 +10,15 @@ import {
   CONSENT_DOCUMENT_VERSION,
   DsrRequest,
   DsrRequestStatus,
+  Gender,
   Kupah,
   KLevel,
   Lead,
   LabReferral,
   Order,
+  OtpIssueChannel,
+  OtpIssueContext,
+  OtpIssueReport,
   Patient,
   PatientDocument,
   ProviderProfile,
@@ -46,7 +50,7 @@ import {
   SEED_VISIT_RECORDS,
 } from "./mock-data";
 import { SEED_SKILL_DOMAINS, SEED_SKILL_SUBDOMAINS } from "./medical-tree";
-import { generateId } from "./utils";
+import { generateId, maskPhone } from "./utils";
 
 // ---------------------------------------------------------------------------
 // Auth slice
@@ -79,6 +83,33 @@ interface PendingRegistrationVerification {
   smsOtp: string;
   emailOtp: string;
   smsVerified: boolean;
+}
+
+// Same double SMS+email OTP as registration/login (see
+// PendingRegistrationVerification above) — password reset is an
+// account-takeover vector, arguably the most sensitive of the three flows,
+// so it shouldn't be weaker than plain login. `verified` only flips to true
+// once both steps pass; resetPassword() refuses to run otherwise, so
+// /reset-password can't be reached by just navigating to the URL.
+interface PendingPasswordReset {
+  contact: string;
+  // /forgot-password is shared by two different login screens (patient
+  // /client/login vs staff/provider /login) — this is which one to send
+  // the user back to, both for the "חזרה להתחברות" link and after a
+  // successful reset, instead of hardcoding the wrong one for half the
+  // users of this flow.
+  loginPath: string;
+  // Masked phone the SMS OTP is "sent to" — looked up from the matching
+  // account so the SMS step doesn't just claim a code was texted out of
+  // nowhere (the user only typed an email, never a phone, on this flow).
+  // Undefined when `contact` doesn't match any account; the screen falls
+  // back to generic wording in that case, same anti-enumeration reasoning
+  // as forgotPassword() itself never confirming a match either way.
+  maskedPhone?: string;
+  smsOtp: string;
+  emailOtp: string;
+  smsVerified: boolean;
+  verified: boolean;
 }
 
 export interface InsuranceProfileInput {
@@ -137,8 +168,12 @@ interface AuthState {
   submitProviderApplication: (providerId: string) => { ok: boolean; error?: string; otpHint?: string };
   verifyProviderApplicationOtp: (code: string) => { ok: boolean; error?: string; providerId?: string };
   resendProviderApplicationOtp: () => string | null;
-  forgotPassword: (email: string) => { ok: boolean };
-  resetPassword: (newPassword: string) => { ok: boolean };
+  pendingPasswordReset: PendingPasswordReset | null;
+  forgotPassword: (contact: string, loginPath?: string) => { ok: boolean; otpHint?: string; error?: string };
+  verifyPasswordResetSmsOtp: (code: string) => { ok: boolean; error?: string };
+  verifyPasswordResetEmailOtp: (code: string) => { ok: boolean; error?: string };
+  resendPasswordResetOtp: (channel: "sms" | "email") => string | null;
+  resetPassword: (newPassword: string) => { ok: boolean; error?: string };
   logout: () => void;
   loginAsDemo: (role: Role, patientVariant?: "new" | "existing") => void;
   // Signs in as one *specific* seeded demo account rather than "the first user
@@ -159,6 +194,7 @@ interface AuthState {
       id_document_type?: "id" | "passport";
       id_document_photo?: UploadedFile;
       date_of_birth: string;
+      gender?: Gender;
       parent_name?: string;
     } & InsuranceProfileInput,
     consents: RegistrationConsents
@@ -194,6 +230,7 @@ interface EntitiesState {
   branches: typeof SEED_BRANCHES;
   consentRecords: ConsentRecord[];
   dsrRequests: DsrRequest[];
+  otpIssueReports: OtpIssueReport[];
   defaultCommissionRate: number;
   commissionRateByServiceType: Partial<Record<ServiceType, number>>;
   reminderSettings: ReminderSettings;
@@ -313,6 +350,9 @@ interface EntitiesState {
   addDsrRequest: (r: Omit<DsrRequest, "id" | "requested_at" | "status"> & { status?: DsrRequestStatus }) => DsrRequest;
   updateDsrRequest: (id: string, data: Partial<DsrRequest>) => void;
   exportPatientData: (patientId: string) => Record<string, unknown> | null;
+
+  reportOtpIssue: (channel: OtpIssueChannel, contact: string, context: OtpIssueContext) => OtpIssueReport;
+  updateOtpIssueReport: (id: string, data: Partial<OtpIssueReport>) => void;
 }
 
 interface HydrationState {
@@ -335,6 +375,7 @@ export const useStore = create<Store>()(
       pendingProviderSubmission: null,
       pendingLoginVerification: null,
       pendingRegistrationVerification: null,
+      pendingPasswordReset: null,
 
       login: (email, password) => {
         if (!email || !password) return { ok: false, error: "נא להזין אימייל וסיסמה" };
@@ -661,8 +702,63 @@ export const useStore = create<Store>()(
         return pending ? pending.otp : null;
       },
 
-      forgotPassword: () => ({ ok: true }),
-      resetPassword: () => ({ ok: true }),
+      // Demo-only: fixed codes, nothing is actually sent. Unlike the
+      // registration duplicate-ID check (which stays generic to avoid
+      // account enumeration), this *does* say plainly when there's no
+      // matching account/phone — this is a demo meant to be understandable
+      // to whoever's testing it, not a hardened endpoint fending off real
+      // attackers probing which emails are registered. A production build
+      // would want the generic "if this account exists…" wording instead.
+      forgotPassword: (contact, loginPath = "/login") => {
+        const matchedUser = get().users.find((u) => u.email.toLowerCase() === contact.trim().toLowerCase());
+        if (!matchedUser) return { ok: false, error: "לא נמצא חשבון עם כתובת אימייל זו" };
+        const matchedPatient = get().patients.find((p) => p.user_id === matchedUser.id);
+        const phone = matchedPatient?.phone ?? matchedUser.phone;
+        if (!phone) return { ok: false, error: "לא נמצא מספר טלפון המשויך לחשבון זה" };
+        const smsOtp = "123456";
+        set({
+          pendingPasswordReset: {
+            contact,
+            loginPath,
+            maskedPhone: maskPhone(phone),
+            smsOtp,
+            emailOtp: "654321",
+            smsVerified: false,
+            verified: false,
+          },
+        });
+        return { ok: true, otpHint: smsOtp };
+      },
+      verifyPasswordResetSmsOtp: (code) => {
+        const pending = get().pendingPasswordReset;
+        if (!pending) return { ok: false, error: "לא נמצא תהליך איפוס פעיל" };
+        if (code !== pending.smsOtp) return { ok: false, error: "קוד שגוי, נסה שנית" };
+        set({ pendingPasswordReset: { ...pending, smsVerified: true } });
+        return { ok: true };
+      },
+      verifyPasswordResetEmailOtp: (code) => {
+        const pending = get().pendingPasswordReset;
+        if (!pending || !pending.smsVerified) {
+          return { ok: false, error: "יש לאמת קודם את הקוד שנשלח ב-SMS" };
+        }
+        if (code !== pending.emailOtp) return { ok: false, error: "קוד שגוי, נסה שנית" };
+        set({ pendingPasswordReset: { ...pending, verified: true } });
+        return { ok: true };
+      },
+      resendPasswordResetOtp: (channel) => {
+        const pending = get().pendingPasswordReset;
+        if (!pending) return null;
+        return channel === "sms" ? pending.smsOtp : pending.emailOtp;
+      },
+      resetPassword: (newPassword) => {
+        void newPassword; // mocked — no real password storage anywhere in this app (see login())
+        const pending = get().pendingPasswordReset;
+        if (!pending || !pending.verified) {
+          return { ok: false, error: "יש לאמת קוד לפני איפוס הסיסמה" };
+        }
+        set({ pendingPasswordReset: null });
+        return { ok: true };
+      },
 
       logout: () => set({ currentUser: null }),
 
@@ -681,6 +777,7 @@ export const useStore = create<Store>()(
           id_document_type: data.id_document_type,
           id_document_photo: data.id_document_photo,
           date_of_birth: data.date_of_birth,
+          gender: data.gender,
           parent_name: data.parent_name,
           address: data.address,
           kupah: data.kupah,
@@ -727,6 +824,7 @@ export const useStore = create<Store>()(
       branches: SEED_BRANCHES,
       consentRecords: SEED_CONSENT_RECORDS,
       dsrRequests: SEED_DSR_REQUESTS,
+      otpIssueReports: [],
       defaultCommissionRate: 15,
       commissionRateByServiceType: {},
       reminderSettings: DEFAULT_REMINDER_SETTINGS,
@@ -1201,6 +1299,23 @@ export const useStore = create<Store>()(
       },
       updateDsrRequest: (id, data) =>
         set((s) => ({ dsrRequests: s.dsrRequests.map((r) => (r.id === id ? { ...r, ...data } : r)) })),
+
+      reportOtpIssue: (channel, contact, context) => {
+        const record: OtpIssueReport = {
+          id: generateId("otpissue"),
+          channel,
+          contact,
+          context,
+          status: "פתוח",
+          reported_at: new Date().toISOString(),
+        };
+        set((s) => ({ otpIssueReports: [record, ...s.otpIssueReports] }));
+        return record;
+      },
+      updateOtpIssueReport: (id, data) =>
+        set((s) => ({
+          otpIssueReports: s.otpIssueReports.map((r) => (r.id === id ? { ...r, ...data } : r)),
+        })),
 
       exportPatientData: (patientId) => {
         const patient = get().patients.find((p) => p.id === patientId);

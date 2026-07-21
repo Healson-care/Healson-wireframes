@@ -1,20 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Mail, Lock, User as UserIcon, Phone, IdCard, Calendar, ArrowRight } from "lucide-react";
+import { Mail, Lock, User as UserIcon, Phone, IdCard, Calendar, ArrowRight, Upload, FileText, Eye, EyeOff } from "lucide-react";
 import { AuthLayout } from "@/components/layouts/AuthLayout";
-import { Input } from "@/components/ui/Input";
+import { Input, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
+import { Dialog } from "@/components/ui/Dialog";
+import { FileDropzone } from "@/components/ui/FileDropzone";
 import { Stepper } from "@/components/shared/Stepper";
+import { PasswordRequirements, passwordMeetsRequirements } from "@/components/shared/PasswordRequirements";
 import { useStore } from "@/lib/store";
-import { isValidIsraeliId } from "@/lib/utils";
+import { isValidIsraeliId, isValidEmail, isValidIsraeliPhone } from "@/lib/utils";
 import { fileToDataUrl } from "@/lib/file";
 import { homeForRole } from "@/lib/useRequireRole";
 import { cn } from "@/lib/utils";
-import { POST_REGISTER_REDIRECT_KEY } from "@/lib/constants";
-import { UploadedFile } from "@/types";
+import { POST_REGISTER_REDIRECT_KEY, CITIES, STREETS_BY_CITY, DEFAULT_STREETS } from "@/lib/constants";
+import { Gender, GENDERS, UploadedFile } from "@/types";
 import {
   ConsentCheckboxes,
   ConsentValues,
@@ -36,15 +39,85 @@ type Phase =
   | "otp-sms"
   | "otp-email";
 
-const NEW_STEPS = ["פרטי התחברות", "פרטים אישיים", "פרופיל ביטוחי", "הסכמות", "אימות SMS", "אימות אימייל"];
+function PasswordToggle({ show, onToggle }: { show: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      tabIndex={-1}
+      onClick={onToggle}
+      className="text-slate-400 hover:text-slate-600"
+      aria-label={show ? "הסתר סיסמה" : "הצג סיסמה"}
+    >
+      {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+    </button>
+  );
+}
+
+/** Resend link with a countdown lock, plus an escalation option once the
+ * user has resent enough times without success (see OTP_ISSUE_THRESHOLD). */
+function ResendControl({
+  secondsLeft,
+  onResend,
+  resendCount,
+  issueReported,
+  onReportIssue,
+}: {
+  secondsLeft: number;
+  onResend: () => void;
+  resendCount: number;
+  issueReported: boolean;
+  onReportIssue: () => void;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-1.5">
+      <button
+        type="button"
+        onClick={onResend}
+        disabled={secondsLeft > 0}
+        className={cn(
+          "text-sm font-medium",
+          secondsLeft > 0 ? "text-slate-400 cursor-not-allowed" : "text-primary hover:underline"
+        )}
+      >
+        {secondsLeft > 0 ? `שליחה חוזרת בעוד 0:${String(secondsLeft).padStart(2, "0")}` : "שלח קוד מחדש"}
+      </button>
+      {resendCount >= OTP_ISSUE_THRESHOLD &&
+        (issueReported ? (
+          <p className="text-xs font-medium text-success-text">התקלה דווחה לצוות — ניצור קשר בהקדם</p>
+        ) : (
+          <button type="button" onClick={onReportIssue} className="text-xs font-medium text-danger-text hover:underline">
+            עדיין לא קיבלתי את הקוד — דווחו לצוות
+          </button>
+        ))}
+    </div>
+  );
+}
+
+const RESEND_COOLDOWN_SECONDS = 30;
+// After this many resends without success, offer "לא קיבלתי" to flag a real
+// delivery problem (wrong carrier, blocked sender, etc.) instead of letting
+// the user resend forever.
+const OTP_ISSUE_THRESHOLD = 2;
+
+// The SMS + email OTP screens share one step here — they're already shown as
+// sub-phases "(1/2)" / "(2/2)" of a single "אימות דו-שלבי" inside that screen,
+// so folding them into one Stepper step frees up width per step on mobile.
+const NEW_STEPS = ["פרטי התחברות", "פרטים אישיים", "פרופיל ביטוחי", "הסכמות", "אימות דו-שלבי"];
 const NEW_PHASE_INDEX: Partial<Record<Phase, number>> = {
   "new-credentials": 0,
   "new-profile": 1,
   "new-insurance": 2,
   "new-consent": 3,
   "otp-sms": 4,
-  "otp-email": 5,
+  "otp-email": 4,
 };
+const NEW_STEP_PHASES: Phase[] = [
+  "new-credentials",
+  "new-profile",
+  "new-insurance",
+  "new-consent",
+  "otp-sms",
+];
 
 const GOOGLE_DEMO_NEW = {
   full_name: "נועה כהן",
@@ -105,6 +178,7 @@ export default function ClientLoginPage() {
   const verifyLoginSmsOtp = useStore((s) => s.verifyLoginSmsOtp);
   const verifyLoginEmailOtp = useStore((s) => s.verifyLoginEmailOtp);
   const resendLoginOtp = useStore((s) => s.resendLoginOtp);
+  const reportOtpIssue = useStore((s) => s.reportOtpIssue);
 
   const [mode, setMode] = useState<Mode>("new");
   const [phase, setPhase] = useState<Phase>("new-credentials");
@@ -112,6 +186,16 @@ export default function ClientLoginPage() {
   const [loading, setLoading] = useState(false);
   const [smsCode, setSmsCode] = useState("");
   const [emailCode, setEmailCode] = useState("");
+  // Resend cooldown/reporting — only one OTP phase is ever visible at a
+  // time, so a single "unlock at" timestamp covers whichever one is active;
+  // resend counts are per-channel so switching from SMS to email starts a
+  // fresh count instead of inheriting the SMS screen's.
+  const [resendUnlockAt, setResendUnlockAt] = useState<number | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState(0);
+  const [smsResendCount, setSmsResendCount] = useState(0);
+  const [emailResendCount, setEmailResendCount] = useState(0);
+  const [smsIssueReported, setSmsIssueReported] = useState(false);
+  const [emailIssueReported, setEmailIssueReported] = useState(false);
 
   // New-patient form fields
   const [email, setEmail] = useState("");
@@ -121,10 +205,21 @@ export default function ClientLoginPage() {
   const [documentType, setDocumentType] = useState<"id" | "passport">("id");
   const [idNumber, setIdNumber] = useState("");
   const [idPhoto, setIdPhoto] = useState<File | null>(null);
+  const [idPhotoDialogOpen, setIdPhotoDialogOpen] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showExistingPassword, setShowExistingPassword] = useState(false);
   const [dateOfBirth, setDateOfBirth] = useState("");
+  const [gender, setGender] = useState<Gender | "">("");
   const [phone, setPhone] = useState("");
   const [parentName, setParentName] = useState("");
   const [insurance, setInsurance] = useState<InsuranceProfileValue>(EMPTY_INSURANCE_PROFILE);
+  // Collected as two short fields instead of one free-text "address" box —
+  // structured enough to be useful, without the overhead of a full
+  // street/number/apartment/zip form. Combined into insurance.address (the
+  // single string Patient.address expects) when leaving this step.
+  const [addressCity, setAddressCity] = useState("");
+  const [addressStreet, setAddressStreet] = useState("");
   const [consents, setConsents] = useState<ConsentValues>({});
 
   // Existing-patient form fields
@@ -133,16 +228,78 @@ export default function ClientLoginPage() {
   const [existingPassword, setExistingPassword] = useState("");
 
   const phoneForOtpDisplay = mode === "new" ? phone : existingPhone;
-  const isMinor = (() => {
-    const age = calcAge(dateOfBirth);
-    return age !== null && age < 18;
-  })();
+  const dobAge = calcAge(dateOfBirth);
+  const isMinor = dobAge !== null && dobAge < 18;
+
+  // Live per-field validation for the credentials + personal-details steps —
+  // computed on every keystroke (not just on submit) so the user sees what's
+  // wrong with a value while still typing it, not after clicking "המשך".
+  const emailError = email && !isValidEmail(email) ? "כתובת אימייל לא תקינה" : undefined;
+  const idNumberTrimmed = idNumber.trim();
+  const idNumberDuplicate = idNumberTrimmed !== "" && patients.some((p) => p.id_number === idNumberTrimmed);
+  // The duplicate-ID message is deliberately generic, not "this ID is
+  // already registered" — confirming that a specific ID number belongs to
+  // an existing patient would let anyone probe whether a given person is
+  // a patient here, which is more sensitive than typical email enumeration
+  // since a national ID is tied to a real, unchangeable identity.
+  const idNumberError = !idNumberTrimmed
+    ? undefined
+    : documentType === "id" && !isValidIsraeliId(idNumberTrimmed)
+    ? "מספר תעודת זהות לא תקין"
+    : documentType === "passport" && idNumberTrimmed.length < 4
+    ? "מספר דרכון לא תקין"
+    : idNumberDuplicate
+    ? "לא ניתן להשלים את ההרשמה עם הפרטים שהוזנו. אם כבר יש לכם חשבון, נסו להתחבר"
+    : undefined;
+  const dobError = !dateOfBirth ? undefined : dobAge === null || dobAge > 120 ? "תאריך לידה לא תקין" : undefined;
+  const phoneError = phone && !isValidIsraeliPhone(phone) ? "מספר טלפון לא תקין" : undefined;
 
   function switchMode(next: Mode) {
     setMode(next);
     setPhase(next === "new" ? "new-credentials" : "existing-form");
     setError("");
   }
+
+  // Closes the popup as soon as a valid file lands, so the user drops
+  // straight back into the personal-details form instead of needing an
+  // extra "done" click.
+  function handleIdPhotoChange(f: File | null) {
+    setIdPhoto(f);
+    if (f) setIdPhotoDialogOpen(false);
+  }
+
+  // Lets the user click an already-completed step on the Stepper to go back
+  // and edit it; form fields keep their values since they live in this
+  // component's state, so re-visiting a step shows what was already filled.
+  function goToStep(index: number) {
+    setError("");
+    setPhase(NEW_STEP_PHASES[index]);
+  }
+
+  // This is a fully local demo with no backend persistence (see
+  // CLAUDE.local.md), so a refresh mid-registration silently wipes
+  // everything typed so far — warn before that happens once the user has
+  // moved past the very first screen.
+  useEffect(() => {
+    if (mode !== "new" || phase === "new-credentials") return;
+    function handleBeforeUnload(e: BeforeUnloadEvent) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [mode, phase]);
+
+  useEffect(() => {
+    if (!resendUnlockAt) {
+      setSecondsLeft(0);
+      return;
+    }
+    const tick = () => setSecondsLeft(Math.max(0, Math.ceil((resendUnlockAt - Date.now()) / 1000)));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [resendUnlockAt]);
 
   function fillGoogleDemo() {
     if (mode === "new") {
@@ -153,7 +310,8 @@ export default function ClientLoginPage() {
       setDateOfBirth(GOOGLE_DEMO_NEW.date_of_birth);
       setPassword(GOOGLE_DEMO_NEW.password);
       setConfirmPassword(GOOGLE_DEMO_NEW.password);
-      setInsurance((prev) => ({ ...prev, address: "הרצל 12, תל אביב" }));
+      setAddressStreet("הרצל 12");
+      setAddressCity("תל אביב");
     } else {
       setExistingEmail(GOOGLE_DEMO_EXISTING.email);
       setExistingPhone(GOOGLE_DEMO_EXISTING.phone);
@@ -173,6 +331,14 @@ export default function ClientLoginPage() {
   function handleCredentialsSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    if (!email || emailError) {
+      setError(emailError ?? "יש להזין כתובת אימייל");
+      return;
+    }
+    if (!passwordMeetsRequirements(password)) {
+      setError("הסיסמה אינה עומדת בדרישות המפורטות מתחת לשדה");
+      return;
+    }
     if (password !== confirmPassword) {
       setError("הסיסמאות אינן תואמות");
       return;
@@ -194,26 +360,30 @@ export default function ClientLoginPage() {
   function handleProfileSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    if (documentType === "id" && !isValidIsraeliId(idNumber)) {
-      setError("מספר תעודת זהות לא תקין");
-      return;
-    }
-    if (documentType === "passport" && idNumber.trim().length < 4) {
-      setError("מספר דרכון לא תקין");
-      return;
-    }
-    if (patients.some((p) => p.id_number === idNumber.trim())) {
-      setError(documentType === "id" ? "תעודת זהות זו כבר רשומה במערכת" : "מספר דרכון זה כבר רשום במערכת");
+    if (!idNumberTrimmed || idNumberError) {
+      setError(idNumberError ?? `יש להזין ${documentType === "id" ? "מספר תעודת זהות" : "מספר דרכון"}`);
       return;
     }
     if (!idPhoto) {
       setError(`יש להעלות צילום של ${documentType === "id" ? "תעודת הזהות" : "הדרכון"}`);
       return;
     }
+    if (!dateOfBirth || dobError) {
+      setError(dobError ?? "יש להזין תאריך לידה");
+      return;
+    }
     if (isMinor && !parentName.trim()) {
       setError("יש להזין את שם ההורה עבור מטופל קטין");
       return;
     }
+    if (!phone || phoneError) {
+      setError(phoneError ?? "יש להזין מספר טלפון");
+      return;
+    }
+    setInsurance((prev) => ({
+      ...prev,
+      address: [addressStreet.trim(), addressCity.trim()].filter(Boolean).join(", "),
+    }));
     setPhase("new-insurance");
   }
 
@@ -226,6 +396,9 @@ export default function ClientLoginPage() {
     setError("");
     beginRegistrationVerification();
     setPhase("otp-sms");
+    setSmsResendCount(0);
+    setSmsIssueReported(false);
+    setResendUnlockAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
     const hint = resendRegistrationOtp("sms");
     showToast("קוד אימות נשלח ב-SMS", { description: `קוד הדגמה: ${hint}`, variant: "success" });
   }
@@ -246,6 +419,7 @@ export default function ClientLoginPage() {
         id_document_type: documentType,
         id_document_photo: photo,
         date_of_birth: dateOfBirth,
+        gender: gender || undefined,
         parent_name: isMinor ? parentName.trim() || undefined : undefined,
         kupah: insurance.kupah,
         k_level: insurance.k_level || undefined,
@@ -273,6 +447,9 @@ export default function ClientLoginPage() {
       }
       if (result.requiresOtp) {
         setPhase("otp-sms");
+        setSmsResendCount(0);
+        setSmsIssueReported(false);
+        setResendUnlockAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
         const hint = resendLoginOtp("sms");
         showToast("קוד אימות נשלח ב-SMS", { description: `קוד הדגמה: ${hint}`, variant: "success" });
         return;
@@ -294,6 +471,9 @@ export default function ClientLoginPage() {
         return;
       }
       setPhase("otp-email");
+      setEmailResendCount(0);
+      setEmailIssueReported(false);
+      setResendUnlockAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
       const hint = mode === "new" ? resendRegistrationOtp("email") : resendLoginOtp("email");
       showToast("קוד אימות נשלח באימייל", { description: `קוד הדגמה: ${hint}`, variant: "success" });
     }, 300);
@@ -326,13 +506,33 @@ export default function ClientLoginPage() {
   }
 
   function handleResendSms() {
+    if (secondsLeft > 0) return;
     const otp = mode === "new" ? resendRegistrationOtp("sms") : resendLoginOtp("sms");
-    if (otp) showToast("קוד חדש נשלח ב-SMS", { description: `קוד הדגמה: ${otp}` });
+    if (otp) {
+      showToast("קוד חדש נשלח ב-SMS", { description: `קוד הדגמה: ${otp}` });
+      setSmsResendCount((c) => c + 1);
+      setResendUnlockAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
+    }
   }
 
   function handleResendEmail() {
+    if (secondsLeft > 0) return;
     const otp = mode === "new" ? resendRegistrationOtp("email") : resendLoginOtp("email");
-    if (otp) showToast("קוד חדש נשלח באימייל", { description: `קוד הדגמה: ${otp}` });
+    if (otp) {
+      showToast("קוד חדש נשלח באימייל", { description: `קוד הדגמה: ${otp}` });
+      setEmailResendCount((c) => c + 1);
+      setResendUnlockAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
+    }
+  }
+
+  // Two resends without success is treated as a signal of a real delivery
+  // problem — filed for the team to look into, not just another resend.
+  function handleReportOtpIssue(channel: "sms" | "email") {
+    const contact = channel === "sms" ? phoneForOtpDisplay : mode === "new" ? email : existingEmail;
+    reportOtpIssue(channel, contact, mode === "new" ? "registration" : "login");
+    if (channel === "sms") setSmsIssueReported(true);
+    else setEmailIssueReported(true);
+    showToast("התקלה דווחה לצוות", { description: "ניצור איתך קשר בהקדם לבירור העניין", variant: "success" });
   }
 
   const modeToggle = (
@@ -373,7 +573,7 @@ export default function ClientLoginPage() {
       <PageShell>
         {mode === "new" && stepIdx !== undefined && (
           <>
-            <Stepper steps={NEW_STEPS} step={stepIdx} />
+            <Stepper steps={NEW_STEPS} step={stepIdx} onStepClick={goToStep} />
             <p className="text-xs text-slate-400 mb-4">{NEW_STEPS[stepIdx]}</p>
           </>
         )}
@@ -398,9 +598,13 @@ export default function ClientLoginPage() {
               <Button type="submit" loading={loading} className="w-full">
                 אמת קוד SMS
               </Button>
-              <button type="button" onClick={handleResendSms} className="text-sm text-primary hover:underline">
-                שלח קוד מחדש
-              </button>
+              <ResendControl
+                secondsLeft={secondsLeft}
+                onResend={handleResendSms}
+                resendCount={smsResendCount}
+                issueReported={smsIssueReported}
+                onReportIssue={() => handleReportOtpIssue("sms")}
+              />
             </form>
           </>
         ) : (
@@ -422,9 +626,13 @@ export default function ClientLoginPage() {
               <Button type="submit" loading={loading} className="w-full">
                 {mode === "new" ? "אמת קוד וסיים הרשמה" : "אמת קוד וכניסה"}
               </Button>
-              <button type="button" onClick={handleResendEmail} className="text-sm text-primary hover:underline">
-                שלח קוד מחדש
-              </button>
+              <ResendControl
+                secondsLeft={secondsLeft}
+                onResend={handleResendEmail}
+                resendCount={emailResendCount}
+                issueReported={emailIssueReported}
+                onReportIssue={() => handleReportOtpIssue("email")}
+              />
             </form>
           </>
         )}
@@ -436,7 +644,7 @@ export default function ClientLoginPage() {
   if (phase === "new-profile") {
     return (
       <PageShell>
-        <Stepper steps={NEW_STEPS} step={NEW_PHASE_INDEX["new-profile"]!} />
+        <Stepper steps={NEW_STEPS} step={NEW_PHASE_INDEX["new-profile"]!} onStepClick={goToStep} />
         <p className="text-xs text-slate-400 mb-4">{NEW_STEPS[1]}</p>
         <button onClick={() => setPhase("new-credentials")} className="text-sm text-primary mb-3 flex items-center gap-1">
           <ArrowRight className="h-3.5 w-3.5" /> חזרה
@@ -444,6 +652,25 @@ export default function ClientLoginPage() {
         {errorBox}
         <form onSubmit={handleProfileSubmit} className="flex flex-col gap-3">
           <Input label="שם מלא" icon={<UserIcon className="h-4 w-4" />} value={fullName} onChange={(e) => setFullName(e.target.value)} required />
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-slate-500">מגדר</span>
+            {GENDERS.map((g) => (
+              <button
+                key={g}
+                type="button"
+                onClick={() => setGender(g)}
+                className={cn(
+                  "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                  gender === g
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-slate-200 text-slate-500 hover:border-slate-300"
+                )}
+              >
+                {g}
+              </button>
+            ))}
+          </div>
 
           <div className="grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1">
             <button
@@ -474,19 +701,50 @@ export default function ClientLoginPage() {
             onChange={(e) => setIdNumber(e.target.value)}
             inputMode={documentType === "id" ? "numeric" : "text"}
             maxLength={documentType === "id" ? 9 : undefined}
+            error={idNumberError}
             required
           />
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-slate-700">
               צילום {documentType === "id" ? "תעודת הזהות" : "הדרכון"}
             </label>
-            <input
-              type="file"
-              accept="image/*,.pdf"
-              onChange={(e) => setIdPhoto(e.target.files?.[0] ?? null)}
-              className="text-sm"
-            />
+            {idPhoto ? (
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-slate-700">
+                  <FileText className="h-4 w-4 shrink-0 text-primary" />
+                  <span className="truncate">{idPhoto.name}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIdPhotoDialogOpen(true)}
+                  className="shrink-0 text-xs font-medium text-primary hover:underline"
+                >
+                  החלפה
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIdPhotoDialogOpen(true)}
+                className="flex flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-center transition-colors hover:border-primary hover:bg-primary/5"
+              >
+                <Upload className="h-5 w-5 text-primary" />
+                <span className="text-sm font-medium text-slate-600">
+                  לחצו להעלאת צילום {documentType === "id" ? "תעודת הזהות" : "הדרכון"}
+                </span>
+                <span className="text-xs text-slate-400">PDF, JPG או PNG · עד 4MB</span>
+              </button>
+            )}
           </div>
+
+          <Dialog
+            open={idPhotoDialogOpen}
+            onClose={() => setIdPhotoDialogOpen(false)}
+            title={`העלאת צילום ${documentType === "id" ? "תעודת הזהות" : "הדרכון"}`}
+            description="גררו קובץ לתיבה או לחצו לבחירה ממכשירכם"
+          >
+            <FileDropzone file={idPhoto} onFileChange={handleIdPhotoChange} />
+          </Dialog>
 
           <Input
             label="תאריך לידה"
@@ -494,6 +752,7 @@ export default function ClientLoginPage() {
             icon={<Calendar className="h-4 w-4" />}
             value={dateOfBirth}
             onChange={(e) => setDateOfBirth(e.target.value)}
+            error={dobError}
             required
           />
           {isMinor && (
@@ -505,13 +764,48 @@ export default function ClientLoginPage() {
               required
             />
           )}
-          <Input label="טלפון נייד" icon={<Phone className="h-4 w-4" />} value={phone} onChange={(e) => setPhone(e.target.value)} required />
           <Input
-            label="כתובת (אופציונלי)"
-            placeholder="רחוב, מספר, עיר"
-            value={insurance.address}
-            onChange={(e) => setInsurance({ ...insurance, address: e.target.value })}
+            label="טלפון נייד"
+            icon={<Phone className="h-4 w-4" />}
+            placeholder="050-1234567"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            error={phoneError}
+            required
           />
+          <div className="grid grid-cols-2 gap-2">
+            <Select
+              label="עיר (אופציונלי)"
+              value={addressCity}
+              onChange={(e) => {
+                setAddressCity(e.target.value);
+                setAddressStreet("");
+              }}
+            >
+              <option value="">לא צוין</option>
+              {CITIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </Select>
+            <Select
+              label="רחוב ומספר (אופציונלי)"
+              value={addressStreet}
+              onChange={(e) => setAddressStreet(e.target.value)}
+              disabled={!addressCity}
+            >
+              <option value="">{addressCity ? "בחרו רחוב" : "בחרו עיר קודם"}</option>
+              {(STREETS_BY_CITY[addressCity] ?? DEFAULT_STREETS).map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <p className="text-xs text-slate-400 -mt-2">
+            הרשימה לצורך הדגמה בלבד — באתר אמיתי שדה זה יתחבר למאגר כתובות חיצוני מלא
+          </p>
           <Button type="submit" className="w-full mt-2">
             המשך לפרופיל ביטוחי
           </Button>
@@ -524,7 +818,7 @@ export default function ClientLoginPage() {
   if (phase === "new-insurance") {
     return (
       <PageShell>
-        <Stepper steps={NEW_STEPS} step={NEW_PHASE_INDEX["new-insurance"]!} />
+        <Stepper steps={NEW_STEPS} step={NEW_PHASE_INDEX["new-insurance"]!} onStepClick={goToStep} />
         <p className="text-xs text-slate-400 mb-4">{NEW_STEPS[2]}</p>
         <button onClick={() => setPhase("new-profile")} className="text-sm text-primary mb-3 flex items-center gap-1">
           <ArrowRight className="h-3.5 w-3.5" /> חזרה
@@ -544,7 +838,7 @@ export default function ClientLoginPage() {
     const canFinish = areRequiredConsentsChecked(consents);
     return (
       <PageShell>
-        <Stepper steps={NEW_STEPS} step={NEW_PHASE_INDEX["new-consent"]!} />
+        <Stepper steps={NEW_STEPS} step={NEW_PHASE_INDEX["new-consent"]!} onStepClick={goToStep} />
         <p className="text-xs text-slate-400 mb-4">{NEW_STEPS[3]}</p>
         <button onClick={() => setPhase("new-insurance")} className="text-sm text-primary mb-3 flex items-center gap-1">
           <ArrowRight className="h-3.5 w-3.5" /> חזרה
@@ -564,7 +858,7 @@ export default function ClientLoginPage() {
 
       {mode === "new" && (
         <>
-          <Stepper steps={NEW_STEPS} step={NEW_PHASE_INDEX["new-credentials"]!} />
+          <Stepper steps={NEW_STEPS} step={NEW_PHASE_INDEX["new-credentials"]!} onStepClick={goToStep} />
           <p className="text-xs text-slate-400 mb-4">{NEW_STEPS[0]}</p>
         </>
       )}
@@ -582,6 +876,12 @@ export default function ClientLoginPage() {
         המשך עם Google
       </Button>
 
+      <div className="flex items-center gap-3 mb-4">
+        <div className="h-px flex-1 bg-slate-200" />
+        <span className="text-xs font-medium text-slate-400">או</span>
+        <div className="h-px flex-1 bg-slate-200" />
+      </div>
+
       {mode === "new" ? (
         <form onSubmit={handleCredentialsSubmit} className="flex flex-col gap-3">
           <Input
@@ -591,24 +891,36 @@ export default function ClientLoginPage() {
             icon={<Mail className="h-4 w-4" />}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            error={emailError}
             required
           />
           <Input
-            type="password"
+            type={showPassword ? "text" : "password"}
             placeholder="••••••••"
             label="סיסמה"
             icon={<Lock className="h-4 w-4" />}
+            endAdornment={<PasswordToggle show={showPassword} onToggle={() => setShowPassword((v) => !v)} />}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
           />
+          <PasswordRequirements password={password} />
           <Input
-            type="password"
+            type={showConfirmPassword ? "text" : "password"}
             placeholder="••••••••"
             label="אימות סיסמה"
             icon={<Lock className="h-4 w-4" />}
+            endAdornment={
+              <PasswordToggle show={showConfirmPassword} onToggle={() => setShowConfirmPassword((v) => !v)} />
+            }
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
+            error={confirmPassword && confirmPassword !== password ? "הסיסמאות אינן תואמות" : undefined}
+            hint={
+              confirmPassword && confirmPassword === password ? (
+                <span className="text-success-text">הסיסמאות תואמות ✓</span>
+              ) : undefined
+            }
             required
           />
           <Button type="submit" loading={loading} className="w-full mt-1">
@@ -634,14 +946,22 @@ export default function ClientLoginPage() {
             required
           />
           <Input
-            type="password"
+            type={showExistingPassword ? "text" : "password"}
             placeholder="••••••••"
             label="סיסמה"
             icon={<Lock className="h-4 w-4" />}
+            endAdornment={
+              <PasswordToggle show={showExistingPassword} onToggle={() => setShowExistingPassword((v) => !v)} />
+            }
             value={existingPassword}
             onChange={(e) => setExistingPassword(e.target.value)}
             required
           />
+          <div className="flex justify-end -mt-1.5">
+            <Link href="/forgot-password?from=client" className="text-xs text-primary hover:underline">
+              שכחת סיסמה?
+            </Link>
+          </div>
           <Button type="submit" loading={loading} className="w-full mt-1">
             התחברות
           </Button>

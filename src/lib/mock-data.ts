@@ -1,5 +1,6 @@
 import {
   Appointment,
+  B_INSURANCE_COMPANIES,
   Branch,
   CatalogItem,
   Clinic,
@@ -1291,8 +1292,6 @@ const PATIENT_NAMES = [
   "אסף נחום",
 ];
 
-const B_INSURANCE_COMPANIES = ["כלל", "הראל", "מגדל"];
-
 const KUPAH_CYCLE = ["כללית", "מכבי", "מאוחדת", "לאומית"] as const satisfies readonly Kupah[];
 
 export const SEED_PATIENTS: Patient[] = PATIENT_NAMES.map((name, i) => {
@@ -1326,7 +1325,7 @@ SEED_PATIENTS[0].status = "פעיל";
 SEED_PATIENTS[0].kupah = "מכבי";
 SEED_PATIENTS[0].k_level = "מכבי שלי";
 SEED_PATIENTS[0].has_b_insurance = true;
-SEED_PATIENTS[0].b_insurance_company = "מגדל";
+SEED_PATIENTS[0].b_insurance_company = "מגדל ביטוח";
 SEED_PATIENTS[0].b_policy_number = "POL-100000";
 
 // ---------------------------------------------------------------------------

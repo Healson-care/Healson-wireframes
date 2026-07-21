@@ -21,6 +21,9 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   /** Helper text under the field. Suppressed while `error` is showing, so the
    * two never stack and compete for the same slot. */
   hint?: ReactNode;
+  /** Extra control on the opposite side from `icon` (e.g. a show/hide-password
+   * toggle) — rendered inside the field, not just decorative like `icon`. */
+  endAdornment?: ReactNode;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
@@ -55,11 +58,15 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             className={cn(
               "h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm outline-none transition-shadow focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500",
               icon && "pr-10",
+              endAdornment && "pl-10",
               error && "border-danger focus:border-danger focus:ring-danger/20",
               className
             )}
             {...props}
           />
+          {endAdornment && (
+            <span className="absolute inset-y-0 left-3 flex items-center">{endAdornment}</span>
+          )}
         </div>
         {error ? (
           <span id={messageId} className="text-xs text-danger-text">
