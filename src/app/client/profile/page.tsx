@@ -28,6 +28,8 @@ import {
   NOTIFICATION_CHANNEL_LABELS,
   NotificationChannel,
   Patient,
+  Gender,
+  GENDERS,
 } from "@/types";
 import { formatDateHe, isValidIsraeliId } from "@/lib/utils";
 import { ShieldOff, FileDown, Lock, UserRound, SlidersHorizontal, ShieldCheck, ShieldPlus } from "lucide-react";
@@ -41,7 +43,11 @@ export default function ClientProfilePage() {
   const dsrRequests = useStore((s) => s.dsrRequests);
   const patient = useCurrentPatient();
 
-  const [form, setForm] = useState({ email: "", phone: "" });
+  const [form, setForm] = useState<{ email: string; phone: string; gender: Gender | "" }>({
+    email: "",
+    phone: "",
+    gender: "",
+  });
   const [preferences, setPreferences] = useState<{
     communication_language: CommunicationLanguage;
     notification_channel: NotificationChannel;
@@ -57,7 +63,7 @@ export default function ClientProfilePage() {
   if (loadKey && loadKey !== loadedFor) {
     setLoadedFor(loadKey);
     if (patient) {
-      setForm({ email: patient.email ?? "", phone: patient.phone ?? "" });
+      setForm({ email: patient.email ?? "", phone: patient.phone ?? "", gender: patient.gender ?? "" });
       setPreferences({
         communication_language: patient.communication_language ?? "he",
         notification_channel: patient.notification_channel ?? "email",
@@ -88,6 +94,7 @@ export default function ClientProfilePage() {
       updatePatient(patient.id, {
         email: form.email,
         phone: form.phone,
+        gender: form.gender || undefined,
         communication_language: preferences.communication_language,
         notification_channel: preferences.notification_channel,
         kupah: insurance.kupah,
@@ -196,6 +203,18 @@ export default function ClientProfilePage() {
                   onChange={(e) => setForm({ ...form, phone: e.target.value })}
                   required
                 />
+                <Select
+                  label="מגדר"
+                  value={form.gender}
+                  onChange={(e) => setForm({ ...form, gender: e.target.value as Gender })}
+                >
+                  <option value="">לא צוין</option>
+                  {GENDERS.map((g) => (
+                    <option key={g} value={g}>
+                      {g}
+                    </option>
+                  ))}
+                </Select>
               </CardContent>
             </Card>
           </TabsContent>

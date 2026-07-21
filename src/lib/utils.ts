@@ -76,6 +76,26 @@ export function isValidIsraeliId(id: string): boolean {
   return sum % 10 === 0;
 }
 
+export function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
+
+/** Israeli landline/mobile — 05X + 8 digits, or 0[2/3/4/8/9] + 7 digits.
+ * Dashes/spaces are stripped before matching (mock data uses "050-1234567"). */
+export function isValidIsraeliPhone(phone: string): boolean {
+  const digits = phone.trim().replace(/[\s-]/g, "");
+  return /^0(5\d{8}|[23489]\d{7})$/.test(digits);
+}
+
+/** "0501234567" -> "050-***-4567" — used where we show a phone number the
+ * user didn't just type themselves (e.g. "code sent to the number on file"
+ * at forgot-password), so it's clear which number without exposing it in full. */
+export function maskPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length < 4) return phone;
+  return `${digits.slice(0, 3)}-***-${digits.slice(-4)}`;
+}
+
 export function initials(name: string): string {
   const parts = name.trim().split(" ").filter(Boolean);
   if (parts.length === 0) return "?";
