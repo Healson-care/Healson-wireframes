@@ -24,17 +24,215 @@ import {
   COMMUNICATION_LANGUAGE_LABELS,
   CommunicationLanguage,
   ConsentType,
+  Gender,
+  GENDERS,
   NOTIFICATION_CHANNELS,
   NOTIFICATION_CHANNEL_LABELS,
   NotificationChannel,
   Patient,
-  Gender,
-  GENDERS,
 } from "@/types";
-import { formatDateHe, isValidIsraeliId } from "@/lib/utils";
+import { cn, formatDateHe, isValidEmail, isValidIsraeliId, isValidIsraeliPhone } from "@/lib/utils";
+import { CITIES, STREETS_BY_CITY, DEFAULT_STREETS } from "@/lib/constants";
 import { ShieldOff, FileDown, Lock, UserRound, SlidersHorizontal, ShieldCheck, ShieldPlus } from "lucide-react";
 
 const OPEN_DSR_STATUSES = ["ממתין", "בטיפול"];
+
+// Reverses the "street, city" join registration uses to store Patient.address
+// as a single string, so the profile page can prefill the same city/street
+// pickers. Best-effort only — falls back to blank fields if it doesn't match
+// a known city (e.g. addresses set before this field existed).
+function parseAddress(address: string): { city: string; street: string } {
+  const parts = address.split(",").map((p) => p.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    const [street, city] = parts;
+    return { city: CITIES.includes(city) ? city : "", street };
+  }
+  if (parts.length === 1) {
+    return CITIES.includes(parts[0]) ? { city: parts[0], street: "" } : { city: "", street: parts[0] };
+  }
+  return { city: "", street: "" };
+}
+
+// Segmented toggle for a short, fixed set of options — used instead of a
+// native <select> where there are only 2-3 choices. iOS renders <select>
+// options via its own OS picker (font size isn't controllable via CSS), so
+// for very short lists a toggle avoids that "tiny popup" problem entirely.
+function SegmentedToggle<T extends string>({
+  label,
+  value,
+  options,
+  labels,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: readonly T[];
+  labels: Record<T, string>;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-sm font-medium text-slate-700">{label}</span>
+      <div className="grid gap-1 rounded-lg bg-slate-100 p-1" style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}>
+        {options.map((opt) => (
+          <button
+            key={opt}
+            type="button"
+            onClick={() => onChange(opt)}
+            className={cn(
+              "rounded-md py-1.5 text-sm font-medium transition-colors",
+              value === opt ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+            )}
+          >
+            {labels[opt]}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Read-only display for identity fields — deliberately not styled like an
+// input box, so it doesn't invite clicking/typing the way a disabled Input does.
+function LockedField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2.5">
+      <div className="min-w-0">
+        <p className="text-xs text-slate-500">{label}</p>
+        <p className="truncate text-sm font-medium text-slate-700">{value || "—"}</p>
+      </div>
+      <Lock className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+    </div>
+  );
+}
+
+// Fixed demo codes — same convention used across the app's other OTP flows
+// (registration/login/password-reset all use "123456"/"654321" too).
+const DEMO_SMS_CODE = "123456";
+const DEMO_EMAIL_CODE = "654321";
+const RESEND_COOLDOWN_SECONDS = 30;
+
+// Gates an email/phone change behind an OTP-style confirmation before it's
+// saved — mirrors the SMS+email double verification already used at
+// registration/login, just scoped to whichever contact field actually changed.
+function ContactVerificationDialog({
+  open,
+  onClose,
+  needsSms,
+  needsEmail,
+  newPhone,
+  newEmail,
+  onVerified,
+}: {
+  open: boolean;
+  onClose: () => void;
+  needsSms: boolean;
+  needsEmail: boolean;
+  newPhone: string;
+  newEmail: string;
+  onVerified: () => void;
+}) {
+  const showToast = useStore((s) => s.showToast);
+  const [phase, setPhase] = useState<"sms" | "email">("sms");
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  const [resendUnlockAt, setResendUnlockAt] = useState<number | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState(0);
+
+  function sendCode(target: "sms" | "email") {
+    showToast(target === "sms" ? "קוד אימות נשלח ב-SMS למספר החדש" : "קוד אימות נשלח לכתובת המייל החדשה", {
+      description: `קוד הדגמה: ${target === "sms" ? DEMO_SMS_CODE : DEMO_EMAIL_CODE}`,
+      variant: "success",
+    });
+    setResendUnlockAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    const firstPhase = needsSms ? "sms" : "email";
+    setPhase(firstPhase);
+    setCode("");
+    setError("");
+    sendCode(firstPhase);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, needsSms, needsEmail]);
+
+  useEffect(() => {
+    if (!resendUnlockAt) {
+      setSecondsLeft(0);
+      return;
+    }
+    const tick = () => setSecondsLeft(Math.max(0, Math.ceil((resendUnlockAt - Date.now()) / 1000)));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [resendUnlockAt]);
+
+  function handleResend() {
+    if (secondsLeft > 0) return;
+    sendCode(phase);
+  }
+
+  function handleVerify(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    const expected = phase === "sms" ? DEMO_SMS_CODE : DEMO_EMAIL_CODE;
+    if (code !== expected) {
+      setError("קוד שגוי, נסו שנית");
+      return;
+    }
+    if (phase === "sms" && needsEmail) {
+      setPhase("email");
+      setCode("");
+      sendCode("email");
+      return;
+    }
+    onVerified();
+    onClose();
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="אימות פרטי קשר חדשים"
+      description={phase === "sms" ? `שלחנו קוד אימות ב-SMS למספר ${newPhone}` : `שלחנו קוד אימות למייל ${newEmail}`}
+    >
+      <form onSubmit={handleVerify} className="flex flex-col gap-3">
+        {error && (
+          <div className="rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
+            {error}
+          </div>
+        )}
+        <Input
+          label="קוד אימות"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          inputMode="numeric"
+          maxLength={6}
+          required
+        />
+        <button
+          type="button"
+          onClick={handleResend}
+          disabled={secondsLeft > 0}
+          className={cn(
+            "self-start text-sm font-medium",
+            secondsLeft > 0 ? "text-slate-400 cursor-not-allowed" : "text-primary hover:underline"
+          )}
+        >
+          {secondsLeft > 0 ? `שליחה חוזרת בעוד 0:${String(secondsLeft).padStart(2, "0")}` : "שלח קוד מחדש"}
+        </button>
+        <div className="flex justify-end gap-2 mt-2">
+          <Button type="button" variant="outline" onClick={onClose}>
+            ביטול
+          </Button>
+          <Button type="submit">{phase === "sms" && needsEmail ? "המשך" : "אמת"}</Button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
 
 export default function ClientProfilePage() {
   const currentUser = useStore((s) => s.currentUser);
@@ -53,6 +251,8 @@ export default function ClientProfilePage() {
     notification_channel: NotificationChannel;
   }>({ communication_language: "he", notification_channel: "email" });
   const [insurance, setInsurance] = useState<InsuranceProfileValue>(EMPTY_INSURANCE_PROFILE);
+  const [addressCity, setAddressCity] = useState("");
+  const [addressStreet, setAddressStreet] = useState("");
   const [error, setError] = useState("");
   const [rectifyOpen, setRectifyOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("personal");
@@ -76,6 +276,9 @@ export default function ClientProfilePage() {
         b_policy_number: patient.b_policy_number ?? "",
         address: patient.address ?? "",
       });
+      const parsed = parseAddress(patient.address ?? "");
+      setAddressCity(parsed.city);
+      setAddressStreet(parsed.street);
     } else if (currentUser) {
       setForm((f) => ({ ...f, email: currentUser.email }));
     }
@@ -87,25 +290,47 @@ export default function ClientProfilePage() {
       )
     : undefined;
 
+  const emailError = form.email && !isValidEmail(form.email) ? "כתובת אימייל לא תקינה" : undefined;
+  const phoneError = form.phone && !isValidIsraeliPhone(form.phone) ? "מספר טלפון לא תקין" : undefined;
+
+  const [verifyOpen, setVerifyOpen] = useState(false);
+  const [pendingVerification, setPendingVerification] = useState<{ needsSms: boolean; needsEmail: boolean } | null>(
+    null
+  );
+
+  function saveProfile() {
+    if (!patient) return;
+    updatePatient(patient.id, {
+      email: form.email,
+      phone: form.phone,
+      gender: form.gender || undefined,
+      communication_language: preferences.communication_language,
+      notification_channel: preferences.notification_channel,
+      kupah: insurance.kupah,
+      k_level: insurance.k_level || undefined,
+      has_b_insurance: insurance.has_b_insurance,
+      b_insurance_company: insurance.has_b_insurance ? insurance.b_insurance_company : undefined,
+      b_policy_number: insurance.has_b_insurance ? insurance.b_policy_number : undefined,
+      address: [addressStreet.trim(), addressCity.trim()].filter(Boolean).join(", ") || undefined,
+    });
+    showToast("השינויים נשמרו", { variant: "success" });
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    if (patient) {
-      updatePatient(patient.id, {
-        email: form.email,
-        phone: form.phone,
-        gender: form.gender || undefined,
-        communication_language: preferences.communication_language,
-        notification_channel: preferences.notification_channel,
-        kupah: insurance.kupah,
-        k_level: insurance.k_level || undefined,
-        has_b_insurance: insurance.has_b_insurance,
-        b_insurance_company: insurance.has_b_insurance ? insurance.b_insurance_company : undefined,
-        b_policy_number: insurance.has_b_insurance ? insurance.b_policy_number : undefined,
-        address: insurance.address || undefined,
-      });
+    if (emailError || phoneError) {
+      setError("יש לתקן את השדות המסומנים לפני השמירה");
+      return;
     }
-    showToast("הפרופיל נשמר בהצלחה", { variant: "success" });
+    const emailChanged = patient && form.email !== (patient.email ?? "");
+    const phoneChanged = patient && form.phone !== (patient.phone ?? "");
+    if (emailChanged || phoneChanged) {
+      setPendingVerification({ needsSms: !!phoneChanged, needsEmail: !!emailChanged });
+      setVerifyOpen(true);
+      return;
+    }
+    saveProfile();
   }
 
   return (
@@ -154,25 +379,13 @@ export default function ClientProfilePage() {
                     )}
                   </div>
                 )}
-                <Input label="שם מלא" value={patient?.full_name ?? ""} disabled icon={<Lock className="h-4 w-4" />} />
-                <Input
-                  label="תעודת זהות / דרכון"
-                  value={patient?.id_number ?? ""}
-                  disabled
-                  icon={<Lock className="h-4 w-4" />}
-                />
-                <Input
+                <LockedField label="שם מלא" value={patient?.full_name ?? ""} />
+                <LockedField label="תעודת זהות / דרכון" value={patient?.id_number ?? ""} />
+                <LockedField
                   label="תאריך לידה"
                   value={patient?.date_of_birth ? formatDateHe(patient.date_of_birth) : ""}
-                  disabled
-                  icon={<Lock className="h-4 w-4" />}
                 />
-                <Input
-                  label="שם הורה (אם המטופל קטין)"
-                  value={patient?.parent_name ?? ""}
-                  disabled
-                  icon={<Lock className="h-4 w-4" />}
-                />
+                <LockedField label="שם הורה (אם המטופל קטין)" value={patient?.parent_name ?? ""} />
                 <Button
                   type="button"
                   variant="outline"
@@ -181,7 +394,7 @@ export default function ClientProfilePage() {
                   disabled={!patient || !!pendingRectification}
                   onClick={() => setRectifyOpen(true)}
                 >
-                  בקש שינוי פרטים מזהים
+                  ערוך
                 </Button>
               </CardContent>
             </Card>
@@ -196,13 +409,23 @@ export default function ClientProfilePage() {
                   type="email"
                   value={form.email}
                   onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  error={emailError}
                 />
                 <Input
                   label="טלפון"
                   value={form.phone}
                   onChange={(e) => setForm({ ...form, phone: e.target.value })}
                   required
+                  error={phoneError}
                 />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>פרטים נוספים</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3">
                 <Select
                   label="מגדר"
                   value={form.gender}
@@ -215,6 +438,39 @@ export default function ClientProfilePage() {
                     </option>
                   ))}
                 </Select>
+                <div className="grid grid-cols-2 gap-2">
+                  <Select
+                    label="עיר (אופציונלי)"
+                    value={addressCity}
+                    onChange={(e) => {
+                      setAddressCity(e.target.value);
+                      setAddressStreet("");
+                    }}
+                  >
+                    <option value="">לא צוין</option>
+                    {CITIES.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </Select>
+                  <Select
+                    label="רחוב ומספר (אופציונלי)"
+                    value={addressStreet}
+                    onChange={(e) => setAddressStreet(e.target.value)}
+                    disabled={!addressCity}
+                  >
+                    <option value="">{addressCity ? "בחרו רחוב" : "בחרו עיר קודם"}</option>
+                    {(STREETS_BY_CITY[addressCity] ?? DEFAULT_STREETS).map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <p className="text-xs text-slate-400 -mt-2">
+                  הרשימה לצורך הדגמה בלבד — באתר אמיתי שדה זה יתחבר למאגר כתובות חיצוני מלא
+                </p>
               </CardContent>
             </Card>
           </TabsContent>
@@ -225,32 +481,20 @@ export default function ClientProfilePage() {
                 <CardTitle>העדפות</CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
-                <Select
+                <SegmentedToggle
                   label="שפת תקשורת"
                   value={preferences.communication_language}
-                  onChange={(e) =>
-                    setPreferences({ ...preferences, communication_language: e.target.value as CommunicationLanguage })
-                  }
-                >
-                  {COMMUNICATION_LANGUAGES.map((lang) => (
-                    <option key={lang} value={lang}>
-                      {COMMUNICATION_LANGUAGE_LABELS[lang]}
-                    </option>
-                  ))}
-                </Select>
-                <Select
+                  options={COMMUNICATION_LANGUAGES}
+                  labels={COMMUNICATION_LANGUAGE_LABELS}
+                  onChange={(lang) => setPreferences({ ...preferences, communication_language: lang })}
+                />
+                <SegmentedToggle
                   label="ערוץ התראות"
                   value={preferences.notification_channel}
-                  onChange={(e) =>
-                    setPreferences({ ...preferences, notification_channel: e.target.value as NotificationChannel })
-                  }
-                >
-                  {NOTIFICATION_CHANNELS.map((channel) => (
-                    <option key={channel} value={channel}>
-                      {NOTIFICATION_CHANNEL_LABELS[channel]}
-                    </option>
-                  ))}
-                </Select>
+                  options={NOTIFICATION_CHANNELS}
+                  labels={NOTIFICATION_CHANNEL_LABELS}
+                  onChange={(channel) => setPreferences({ ...preferences, notification_channel: channel })}
+                />
               </CardContent>
             </Card>
           </TabsContent>
@@ -261,7 +505,7 @@ export default function ClientProfilePage() {
                 <CardTitle>פרופיל ביטוחי</CardTitle>
               </CardHeader>
               <CardContent>
-                <InsuranceProfileForm value={insurance} onChange={setInsurance} />
+                <InsuranceProfileForm value={insurance} onChange={setInsurance} showAddress={false} />
               </CardContent>
             </Card>
           </TabsContent>
@@ -280,6 +524,18 @@ export default function ClientProfilePage() {
 
       {patient && (
         <RectifyDetailsDialog open={rectifyOpen} onClose={() => setRectifyOpen(false)} patient={patient} />
+      )}
+
+      {pendingVerification && (
+        <ContactVerificationDialog
+          open={verifyOpen}
+          onClose={() => setVerifyOpen(false)}
+          needsSms={pendingVerification.needsSms}
+          needsEmail={pendingVerification.needsEmail}
+          newPhone={form.phone}
+          newEmail={form.email}
+          onVerified={saveProfile}
+        />
       )}
     </ClientLayout>
   );
@@ -432,11 +688,14 @@ function RectifyDetailsDialog({
     }
   }, [open, patient]);
 
+  const idNumberError =
+    values.id_number && !isValidIsraeliId(values.id_number) ? "מספר תעודת זהות לא תקין" : undefined;
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    if (values.id_number && !isValidIsraeliId(values.id_number)) {
-      setError("מספר תעודת זהות לא תקין");
+    if (idNumberError) {
+      setError(idNumberError);
       return;
     }
     const diffs = (Object.keys(RECTIFY_FIELD_LABELS) as (keyof typeof RECTIFY_FIELD_LABELS)[])
@@ -478,6 +737,7 @@ function RectifyDetailsDialog({
           onChange={(e) => setValues({ ...values, id_number: e.target.value })}
           inputMode="numeric"
           maxLength={9}
+          error={idNumberError}
         />
         <Input
           label="תאריך לידה"
@@ -494,7 +754,7 @@ function RectifyDetailsDialog({
           <Button type="button" variant="outline" onClick={onClose}>
             ביטול
           </Button>
-          <Button type="submit">שלח בקשה</Button>
+          <Button type="submit">שלח לבדיקה</Button>
         </div>
       </form>
     </Dialog>

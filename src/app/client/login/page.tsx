@@ -16,7 +16,7 @@ import { isValidIsraeliId, isValidEmail, isValidIsraeliPhone } from "@/lib/utils
 import { fileToDataUrl } from "@/lib/file";
 import { homeForRole } from "@/lib/useRequireRole";
 import { cn } from "@/lib/utils";
-import { POST_REGISTER_REDIRECT_KEY } from "@/lib/constants";
+import { POST_REGISTER_REDIRECT_KEY, CITIES, STREETS_BY_CITY, DEFAULT_STREETS } from "@/lib/constants";
 import { Gender, GENDERS, UploadedFile } from "@/types";
 import {
   ConsentCheckboxes,
@@ -92,62 +92,6 @@ function ResendControl({
     </div>
   );
 }
-
-// Address is picked, not typed — a closed list keeps it demo-friendly (no
-// free text to validate/normalize). This app makes no external/network
-// calls (see utils.ts), so there's no real geo/address database behind it —
-// a real deployment would connect to one (e.g. the Israeli postal/city
-// registry) instead of this fixed list; a UI note below the fields says so.
-// Streets are keyed by city, same pattern as K_LEVELS_BY_KUPAH, so picking a
-// city narrows the street list instead of showing every street at once;
-// cities without their own curated streets fall back to DEFAULT_STREETS.
-const CITIES = [
-  "תל אביב",
-  "ירושלים",
-  "חיפה",
-  "ראשון לציון",
-  "פתח תקווה",
-  "אשדוד",
-  "נתניה",
-  "באר שבע",
-  "בני ברק",
-  "חולון",
-  "רמת גן",
-  "בת ים",
-  "אשקלון",
-  "רחובות",
-  "הרצליה",
-  "כפר סבא",
-  "מודיעין",
-  "רעננה",
-  "בית שמש",
-  "נצרת",
-  "לוד",
-  "רמלה",
-  "רמת השרון",
-  "גבעתיים",
-  "הוד השרון",
-  "נהריה",
-  "קריית אתא",
-  "קריית גת",
-  "קריית ביאליק",
-  "קריית שמונה",
-  "אילת",
-  "טבריה",
-  "עכו",
-  "דימונה",
-];
-const STREETS_BY_CITY: Record<string, string[]> = {
-  "תל אביב": ["הרצל 12", "אבן גבירול 50", "דיזנגוף 100"],
-  "ירושלים": ["יפו 22", "בן יהודה 8", "עמק רפאים 15"],
-  "חיפה": ["הרצל 8", "הנביאים 30", "מוריה 45"],
-  "ראשון לציון": ["רוטשילד 20", "הרצל 5"],
-  "פתח תקווה": ["חובבי ציון 10", "רוטשילד 60"],
-  "רמת גן": ["ביאליק 12", "ז'בוטינסקי 40"],
-  "הרצליה": ["סוקולוב 25", "בן גוריון 90"],
-  "באר שבע": ["רגר 15", "הפלמח 33"],
-};
-const DEFAULT_STREETS = ["הרחוב הראשי 1", "שדרות העצמאות 10"];
 
 const RESEND_COOLDOWN_SECONDS = 30;
 // After this many resends without success, offer "לא קיבלתי" to flag a real
