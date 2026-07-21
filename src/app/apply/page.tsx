@@ -89,7 +89,7 @@ export default function ProviderApplyPage() {
           </div>
 
           {error && (
-            <div className="mb-3 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-text">
+            <div role="alert" className="mb-3 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-text">
               {error}
             </div>
           )}

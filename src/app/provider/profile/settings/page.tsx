@@ -3,6 +3,7 @@
 import { ProfilePageFrame } from "@/components/provider/ProfilePageFrame";
 import { ProfileFieldsSection } from "@/components/provider/ProfileFieldsSection";
 import { ReferralFormsSection } from "@/components/provider/ReferralFormsSection";
+import { SectionHeading } from "@/components/ui/Misc";
 
 export default function ProviderSettingsPage() {
   return (
@@ -14,7 +15,7 @@ export default function ProviderSettingsPage() {
         <div className="flex flex-col gap-6">
           <ProfileFieldsSection provider={provider} onSave={(data) => update(data)} showToast={showToast} />
           <div>
-            <h2 className="mb-3 text-sm font-semibold text-slate-500">תבניות הפניה</h2>
+            <SectionHeading>תבניות הפניה</SectionHeading>
             <ReferralFormsSection
               forms={provider.referral_forms}
               onChange={(forms) => update({ referral_forms: forms })}

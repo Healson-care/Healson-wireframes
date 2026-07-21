@@ -5,6 +5,7 @@ import { ProviderLayout } from "@/components/layouts/ProviderLayout";
 import { useStore } from "@/lib/store";
 import { useCurrentProvider } from "@/lib/useCurrentPatient";
 import { PageHeader } from "@/components/ui/Misc";
+import { SaveIndicator, useSaveFlash } from "@/components/ui/SaveIndicator";
 import { CardListSkeleton, Skeleton } from "@/components/ui/Skeleton";
 import { OnboardingProgress } from "@/components/provider/OnboardingProgress";
 import type { ProviderProfile, User } from "@/types";
@@ -34,6 +35,11 @@ export function ProfilePageFrame({
   const provider = useCurrentProvider();
   const upsertProviderProfile = useStore((s) => s.upsertProviderProfile);
   const showToast = useStore((s) => s.showToast);
+  // Save policy: profile-config pages auto-save on every change, so instead of
+  // toasting each write we flash a subtle "נשמר" in the page header. Every
+  // section funnels its mutations through ctx.update, making this one hook the
+  // feedback point for the whole config area.
+  const [savedVisible, flashSaved] = useSaveFlash();
 
   if (!provider || !currentUser) {
     return (
@@ -49,13 +55,16 @@ export function ProfilePageFrame({
   const ctx: ProfileCtx = {
     provider,
     currentUser,
-    update: (data) => upsertProviderProfile(currentUser.id, data),
+    update: (data) => {
+      upsertProviderProfile(currentUser.id, data);
+      flashSaved();
+    },
     showToast,
   };
 
   return (
     <ProviderLayout>
-      <PageHeader title={title} description={description} />
+      <PageHeader title={title} description={description} actions={<SaveIndicator visible={savedVisible} />} />
       {/* During the onboarding stage the progress meter rides along at the top
           of every profile-config page, so it's always visible until go-live. */}
       {provider.status === "onboarding" && <OnboardingProgress provider={provider} className="mb-6" />}

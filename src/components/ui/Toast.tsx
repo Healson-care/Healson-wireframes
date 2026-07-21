@@ -10,11 +10,16 @@ export function ToastContainer() {
   const dismissToast = useStore((s) => s.dismissToast);
 
   return (
-    <div className="fixed bottom-4 left-1/2 z-[100] flex w-full max-w-sm -translate-x-1/2 flex-col gap-2 px-4 sm:bottom-6 sm:left-auto sm:right-6 sm:translate-x-0">
+    <div
+      aria-live="polite"
+      aria-atomic="false"
+      className="fixed bottom-4 left-1/2 z-[100] flex w-full max-w-sm -translate-x-1/2 flex-col gap-2 px-4 sm:bottom-6 sm:left-auto sm:right-6 sm:translate-x-0"
+    >
       <AnimatePresence initial={false}>
         {toasts.map((t) => (
           <motion.div
             key={t.id}
+            role={t.variant === "destructive" ? "alert" : "status"}
             layout
             initial={{ opacity: 0, y: 16, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -38,7 +43,11 @@ export function ToastContainer() {
               <p className="font-medium text-slate-900">{t.title}</p>
               {t.description && <p className="text-slate-500 mt-0.5">{t.description}</p>}
             </div>
-            <button onClick={() => dismissToast(t.id)} className="text-slate-400 hover:text-slate-600">
+            <button
+              onClick={() => dismissToast(t.id)}
+              aria-label="סגירת ההודעה"
+              className="focus-ring rounded text-slate-400 hover:text-slate-600"
+            >
               <X className="h-4 w-4" />
             </button>
           </motion.div>

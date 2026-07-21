@@ -43,19 +43,31 @@ export default function ProviderPatientsPage() {
     <ProviderLayout>
       <PageHeader title="המטופלים שלי" description="רשימת המטופלים המשויכים אליך" />
 
-      <Input
-        placeholder="חיפוש לפי שם, טלפון או ת.ז..."
-        icon={<Search className="h-4 w-4" />}
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        className="mb-4 max-w-sm"
-      />
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="w-full max-w-sm">
+          <Input
+            placeholder="חיפוש לפי שם, טלפון או ת.ז..."
+            icon={<Search className="h-4 w-4" />}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="חיפוש מטופלים"
+          />
+        </div>
+        <span className="text-sm text-slate-500">
+          {filtered.length} {filtered.length === 1 ? "מטופל/ת" : "מטופלים"}
+        </span>
+      </div>
 
       <DataTable<Patient>
         rows={filtered}
         rowKey={(p) => p.id}
         emptyIcon={<Users className="h-10 w-10" />}
-        emptyTitle="אין מטופלים מתאימים"
+        emptyTitle={query ? "לא נמצאו תוצאות לחיפוש" : "אין עדיין מטופלים"}
+        emptyDescription={
+          query
+            ? "נסו לחפש בשם אחר, מספר טלפון או תעודת זהות."
+            : "מטופלים יופיעו כאן אוטומטית לאחר התור או ההזמנה הראשונים שלהם אצלך."
+        }
         onRowClick={(p) => router.push(`/provider/patients/${p.id}`)}
         rowActions={(p) => (
           <Button variant="outline" size="sm" onClick={() => router.push(`/provider/patients/${p.id}`)}>

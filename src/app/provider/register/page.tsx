@@ -38,6 +38,8 @@ import Link from "next/link";
 import { ProviderLayout } from "@/components/layouts/ProviderLayout";
 import { Input, Select, Textarea } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
+import { FileDropzone } from "@/components/ui/FileDropzone";
+import { DemoPanel } from "@/components/provider/DemoPanel";
 import { DashboardSkeleton } from "@/components/ui/Skeleton";
 import { useStore } from "@/lib/store";
 import { useRequireRole } from "@/lib/useRequireRole";
@@ -501,7 +503,7 @@ function RegisterStepper({ phase }: { phase: Phase }) {
               <motion.div
                 animate={{
                   backgroundColor: isDone || isActive ? "var(--color-primary)" : "#f1f5f9",
-                  color: isDone || isActive ? "#ffffff" : "#94a3b8",
+                  color: isDone || isActive ? "#ffffff" : "#64748b",
                   scale: isActive ? 1.12 : 1,
                 }}
                 transition={{ duration: 0.25 }}
@@ -509,7 +511,7 @@ function RegisterStepper({ phase }: { phase: Phase }) {
               >
                 {isDone ? <CheckCircle2 className="h-4 w-4" /> : step.icon}
               </motion.div>
-              <span className={`text-[10px] font-medium whitespace-nowrap ${isDone || isActive ? "text-slate-700" : "text-slate-400"}`}>
+              <span className={`text-[10px] font-medium whitespace-nowrap ${isDone || isActive ? "text-slate-700" : "text-slate-500"}`}>
                 {step.label}
               </span>
             </div>
@@ -743,22 +745,41 @@ export default function ProviderRegisterPage() {
   const [storeStructure, setStoreStructure] = useState<"single" | "chain">("single");
   const [otpCode, setOtpCode] = useState("");
   const [error, setErrorMessage] = useState("");
+  const [errorField, setErrorField] = useState<"license" | "hospital" | "specialty" | null>(null);
   const [errorNonce, setErrorNonce] = useState(0);
   const errorRef = useRef<HTMLDivElement | null>(null);
   const [loading, setLoading] = useState(false);
 
   // The form is long — on validation failure the user is at the submit button
   // at the bottom while the error banner renders at the top. Scroll it into
-  // view every time an error is raised (nonce bumps even when the same
-  // message repeats, so a second failed submit still scrolls).
-  function setError(message: string) {
+  // view AND focus it (so screen readers announce it) every time an error is
+  // raised (nonce bumps even when the same message repeats, so a second
+  // failed submit still scrolls). `field` additionally highlights the exact
+  // control the message is about, inline.
+  function setError(message: string, field?: "license" | "hospital" | "specialty") {
     setErrorMessage(message);
+    setErrorField(field ?? null);
     if (message) setErrorNonce((n) => n + 1);
   }
 
   useEffect(() => {
-    if (errorNonce > 0) errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (errorNonce > 0) {
+      errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      errorRef.current?.focus({ preventScroll: true });
+    }
   }, [errorNonce]);
+
+  // Moving between sub-steps replaces the whole form content — without moving
+  // focus, keyboard/screen-reader users are left on the now-gone submit
+  // button. Focus the form (labeled with the current step) on each change;
+  // the ref guard keeps initial mount from stealing focus.
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const prevFormStepRef = useRef(formStep);
+  useEffect(() => {
+    if (prevFormStepRef.current === formStep) return;
+    prevFormStepRef.current = formStep;
+    formRef.current?.focus({ preventScroll: true });
+  }, [formStep]);
 
   // One-time resume sync, run during render (not an effect) the first time
   // `ready`/`provider` become available — covers both a same-session
@@ -836,16 +857,16 @@ export default function ProviderRegisterPage() {
   // Custom validations for fields native `required` can't cover (file
   // uploads, pill multi-selects) — all belong to the "details" sub-step, and
   // re-checked on final submit as a safety net.
-  function detailsStepError(): string | null {
+  function detailsStepError(): { field: "license" | "hospital" | "specialty"; message: string } | null {
     if (!config) return null;
     if (config.licenseFileRequired !== false && !licenseFile && !provider?.license_file) {
-      return `נא לצרף ${config.licenseFileLabel.replace(/\s*\(.*\)$/, "")}`;
+      return { field: "license", message: `נא לצרף ${config.licenseFileLabel.replace(/\s*\(.*\)$/, "")}` };
     }
     if (isSurgeon && !surgicalPrivilegesHospital) {
-      return "רופא/ה מנתח/ת נדרש/ת לציין את בית החולים בו יש הרשאת ניתוח";
+      return { field: "hospital", message: "רופא/ה מנתח/ת נדרש/ת לציין את בית החולים בו יש הרשאת ניתוח" };
     }
     if (config.multiSpecialty && specialtyMulti.length === 0) {
-      return `נא לבחור לפחות אפשרות אחת עבור ${config.specialtyLabel}`;
+      return { field: "specialty", message: `נא לבחור לפחות אפשרות אחת עבור ${config.specialtyLabel}` };
     }
     return null;
   }
@@ -919,7 +940,7 @@ export default function ProviderRegisterPage() {
     if (currentFormStepKey === "details" || isLastFormStep) {
       const stepError = detailsStepError();
       if (stepError) {
-        setError(stepError);
+        setError(stepError.message, stepError.field);
         return;
       }
     }
@@ -1159,7 +1180,7 @@ export default function ProviderRegisterPage() {
           </p>
         </div>
         {error && (
-          <div className="mb-4 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
+          <div role="alert" className="mb-4 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
             {error}
           </div>
         )}
@@ -1282,23 +1303,19 @@ export default function ProviderRegisterPage() {
           )}
 
           {applicationProviderId && demoOutcome === null && provider?.status === "pending_review" && (
-            <div className="mt-4 w-full rounded-xl border border-dashed border-amber-300 bg-amber-50/60 p-4 text-right">
-              <p className="mb-1 text-xs font-semibold text-amber-700">🎮 מצב הדגמה</p>
-              <p className="mb-3 text-xs text-amber-700/80">
-                לצורך הדגמת המוצר בלבד — סמלץ את תשובת צוות Healson בדיקת הרישיון:
-              </p>
+            <DemoPanel className="mt-4 w-full" description="לצורך הדגמת המוצר בלבד — סמלץ את תשובת צוות Healson לבדיקת הרישיון:">
               <div className="flex flex-col sm:flex-row gap-2">
                 <Button onClick={handleDemoMoveToOnboarding} variant="outline" className="flex-1 text-primary border-primary/40">
                   <Rocket className="h-4 w-4" /> העבר ל-Onboarding (דמו)
                 </Button>
-                <Button onClick={handleDemoApprove} className="flex-1 bg-green-600 hover:bg-green-700">
+                <Button onClick={handleDemoApprove} className="flex-1 bg-success hover:bg-success-text">
                   <CheckCircle2 className="h-4 w-4" /> אשר את הספק (דמו)
                 </Button>
-                <Button onClick={handleDemoReject} variant="outline" className="flex-1 text-red-600">
+                <Button onClick={handleDemoReject} variant="outline" className="flex-1 text-danger">
                   <XCircle className="h-4 w-4" /> דחה את הספק (דמו)
                 </Button>
               </div>
-            </div>
+            </DemoPanel>
           )}
 
           {!rejected && !approved && (
@@ -1428,7 +1445,12 @@ export default function ProviderRegisterPage() {
       )}
 
       {error && (
-        <div ref={errorRef} className="mb-4 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
+        <div
+          ref={errorRef}
+          role="alert"
+          tabIndex={-1}
+          className="mb-4 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text outline-none"
+        >
           {error}
         </div>
       )}
@@ -1440,7 +1462,13 @@ export default function ProviderRegisterPage() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      <form
+        ref={formRef}
+        onSubmit={handleSubmit}
+        tabIndex={-1}
+        aria-label={`שלב ${safeFormStep + 1} מתוך ${formSteps.length}: ${formSteps[safeFormStep].label}`}
+        className="flex flex-col gap-4 outline-none"
+      >
         {currentFormStepKey === "details" && (
         <>
         <FormSection icon={<UserIcon className="h-4 w-4" />} title="פרטים אישיים ויצירת קשר">
@@ -1581,12 +1609,20 @@ export default function ProviderRegisterPage() {
               required
             />
           ) : config.multiSpecialty ? (
-            <MultiSelectPills
-              label={config.specialtyLabel}
-              options={config.specialtyOptions}
-              value={specialtyMulti}
-              onChange={setSpecialtyMulti}
-            />
+            <div className="flex flex-col gap-1.5">
+              <MultiSelectPills
+                label={config.specialtyLabel}
+                options={config.specialtyOptions}
+                value={specialtyMulti}
+                onChange={(v) => {
+                  setSpecialtyMulti(v);
+                  if (errorField === "specialty") setError("");
+                }}
+              />
+              {errorField === "specialty" && error && (
+                <span className="text-xs text-danger-text">{error}</span>
+              )}
+            </div>
           ) : (
             <Select
               label={config.specialtyLabel}
@@ -1666,21 +1702,21 @@ export default function ProviderRegisterPage() {
             />
           )}
 
-          <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
-            {config.licenseFileLabel}
-            <span className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-2.5 text-sm text-slate-600 cursor-pointer hover:border-primary hover:bg-primary/5 transition-colors">
-              <Upload className="h-4 w-4 shrink-0" />
-              <span className="truncate">
-                {licenseFile ? licenseFile.name : provider?.license_file ? provider.license_file.file_name : "בחר קובץ"}
-              </span>
-              <input
-                type="file"
-                accept=".pdf,.jpg,.jpeg,.png"
-                className="hidden"
-                onChange={(e) => setLicenseFile(e.target.files?.[0] ?? null)}
-              />
-            </span>
-          </label>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium text-slate-700">{config.licenseFileLabel}</span>
+            <FileDropzone
+              file={licenseFile}
+              onFileChange={(f) => {
+                setLicenseFile(f);
+                if (errorField === "license") setError("");
+              }}
+              existingFileName={provider?.license_file?.file_name}
+              ariaLabel={config.licenseFileLabel.trim()}
+            />
+            {errorField === "license" && error && (
+              <span className="text-xs text-danger-text">{error}</span>
+            )}
+          </div>
 
           <AnimatePresence initial={false}>
             {isSurgeon && (
@@ -1695,7 +1731,11 @@ export default function ProviderRegisterPage() {
                   label="בית חולים / מוסד בו קיימת הרשאת ניתוח"
                   icon={<Building2 className="h-4 w-4" />}
                   value={surgicalPrivilegesHospital}
-                  onChange={(e) => setSurgicalPrivilegesHospital(e.target.value)}
+                  onChange={(e) => {
+                    setSurgicalPrivilegesHospital(e.target.value);
+                    if (errorField === "hospital") setError("");
+                  }}
+                  error={errorField === "hospital" ? error : undefined}
                   required
                 />
               </motion.div>
@@ -1723,25 +1763,15 @@ export default function ProviderRegisterPage() {
             )}
 
             {config.showMedicalResume && extraFieldsGate && (
-              <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
-                רזומה רפואי (לא חובה)
-                <span className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-2.5 text-sm text-slate-600 cursor-pointer hover:border-primary hover:bg-primary/5 transition-colors">
-                  <Upload className="h-4 w-4 shrink-0" />
-                  <span className="truncate">
-                    {medicalResumeFile
-                      ? medicalResumeFile.name
-                      : provider?.medical_resume_file
-                      ? provider.medical_resume_file.file_name
-                      : "בחר קובץ"}
-                  </span>
-                  <input
-                    type="file"
-                    accept=".pdf,.jpg,.jpeg,.png"
-                    className="hidden"
-                    onChange={(e) => setMedicalResumeFile(e.target.files?.[0] ?? null)}
-                  />
-                </span>
-              </label>
+              <div className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium text-slate-700">רזומה רפואי (לא חובה)</span>
+                <FileDropzone
+                  file={medicalResumeFile}
+                  onFileChange={setMedicalResumeFile}
+                  existingFileName={provider?.medical_resume_file?.file_name}
+                  ariaLabel="העלאת רזומה רפואי"
+                />
+              </div>
             )}
           </FormSection>
         )}

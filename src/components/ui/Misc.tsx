@@ -43,10 +43,12 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
-      <div className="text-slate-300">{icon ?? <Inbox className="h-10 w-10" />}</div>
-      <p className="font-medium text-slate-700">{title}</p>
-      {description && <p className="text-sm text-slate-400 max-w-xs">{description}</p>}
+    <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100/80 text-slate-400">
+        {icon ?? <Inbox className="h-8 w-8" />}
+      </div>
+      <p className="font-semibold text-slate-800">{title}</p>
+      {description && <p className="-mt-1 text-sm text-slate-500 max-w-xs">{description}</p>}
       {action && <div className="mt-2">{action}</div>}
     </div>
   );
@@ -128,25 +130,31 @@ export function StatCard({
   sparklineData?: ChartPoint[];
 }) {
   // Single source of truth: legacy raw-color names alias to the semantic tokens.
-  const toneClasses: Record<string, string> = {
-    blue: "bg-info-bg border-info-border text-info",
-    info: "bg-info-bg border-info-border text-info",
-    amber: "bg-warning-bg border-warning-border text-warning",
-    warning: "bg-warning-bg border-warning-border text-warning",
-    green: "bg-success-bg border-success-border text-success",
-    success: "bg-success-bg border-success-border text-success",
-    purple: "bg-purple-50 border-purple-100 text-purple-600",
-    indigo: "bg-indigo-50 border-indigo-100 text-indigo-600",
-    rose: "bg-danger-bg border-danger-border text-danger",
-    danger: "bg-danger-bg border-danger-border text-danger",
-    slate: "bg-neutral-bg border-neutral-border text-neutral-text",
-    neutral: "bg-neutral-bg border-neutral-border text-neutral-text",
+  // The tone colors only the icon bubble — the card itself stays white, so a
+  // KPI row reads as one clean surface instead of competing colored blocks.
+  const iconToneClasses: Record<string, string> = {
+    blue: "bg-info-bg text-info",
+    info: "bg-info-bg text-info",
+    amber: "bg-warning-bg text-warning",
+    warning: "bg-warning-bg text-warning",
+    green: "bg-success-bg text-success",
+    success: "bg-success-bg text-success",
+    purple: "bg-purple-50 text-purple-600",
+    indigo: "bg-indigo-50 text-indigo-600",
+    rose: "bg-danger-bg text-danger",
+    danger: "bg-danger-bg text-danger",
+    slate: "bg-neutral-bg text-neutral-text",
+    neutral: "bg-neutral-bg text-neutral-text",
   };
   return (
-    <div className={cn("rounded-xl border p-4 shadow-sm transition-shadow hover:shadow-md", toneClasses[tone])}>
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-medium text-slate-600">{label}</span>
-        {icon && <span>{icon}</span>}
+    <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-medium text-slate-500">{label}</span>
+        {icon && (
+          <span className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-xl", iconToneClasses[tone])}>
+            {icon}
+          </span>
+        )}
       </div>
       <div className="mt-2 flex items-end justify-between gap-2">
         <div>
@@ -172,6 +180,17 @@ export function StatCard({
         )}
       </div>
     </div>
+  );
+}
+
+/** Shared section (H2) heading — a small brand accent bar + strong text, so
+ * section titles anchor the page instead of fading into the gray. */
+export function SectionHeading({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <h2 className={cn("mb-3 flex items-center gap-2 text-sm font-bold text-slate-800", className)}>
+      <span aria-hidden className="h-4 w-1 shrink-0 rounded-full bg-primary" />
+      {children}
+    </h2>
   );
 }
 

@@ -56,17 +56,32 @@ export default function ProviderAppointmentsPage() {
     <ProviderLayout>
       <PageHeader title="ניהול תורים" description="צפייה ועדכון התורים שלך" />
 
-      <Card className="p-3 mb-4 max-w-sm">
-        <div className="flex items-center justify-between">
-          <button onClick={() => shiftDay(-1)} className="rounded-lg p-2 hover:bg-slate-100">
-            <ChevronRight className="h-4 w-4" />
-          </button>
-          <span className="text-sm font-medium text-slate-700">
-            {selectedDay.toLocaleDateString("he-IL", { weekday: "long", day: "2-digit", month: "2-digit" })}
-          </span>
-          <button onClick={() => shiftDay(1)} className="rounded-lg p-2 hover:bg-slate-100">
-            <ChevronLeft className="h-4 w-4" />
-          </button>
+      {/* Full-width date toolbar — day nav on one side, a "היום" reset on the
+          other, so the control anchors the page instead of floating stranded. */}
+      <Card className="p-2.5 mb-4">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => shiftDay(-1)}
+              aria-label="יום קודם"
+              className="focus-ring rounded-lg p-2 text-slate-600 hover:bg-slate-100"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+            <span className="min-w-[150px] text-center text-sm sm:text-base font-semibold text-slate-800">
+              {selectedDay.toLocaleDateString("he-IL", { weekday: "long", day: "2-digit", month: "2-digit" })}
+            </span>
+            <button
+              onClick={() => shiftDay(1)}
+              aria-label="יום הבא"
+              className="focus-ring rounded-lg p-2 text-slate-600 hover:bg-slate-100"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => setSelectedDay(new Date())}>
+            היום
+          </Button>
         </div>
       </Card>
 

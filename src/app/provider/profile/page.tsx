@@ -6,7 +6,7 @@ import { useStore } from "@/lib/store";
 import { useCurrentProvider } from "@/lib/useCurrentPatient";
 import { Card, CardContent } from "@/components/ui/Card";
 import { ProviderStatusBadge, ProviderPublishedBadge } from "@/components/ui/Badge";
-import { Avatar } from "@/components/ui/Misc";
+import { Avatar, SectionHeading } from "@/components/ui/Misc";
 import { ProgressRing } from "@/components/ui/Progress";
 import { CardListSkeleton, Skeleton } from "@/components/ui/Skeleton";
 import { getProfileSections } from "@/components/provider/profile-sections";
@@ -64,7 +64,7 @@ export default function ProviderProfileOverviewPage() {
           />
           <div className="flex-1 min-w-[220px]">
             <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-lg font-bold text-slate-900">
+              <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
                 {provider.title} {provider.display_name}
               </h1>
               <ProviderStatusBadge
@@ -97,7 +97,7 @@ export default function ProviderProfileOverviewPage() {
       {percent < 100 && (
         <Card className="mb-6">
           <CardContent className="pt-4">
-            <h2 className="mb-3 text-sm font-semibold text-slate-500">השלמת הפרופיל</h2>
+            <SectionHeading>השלמת הפרופיל</SectionHeading>
             <div className="grid gap-2 sm:grid-cols-2">
               {checklist.map((item) => (
                 <div key={item.label} className="flex items-center gap-2 text-sm">
@@ -111,7 +111,7 @@ export default function ProviderProfileOverviewPage() {
       )}
 
       {/* Section cards — navigate to each configuration page */}
-      <h2 className="mb-3 text-sm font-semibold text-slate-500">ניהול הפרופיל</h2>
+      <SectionHeading>ניהול הפרופיל</SectionHeading>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {sections.map((s) => (
           <Link
