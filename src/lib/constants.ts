@@ -8,6 +8,12 @@ export const POST_REGISTER_REDIRECT_KEY = "healson_post_register_redirect";
 // registering/logging in, instead of restarting from the provider list.
 export const BOOK_RESUME_PROVIDER_KEY = "healson_book_resume_provider";
 
+// sessionStorage key holding the JSON-serialized selected service item
+// (name/service_type/duration) alongside BOOK_RESUME_PROVIDER_KEY, so the
+// resumed flow lands on the right consultation type instead of losing which
+// service the visitor had chosen before the doctor they picked required login.
+export const BOOK_RESUME_ITEM_KEY = "healson_book_resume_item";
+
 // Maps a clinic's city to its broader geographic region, so provider search
 // can filter by region instead of by individual city/branch.
 export const REGION_BY_CITY: Record<string, string> = {

@@ -1,19 +1,24 @@
 "use client";
 
 import { useState } from "react";
-import { CreditCard, ShieldCheck, Smartphone } from "lucide-react";
+import { CreditCard, MapPin, ShieldCheck, Smartphone, Stethoscope } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { HoldTimer } from "@/components/book/HoldTimer";
 import { formatCurrency } from "@/lib/utils";
 import { InsuranceLayer, Kupah, LAYER_LABELS, ProviderProfile } from "@/types";
 
+const DEPOSIT_PERCENT = 30;
+
 export function PaymentPanel({
   provider,
+  itemName,
+  clinicId,
   selectedSlot,
   kupah,
   layer,
   price,
+  fullPrice,
   holdExpiresAt,
   onExpire,
   payMethod,
@@ -22,10 +27,17 @@ export function PaymentPanel({
   onPay,
 }: {
   provider: ProviderProfile;
+  itemName?: string;
+  clinicId?: string;
   selectedSlot: { date: string; time: string; label: string };
   kupah?: Kupah;
   layer?: InsuranceLayer;
+  // The price this specific patient pays, already resolved against their
+  // held insurance layers/arrangements.
   price: number;
+  // The private/out-of-pocket price regardless of arrangement — falls back
+  // to `price` when the caller doesn't have it (e.g. no consultation yet).
+  fullPrice?: number;
   holdExpiresAt: number;
   onExpire: () => void;
   payMethod: "card" | "apple" | "google";
@@ -34,8 +46,11 @@ export function PaymentPanel({
   onPay: () => void;
 }) {
   const [saveCard, setSaveCard] = useState(false);
-  const depositAmount = Math.round(price * 0.3);
+  const depositAmount = Math.round((price * DEPOSIT_PERCENT) / 100);
   const balanceAmount = price - depositAmount;
+  const clinic = provider.clinic_locations.find((c) => c.id === clinicId) ?? provider.clinic_locations[0];
+  const resolvedFullPrice = fullPrice ?? price;
+  const hasArrangement = !!layer && layer !== "H" && price < resolvedFullPrice;
 
   return (
     <div>
@@ -43,14 +58,35 @@ export function PaymentPanel({
         <HoldTimer expiresAt={holdExpiresAt} onExpire={onExpire} />
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm mb-5">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm mb-4">
         <p className="text-xs text-slate-400 mb-2">סיכום ההזמנה</p>
-        <div className="flex items-center justify-between text-sm">
+        {itemName && (
+          <div className="flex items-start justify-between gap-3 text-sm">
+            <span className="flex items-center gap-1.5 text-slate-500">
+              <Stethoscope className="h-3.5 w-3.5 shrink-0" /> שירות
+            </span>
+            <span className="font-medium text-slate-900">{itemName}</span>
+          </div>
+        )}
+        <div className="flex items-center justify-between text-sm mt-2">
           <span className="text-slate-500">רופא</span>
           <span className="font-medium text-slate-900">
             {provider.title} {provider.display_name}
           </span>
         </div>
+        {clinic && (
+          <div className="flex items-start justify-between gap-3 text-sm mt-2">
+            <span className="flex items-center gap-1.5 text-slate-500">
+              <MapPin className="h-3.5 w-3.5 shrink-0" /> מיקום
+            </span>
+            <span className="text-left font-medium text-slate-900">
+              {clinic.name}
+              <span className="block text-xs font-normal text-slate-400">
+                {clinic.address}, {clinic.city}
+              </span>
+            </span>
+          </div>
+        )}
         <div className="flex items-center justify-between text-sm mt-2">
           <span className="text-slate-500">תאריך ושעה</span>
           <span className="font-medium text-slate-900">
@@ -69,8 +105,31 @@ export function PaymentPanel({
             <span className="font-medium text-emerald-700">{LAYER_LABELS[layer]}</span>
           </div>
         )}
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm mb-4">
+        <p className="text-xs text-slate-400 mb-2">מחיר</p>
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-slate-500">מחיר מלא</span>
+          <span className={hasArrangement ? "text-slate-400 line-through" : "font-medium text-slate-900"}>
+            {formatCurrency(resolvedFullPrice)}
+          </span>
+        </div>
+        <div className="flex items-center justify-between text-sm mt-2">
+          <span className="text-slate-500">המחיר שלך</span>
+          <span className="font-medium text-slate-900">{formatCurrency(price)}</span>
+        </div>
+        {hasArrangement && (
+          <p className="text-[11px] text-slate-400 mt-1">
+            * ייתכנו הטבות או החזרים נוספים בהתאם לפוליסת הביטוח האישית שלך שאינם משתקפים כאן
+          </p>
+        )}
         <div className="h-px bg-slate-100 my-3" />
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-slate-500">אחוז מקדמה</span>
+          <span className="font-medium text-slate-900">{DEPOSIT_PERCENT}%</span>
+        </div>
+        <div className="flex items-center justify-between mt-2">
           <span className="text-sm font-semibold text-slate-700">מקדמה לתשלום</span>
           <span className="text-lg font-bold text-primary">{formatCurrency(depositAmount)}</span>
         </div>
