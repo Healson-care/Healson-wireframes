@@ -118,7 +118,7 @@ interface PendingPasswordReset {
 }
 
 export interface InsuranceProfileInput {
-  kupah: Kupah;
+  kupah?: Kupah;
   k_level?: KLevel;
   has_b_insurance?: boolean;
   b_insurance_company?: string;

@@ -387,7 +387,7 @@ export default function BookPage() {
               itemName={consultation?.name}
               clinicId={discoveryClinicId ?? undefined}
               selectedSlot={selectedSlot}
-              kupah={patient?.kupah ?? "כללית"}
+              kupah={patient?.kupah}
               layer={resolvedPrice?.layer}
               price={price}
               fullPrice={fullPrice}

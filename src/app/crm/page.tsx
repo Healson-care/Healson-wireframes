@@ -154,6 +154,7 @@ function PatientsTab({
     const patch = {
       ...values,
       gender: values.gender || undefined,
+      kupah: values.kupah || undefined,
       k_level: values.k_level || undefined,
       b_insurance_company: values.has_b_insurance ? values.b_insurance_company : undefined,
       b_policy_number: values.has_b_insurance ? values.b_policy_number : undefined,
@@ -267,8 +268,8 @@ function PatientsTab({
               key: "kupah",
               header: "קופה",
               sortable: true,
-              sortValue: (p) => p.kupah,
-              render: (p) => <Badge tone="slate">{p.kupah}</Badge>,
+              sortValue: (p) => p.kupah ?? "תייר",
+              render: (p) => <Badge tone={p.kupah ? "slate" : "amber"}>{p.kupah ?? "תייר"}</Badge>,
             },
             {
               key: "status",
@@ -329,7 +330,7 @@ function PatientsTab({
                 date_of_birth: editPatient.date_of_birth ?? "",
                 gender: editPatient.gender ?? "",
                 parent_name: editPatient.parent_name ?? "",
-                kupah: editPatient.kupah,
+                kupah: editPatient.kupah ?? "",
                 k_level: editPatient.k_level ?? "",
                 has_b_insurance: editPatient.has_b_insurance ?? false,
                 b_insurance_company: editPatient.b_insurance_company ?? "",

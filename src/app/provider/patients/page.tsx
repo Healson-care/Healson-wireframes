@@ -91,7 +91,7 @@ export default function ProviderPatientsPage() {
                 </div>
               ),
             },
-            { key: "kupah", header: "קופה", sortable: true, sortValue: (p) => p.kupah, render: (p) => <span className="text-slate-600">{p.kupah}</span> },
+            { key: "kupah", header: "קופה", sortable: true, sortValue: (p) => p.kupah ?? "תייר", render: (p) => <span className="text-slate-600">{p.kupah ?? "תייר"}</span> },
             {
               key: "status",
               header: "סטטוס",

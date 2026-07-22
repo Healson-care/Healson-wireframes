@@ -115,7 +115,7 @@ export function GeneralAppointmentForm({
             {selectedPatient && (
               <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm">
                 <span className="text-slate-500">קופת חולים</span>
-                <span className="font-medium text-slate-700">{selectedPatient.kupah} · מהפרופיל הביטוחי</span>
+                <span className="font-medium text-slate-700">{selectedPatient.kupah ?? "ללא קופה (תייר)"} · מהפרופיל הביטוחי</span>
               </div>
             )}
           </>

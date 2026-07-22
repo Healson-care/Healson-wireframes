@@ -4,7 +4,9 @@ import { Input, Select } from "@/components/ui/Input";
 import { B_INSURANCE_COMPANIES, KUPOT, K_LEVELS_BY_KUPAH, Kupah, KLevel } from "@/types";
 
 export interface InsuranceProfileValue {
-  kupah: Kupah;
+  // "" = no Israeli kupah (tourist/no institutional coverage) — only ever a
+  // valid choice when the caller passes allowNoKupah (see below).
+  kupah: Kupah | "";
   k_level: KLevel | "";
   has_b_insurance: boolean;
   b_insurance_company: string;
@@ -27,40 +29,46 @@ export function InsuranceProfileForm({
   value,
   onChange,
   showAddress = true,
+  allowNoKupah = false,
 }: {
   value: InsuranceProfileValue;
   onChange: (value: InsuranceProfileValue) => void;
   showAddress?: boolean;
+  // "אין לי קופת חולים" only makes sense — and is only offered — for
+  // someone who already declared no Israeli citizenship (passport, not
+  // ת"ז, as their ID document). An ת"ז holder must always pick a real kupah.
+  allowNoKupah?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-3">
       <Select
         label="קופת חולים"
         value={value.kupah}
-        onChange={(e) =>
-          onChange({ ...value, kupah: e.target.value as Kupah, k_level: "" })
-        }
-        required
+        onChange={(e) => onChange({ ...value, kupah: e.target.value as Kupah | "", k_level: "" })}
+        required={!allowNoKupah}
       >
         {KUPOT.map((k) => (
           <option key={k} value={k}>
             {k}
           </option>
         ))}
+        {allowNoKupah && <option value="">אין לי קופת חולים (תייר)</option>}
       </Select>
 
-      <Select
-        label='רמת ביטוח קופה (שב"ן) — אופציונלי'
-        value={value.k_level}
-        onChange={(e) => onChange({ ...value, k_level: e.target.value as KLevel | "" })}
-      >
-        <option value="">אין ביטוח קופה נוסף</option>
-        {K_LEVELS_BY_KUPAH[value.kupah].map((level) => (
-          <option key={level} value={level}>
-            {level}
-          </option>
-        ))}
-      </Select>
+      {value.kupah && (
+        <Select
+          label='רמת ביטוח קופה (שב"ן) — אופציונלי'
+          value={value.k_level}
+          onChange={(e) => onChange({ ...value, k_level: e.target.value as KLevel | "" })}
+        >
+          <option value="">אין ביטוח קופה נוסף</option>
+          {K_LEVELS_BY_KUPAH[value.kupah].map((level) => (
+            <option key={level} value={level}>
+              {level}
+            </option>
+          ))}
+        </Select>
+      )}
 
       <label className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2.5 cursor-pointer">
         <input

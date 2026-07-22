@@ -117,7 +117,7 @@ export default function ProviderPatientChartPage() {
             <CardContent className="flex flex-col gap-2 text-sm">
               <InfoRow label="גיל" value={age !== null ? `${age}` : "—"} />
               <InfoRow label="טלפון" value={patient.phone || "—"} />
-              <InfoRow label="קופת חולים" value={patient.kupah} />
+              <InfoRow label="קופת חולים" value={patient.kupah ?? "ללא קופה (תייר)"} />
               {patient.k_level && <InfoRow label="מסלול השב״ן" value={patient.k_level} />}
               <InfoRow label="ביטוח פרטי (שכבה B)" value={patient.has_b_insurance ? patient.b_insurance_company || "כן" : "אין"} />
               <InfoRow label="כתובת" value={patient.address || "—"} />

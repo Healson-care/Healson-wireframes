@@ -477,7 +477,7 @@ export default function ClientLoginPage() {
         date_of_birth: dateOfBirth,
         gender: gender || undefined,
         parent_name: isMinor ? parentName.trim() || undefined : undefined,
-        kupah: insurance.kupah,
+        kupah: insurance.kupah || undefined,
         k_level: insurance.k_level || undefined,
         has_b_insurance: insurance.has_b_insurance,
         b_insurance_company: insurance.has_b_insurance ? insurance.b_insurance_company : undefined,
@@ -799,28 +799,25 @@ export default function ClientLoginPage() {
             ))}
           </div>
 
-          <div className="grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1">
-            <button
-              type="button"
-              onClick={() => setDocumentType("id")}
-              className={cn(
-                "rounded-md py-1.5 text-sm font-medium transition-colors",
-                documentType === "id" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
-              )}
-            >
-              תעודת זהות
-            </button>
-            <button
-              type="button"
-              onClick={() => setDocumentType("passport")}
-              className={cn(
-                "rounded-md py-1.5 text-sm font-medium transition-colors",
-                documentType === "passport" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
-              )}
-            >
-              דרכון
-            </button>
-          </div>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={documentType === "passport"}
+              onChange={(e) => {
+                const next = e.target.checked ? "passport" : "id";
+                setDocumentType(next);
+                // Un-checking after having already picked "אין לי קופת
+                // חולים" on the insurance step would otherwise leave a
+                // required Select stuck on a now-invalid "" value, since
+                // that option only renders for passport holders.
+                if (next === "id" && insurance.kupah === "") {
+                  setInsurance((prev) => ({ ...prev, kupah: "כללית" }));
+                }
+              }}
+              className="h-4 w-4 rounded border-slate-300 accent-primary"
+            />
+            <span className="text-sm text-slate-600">אין לי אזרחות ישראלית</span>
+          </label>
           <Input
             label={documentType === "id" ? "מספר תעודת זהות" : "מספר דרכון"}
             icon={<IdCard className="h-4 w-4" />}
@@ -951,7 +948,12 @@ export default function ClientLoginPage() {
           <ArrowRight className="h-3.5 w-3.5" /> חזרה
         </button>
         <form onSubmit={handleInsuranceSubmit} className="flex flex-col gap-3">
-          <InsuranceProfileForm value={insurance} onChange={setInsurance} showAddress={false} />
+          <InsuranceProfileForm
+            value={insurance}
+            onChange={setInsurance}
+            showAddress={false}
+            allowNoKupah={documentType === "passport"}
+          />
           <Button type="submit" className="w-full mt-2">
             המשך להסכמות
           </Button>
