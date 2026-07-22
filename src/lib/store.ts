@@ -1331,7 +1331,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 17,
+      version: 18,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
       // records), the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER seed
       // account, the v3 -> v4 AppointmentStatus rename ("ממתין לאישור" ->
@@ -1376,7 +1376,12 @@ export const useStore = create<Store>()(
       // ProviderProfile gained affiliated_doctors, and two organization demo
       // accounts (מכון רפואי / מרפאת חוץ) plus their doctors were seeded.
       // Persisted state from v16 has none of that, so reseed clean.
-      migrate: (persistedState, version) => (version < 17 ? ({} as Store) : (persistedState as Store)),
+      // v17 -> v18 adds two hand-seeded history appointments for the demo
+      // patient (SEED_PATIENTS[0]) so /client/appointments' "היסטוריית
+      // תורים" section has more than one item, from two different
+      // providers/services, to actually demo its status/provider/service
+      // filters. Persisted state from v17 predates them, so reseed clean.
+      migrate: (persistedState, version) => (version < 18 ? ({} as Store) : (persistedState as Store)),
       // Uploaded files (photos/PDFs) are stored as base64 data URLs inside
       // this same persisted blob (no real backend — see file.ts). If a
       // single write ever still exceeds the browser's localStorage quota
