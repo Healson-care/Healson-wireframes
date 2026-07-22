@@ -3,6 +3,7 @@ import {
   B_INSURANCE_COMPANIES,
   Branch,
   CatalogItem,
+  CatalogRequest,
   Clinic,
   ScheduleShift,
   WeeklySchedule,
@@ -17,7 +18,10 @@ import {
   Order,
   Patient,
   PatientDocument,
+  PriceByLayer,
+  OrganizationBranch,
   ProviderProfile,
+  ProviderType,
   User,
   VisitRecord,
   emptyWeeklySchedule,
@@ -1169,6 +1173,102 @@ const providerOutpatient: ProviderProfile = {
   ],
 };
 
+// ---------------------------------------------------------------------------
+// Demo organization hierarchy: רשת (organization) → סניפים (branches) →
+// יחידות רפואיות (units). Seeds the org→branch→unit tree so /organizations and
+// the provider card's "יחידות ומשתמשים" tab aren't empty on first load.
+// ---------------------------------------------------------------------------
+const demoOrgId = "prov_org_demo";
+const demoBranchTlvId = "branch_demo_tlv";
+const demoBranchHaifaId = "branch_demo_haifa";
+
+const demoOrg: ProviderProfile = {
+  id: demoOrgId,
+  display_name: "רשת הבריאות המאוחדת",
+  contact_name: "אורלי מנהלת",
+  contact_phone: "03-7000000",
+  contact_email: "info@united-health.co.il",
+  member_provider_types: ["medical_institute", "outpatient_clinic"],
+  is_organization: true,
+  specialty: "ארגון בריאות",
+  status: "approved",
+  is_published: false,
+  license_verified_at: isoDateDaysFromNow(-90),
+  agreements: [],
+  consultation_types: [],
+  exam_types: [],
+  clinic_locations: [],
+  referral_forms: [],
+  created_date: isoDateDaysFromNow(-90),
+};
+
+function demoUnit(over: {
+  id: string;
+  display_name: string;
+  provider_type: ProviderType;
+  parent_branch_id: string;
+  specialty?: string;
+}): ProviderProfile {
+  return {
+    specialty: "",
+    is_published: true,
+    status: "approved",
+    license_verified_at: isoDateDaysFromNow(-80),
+    application_submitted_at: isoDateDaysFromNow(-85),
+    agreements: [],
+    consultation_types: [],
+    exam_types: [],
+    clinic_locations: [],
+    referral_forms: [],
+    created_date: isoDateDaysFromNow(-80),
+    parent_organization_id: demoOrgId,
+    ...over,
+  };
+}
+
+const demoUnitTlvInstitute = demoUnit({
+  id: "prov_org_unit_1",
+  display_name: "מכון הדמיה — תל אביב",
+  provider_type: "medical_institute",
+  parent_branch_id: demoBranchTlvId,
+  specialty: "הדמיה ואבחון",
+});
+const demoUnitTlvClinic = demoUnit({
+  id: "prov_org_unit_2",
+  display_name: "מרפאות חוץ — תל אביב",
+  provider_type: "outpatient_clinic",
+  parent_branch_id: demoBranchTlvId,
+  specialty: "רב-תחומי",
+});
+const demoUnitHaifaInstitute = demoUnit({
+  id: "prov_org_unit_3",
+  display_name: "מכון הדמיה — חיפה",
+  provider_type: "medical_institute",
+  parent_branch_id: demoBranchHaifaId,
+  specialty: "הדמיה ואבחון",
+});
+
+export const SEED_ORGANIZATION_BRANCHES: OrganizationBranch[] = [
+  {
+    id: demoBranchTlvId,
+    organization_id: demoOrgId,
+    name: "סניף תל אביב",
+    city: "תל אביב",
+    address: "דרך מנחם בגין 132",
+    contact_phone: "03-7000001",
+    created_date: isoDateDaysFromNow(-88),
+  },
+  {
+    id: demoBranchHaifaId,
+    organization_id: demoOrgId,
+    name: "סניף חיפה",
+    city: "חיפה",
+    address: "שדרות המגינים 50",
+    contact_phone: "04-7000002",
+    created_date: isoDateDaysFromNow(-70),
+  },
+];
+
 export const SEED_PROVIDERS: ProviderProfile[] = [
   provider1,
   provider2,
@@ -1181,61 +1281,138 @@ export const SEED_PROVIDERS: ProviderProfile[] = [
   instituteDoctor2,
   providerOutpatient,
   outpatientDoctor1,
+  demoOrg,
+  demoUnitTlvInstitute,
+  demoUnitTlvClinic,
+  demoUnitHaifaInstitute,
 ];
 
 // ---------------------------------------------------------------------------
-// Catalog items — derived from the skill taxonomy, 3 items per sub-domain.
-// `provider_id` is left undefined (global reference catalog, per §5.3 —
-// any provider whose specialty matches the domain can pick these items) —
-// only a handful of items below are pinned to a specific demo provider, to
-// keep demonstrating that a custom/provider-only catalog item is possible.
+// Catalog items — TWO separate reference catalogs (see CatalogKind in types):
+//
+//   קטלוג מב"ר   — Ministry of Health codes + the official MoH price list in
+//                   layers S and H. Exposed only to מכון רפואי / חדרי ניתוח
+//                   (hospital) / בתי מרקחת.
+//   קטלוג הילסון — Healson codes (HLS-…) with a full item price P, Healson
+//                   tariffs K + B, while S + H always mirror the MoH list.
+//                   Exposed to individual providers and to every other
+//                   medical unit (מרפאות חוץ, שירותים עד הבית, מעבדות…).
+//
+// Derived from the skill taxonomy, 3 items per sub-domain. `provider_id` is
+// left undefined (global reference catalog, per §5.3) — only a handful of
+// items below are pinned to a specific demo provider.
 // ---------------------------------------------------------------------------
+
+// MoH price list for a Healson item: S is the kupah-basket price, H the full
+// private MoH tariff — both fixed by the ministry, never by the provider.
+function healsonLayerPrices(fullPrice: number): PriceByLayer[] {
+  return [
+    { layer: "S", price: Math.round(fullPrice * 0.3) },
+    { layer: "K", price: Math.round(fullPrice * 0.55) },
+    { layer: "B", price: Math.round(fullPrice * 0.4) },
+    { layer: "H", price: Math.round(fullPrice * 0.9) },
+  ];
+}
+
+// MoH price list for a מב"ר item — the ministry publishes S and H only.
+function mabarLayerPrices(sPrice: number): PriceByLayer[] {
+  return [
+    { layer: "S", price: sPrice },
+    { layer: "H", price: Math.round(sPrice * 3.4) },
+  ];
+}
+
 function buildCatalog(): CatalogItem[] {
   const items: CatalogItem[] = [];
-  let tavarCode = 100000;
+  let mabarCode = 100000;
+  let healsonCode = 20001;
   for (const domain of SEED_SKILL_DOMAINS) {
     const subdomains = SEED_SKILL_SUBDOMAINS.filter((s) => s.domain_id === domain.id);
 
     for (const sub of subdomains) {
+      const consultPrice = 350 + Math.round(Math.random() * 150);
       items.push({
         id: generateId("cat"),
-        tavar_code: String(tavarCode++),
+        tavar_code: `HLS-${healsonCode++}`,
         name_he: `ייעוץ ${domain.name_he} - ${sub.name_he}`,
+        catalog: "healson",
         skill_domain_id: domain.id,
         skill_subdomain_id: sub.id,
         service_type: "consultation",
-        base_price: 350 + Math.round(Math.random() * 150),
+        base_price: consultPrice,
+        price_full: consultPrice,
+        layer_prices: healsonLayerPrices(consultPrice),
         typical_duration_min: 30,
         requires_referral: false,
         is_active: true,
       });
 
+      const imagingPrice = 900 + Math.round(Math.random() * 400);
       items.push({
         id: generateId("cat"),
-        tavar_code: String(tavarCode++),
+        tavar_code: String(mabarCode++),
         name_he: `בדיקת דימות - ${sub.name_he}`,
+        catalog: "mabar",
         skill_domain_id: domain.id,
         skill_subdomain_id: sub.id,
         service_type: "diagnostics",
-        base_price: 900 + Math.round(Math.random() * 400),
+        base_price: imagingPrice,
+        layer_prices: mabarLayerPrices(imagingPrice),
         typical_duration_min: 45,
         requires_referral: true,
         is_active: true,
       });
 
+      const extraPrice = 100 + Math.round(Math.random() * 150);
       items.push({
         id: generateId("cat"),
-        tavar_code: String(tavarCode++),
-        name_he: `שירות נלווה - ${sub.name_he}`,
+        tavar_code: `HLS-${healsonCode++}`,
+        name_he: `פריט נלווה - ${sub.name_he}`,
+        catalog: "healson",
         skill_domain_id: domain.id,
         skill_subdomain_id: sub.id,
         service_type: "extra",
-        base_price: 100 + Math.round(Math.random() * 150),
+        base_price: extraPrice,
+        price_full: extraPrice,
+        layer_prices: healsonLayerPrices(extraPrice),
         typical_duration_min: 20,
         requires_referral: false,
         is_active: true,
       });
     }
+  }
+
+  // Curated מב"ר items with real-style MoH codes — the kind a מכון / חדר
+  // ניתוח / בית מרקחת actually enters by code.
+  const curatedMabar: Array<{
+    code: string;
+    name: string;
+    domain: string;
+    subdomain: string;
+    service_type: CatalogItem["service_type"];
+    s: number;
+    duration: number;
+  }> = [
+    { code: "54021", name: "MRI עמוד שדרה מותני", domain: "dom_ortho", subdomain: "sub_ortho_knee", service_type: "diagnostics", s: 390, duration: 45 },
+    { code: "54018", name: "MRI ראש (מוח)", domain: "dom_ortho", subdomain: "sub_ortho_knee", service_type: "diagnostics", s: 420, duration: 40 },
+    { code: "93015", name: "בדיקת מאמץ (ארגומטריה)", domain: "dom_cardio", subdomain: "sub_cardio_general", service_type: "diagnostics", s: 260, duration: 60 },
+    { code: "29866", name: "ארתרוסקופיה של הברך", domain: "dom_ortho", subdomain: "sub_ortho_knee", service_type: "surgery", s: 2450, duration: 90 },
+  ];
+  for (const c of curatedMabar) {
+    items.push({
+      id: generateId("cat"),
+      tavar_code: c.code,
+      name_he: c.name,
+      catalog: "mabar",
+      skill_domain_id: c.domain,
+      skill_subdomain_id: c.subdomain,
+      service_type: c.service_type,
+      base_price: c.s,
+      layer_prices: mabarLayerPrices(c.s),
+      typical_duration_min: c.duration,
+      requires_referral: true,
+      is_active: true,
+    });
   }
 
   // A few provider-pinned custom items (orthopedics/cardiology), demonstrating
@@ -1244,12 +1421,15 @@ function buildCatalog(): CatalogItem[] {
   // catalog above.
   items.push({
     id: generateId("cat"),
-    tavar_code: String(tavarCode++),
+    tavar_code: `HLS-${healsonCode++}`,
     name_he: "ייעוץ אורתופדי VIP - " + provider1.display_name,
+    catalog: "healson",
     skill_domain_id: "dom_ortho",
     skill_subdomain_id: "sub_ortho_knee",
     service_type: "consultation",
     base_price: 600,
+    price_full: 600,
+    layer_prices: healsonLayerPrices(600),
     typical_duration_min: 45,
     requires_referral: false,
     provider_id: provider1.id,
@@ -1257,12 +1437,15 @@ function buildCatalog(): CatalogItem[] {
   });
   items.push({
     id: generateId("cat"),
-    tavar_code: String(tavarCode++),
+    tavar_code: `HLS-${healsonCode++}`,
     name_he: "בדיקת מאמץ מתקדמת - " + provider2.display_name,
+    catalog: "healson",
     skill_domain_id: "dom_cardio",
     skill_subdomain_id: "sub_cardio_general",
     service_type: "diagnostics",
     base_price: 1200,
+    price_full: 1200,
+    layer_prices: healsonLayerPrices(1200),
     typical_duration_min: 60,
     requires_referral: true,
     provider_id: provider2.id,
@@ -1273,6 +1456,45 @@ function buildCatalog(): CatalogItem[] {
 }
 
 export const SEED_CATALOG: CatalogItem[] = buildCatalog();
+
+// ---------------------------------------------------------------------------
+// Catalog requests — providers asking Ops to add a Healson item they couldn't
+// find. Seeded so the /catalog "בקשות קטלוג" queue isn't empty on first load.
+// ---------------------------------------------------------------------------
+export const SEED_CATALOG_REQUESTS: CatalogRequest[] = [
+  {
+    id: "creq_1",
+    provider_id: "prov_2",
+    requested_name: "בדיקת הולטר לחץ דם 24 שעות",
+    service_type: "test",
+    description:
+      "מבצעת ניטור לחץ דם אמבולטורי במרפאה ולא מצאתי פריט תואם בקטלוג הילסון. משך הבדיקה כ-30 דק' והחזרה למחרת.",
+    catalog_kind: "healson",
+    status: "pending",
+    created_date: isoDateDaysFromNow(-1),
+  },
+  {
+    id: "creq_2",
+    provider_id: "prov_1",
+    requested_name: "ייעוץ תזונה קליני מותאם לסוכרת",
+    service_type: "consultation",
+    description: "ייעוץ ייעודי למטופלי סוכרת, שונה מייעוץ תזונה כללי.",
+    catalog_kind: "healson",
+    status: "needs_info",
+    admin_note: "נא לפרט האם נדרשת הפניה ומהו משך הפגישה המומלץ.",
+    created_date: isoDateDaysFromNow(-4),
+  },
+  {
+    id: "creq_3",
+    provider_id: "prov_3",
+    requested_name: "טיפול בגלי הלם לכאבי גיד",
+    service_type: "treatment",
+    description: "Shockwave therapy — טיפול נפוץ שאינו קיים כרגע בקטלוג.",
+    catalog_kind: "healson",
+    status: "pending",
+    created_date: isoDateDaysFromNow(-2),
+  },
+];
 
 // ---------------------------------------------------------------------------
 // Patients

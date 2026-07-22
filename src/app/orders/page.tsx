@@ -172,7 +172,7 @@ function OrdersPageContent() {
               sortValue: (o) => o.provider_name,
               render: (o) => <span className="text-slate-600">{o.provider_name}</span>,
             },
-            { key: "item", header: "שירות", render: (o) => <span className="text-slate-600">{o.item_name}</span> },
+            { key: "item", header: "פריט", render: (o) => <span className="text-slate-600">{o.item_name}</span> },
             {
               key: "price",
               header: "מחיר",
@@ -237,7 +237,7 @@ function OrdersPageContent() {
               <span className="font-medium text-slate-800">{detailOrder.provider_name}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-slate-500">שירות</span>
+              <span className="text-slate-500">פריט</span>
               <span className="font-medium text-slate-800">{detailOrder.item_name}</span>
             </div>
             <div className="flex items-center justify-between">

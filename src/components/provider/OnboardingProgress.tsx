@@ -66,7 +66,7 @@ export function OnboardingProgress({ provider, className }: { provider: Provider
       ? [{ key: "locations", ok: isLocationsComplete(provider), label: setupConfig.locationLabelPlural, href: "/provider/profile/clinics" }]
       : []),
     ...(setupConfig.showFacilities
-      ? [{ key: "facilities", ok: isFacilitiesComplete(provider), label: "מתקנים", href: "/provider/profile/facilities" }]
+      ? [{ key: "facilities", ok: isFacilitiesComplete(provider), label: "חדרים", href: "/provider/profile/facilities" }]
       : []),
     ...(setupConfig.showAvailability
       ? [{ key: "availability", ok: isAvailabilityComplete(provider), label: "זמינות", href: "/provider/profile/availability" }]
@@ -76,7 +76,7 @@ export function OnboardingProgress({ provider, className }: { provider: Provider
           {
             key: "doctors",
             ok: isAffiliatedDoctorsComplete(provider),
-            label: "רופאים",
+            label: "נותני שירות",
             href: "/provider/profile/doctors",
           },
         ]

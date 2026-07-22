@@ -571,7 +571,7 @@ function ShiftChip({
           {scopedCount > 0 && (
             <span className="flex items-center gap-0.5">
               <Stethoscope className="h-2.5 w-2.5" />
-              {scopedCount} מתוך {services.length} שירותים
+              {scopedCount} מתוך {services.length} פריטים
             </span>
           )}
         </span>
@@ -762,11 +762,11 @@ function ShiftForm({
       {/* Which services this shift hosts. */}
       <div className="rounded-lg border border-slate-200 p-3">
         <span className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
-          <Layers className="h-3.5 w-3.5 text-slate-400" /> שירותים הניתנים להזמנה במשמרת
+          <Layers className="h-3.5 w-3.5 text-slate-400" /> פריטים הניתנים להזמנה במשמרת
         </span>
         {services.length === 0 ? (
           <p className="mt-2 text-xs text-slate-400">
-            אין עדיין שירותים משויכים — כל תור שייקבע יתאים לכל שירות עתידי.
+            אין עדיין פריטים משויכים — כל תור שייקבע יתאים לכל פריט עתידי.
           </p>
         ) : (
           <>
@@ -780,7 +780,7 @@ function ShiftForm({
                 }}
                 className="h-4 w-4 rounded border-slate-300 accent-primary"
               />
-              {serviceScopeLabel ?? "כל השירותים במיקום זה"}
+              {serviceScopeLabel ?? "כל הפריטים במיקום זה"}
             </label>
             {!allServices && (
               <div className="mt-2 flex flex-wrap gap-1.5">

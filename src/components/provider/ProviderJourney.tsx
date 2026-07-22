@@ -52,9 +52,9 @@ export function ProviderJourney({
     ...(setupConfig.showAgreements ? [{ key: "agreements", label: "הסדרי ביטוח וקופות" }] : []),
     { key: "catalog", label: setupConfig.catalogLabel },
     ...(setupConfig.locationTypes.length > 0 ? [{ key: "locations", label: setupConfig.locationLabelPlural }] : []),
-    ...(setupConfig.showFacilities ? [{ key: "facilities", label: "מתקנים" }] : []),
+    ...(setupConfig.showFacilities ? [{ key: "facilities", label: "חדרים" }] : []),
     ...(setupConfig.showAvailability ? [{ key: "availability", label: "זמינות ולוח זמנים" }] : []),
-    ...(setupConfig.showAffiliatedDoctors ? [{ key: "doctors", label: "רופאים משויכים" }] : []),
+    ...(setupConfig.showAffiliatedDoctors ? [{ key: "doctors", label: "נותני שירות משויכים" }] : []),
     { key: "photo", label: "תמונת פרופיל · מומלץ" },
     { key: "publish", label: "פרסום הפרופיל וקבלת הזמנות" },
   ];
@@ -175,7 +175,7 @@ export function ProviderJourney({
             <PartyPopper className="h-5 w-5 text-primary" />
           </h2>
           <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-slate-600">
-            זה הפורטל שלך — מכאן תנהל/י את הבקשה, ובהמשך גם את השירותים, היומן וההזמנות. כדי שנדע אילו פרטים
+            זה הפורטל שלך — מכאן תנהל/י את הבקשה, ובהמשך גם את הפריטים, היומן וההזמנות. כדי שנדע אילו פרטים
             ומסמכים לבקש ממך, נתחיל בבחירת סוג הספק.
           </p>
           <div className="mt-5">

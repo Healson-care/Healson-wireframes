@@ -9,8 +9,8 @@ import { Stethoscope } from "lucide-react";
 export default function ProviderDoctorsPage() {
   return (
     <ProfilePageFrame
-      title="רופאים"
-      description="ניהול הרופאים הפועלים בארגון ושיוכם לשירותים"
+      title="נותני שירות"
+      description="ניהול נותני השירות הפועלים בארגון ושיוכם לפריטים"
     >
       {({ provider }) => {
         const setupConfig = getProviderSetupConfig(provider.provider_type);
@@ -20,8 +20,8 @@ export default function ProviderDoctorsPage() {
           return (
             <EmptyState
               icon={<Stethoscope className="h-10 w-10" />}
-              title="ניהול רופאים אינו רלוונטי לסוג הספק שלך"
-              description="ניהול רופאים משויכים זמין למרפאות חוץ ולמכונים רפואיים, שבהם השירותים מבוצעים על ידי רופאים מטעם הארגון."
+              title="ניהול נותני שירות אינו רלוונטי לסוג הספק שלך"
+              description="ניהול נותני שירות משויכים זמין למרפאות חוץ ולמכונים רפואיים, שבהם הפריטים מבוצעים על ידי נותני שירות מטעם הארגון."
             />
           );
         }

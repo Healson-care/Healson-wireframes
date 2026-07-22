@@ -206,7 +206,7 @@ export default function AdminDashboardHome() {
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
         <StatCard
-          label="שירותים שיצאו לפועל"
+          label="פריטים שמומשו"
           value={completedOrders.length}
           subtitle="North Star Metric — §1.2"
           icon={<TrendingUp className="h-4 w-4" />}

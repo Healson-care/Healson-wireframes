@@ -168,7 +168,7 @@ export default function ProviderPatientChartPage() {
                 emptyDescription="תורים של המטופל/ת אצלך יופיעו כאן."
                 columns={
                   [
-                    { key: "service", header: "שירות", render: (a) => <span className="font-medium text-slate-900">{a.service_name}</span> },
+                    { key: "service", header: "פריט", render: (a) => <span className="font-medium text-slate-900">{a.service_name}</span> },
                     {
                       key: "date",
                       header: "תאריך",

@@ -501,7 +501,7 @@ function AdminPatientChartPageContent() {
                     emptyTitle="אין תורים"
                     columns={
                       [
-                        { key: "service", header: "שירות", render: (a) => <span className="font-medium text-slate-900">{a.service_name}</span> },
+                        { key: "service", header: "פריט", render: (a) => <span className="font-medium text-slate-900">{a.service_name}</span> },
                         { key: "provider", header: "ספק", render: (a) => <span className="text-slate-600">{a.provider_name}</span> },
                         {
                           key: "date",

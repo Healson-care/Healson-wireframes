@@ -9,8 +9,8 @@ import { MonitorCog } from "lucide-react";
 export default function ProviderFacilitiesPage() {
   return (
     <ProfilePageFrame
-      title="מתקנים"
-      description="המכשירים והחדרים של היחידה — לכל אחד תור, לוח זמנים ושירותים משלו"
+      title="חדרים"
+      description="המכשירים והחדרים של היחידה — לכל אחד תור, לוח זמנים ופריטים משלו"
     >
       {({ provider, update }) => {
         const setupConfig = getProviderSetupConfig(provider.provider_type);
@@ -20,8 +20,8 @@ export default function ProviderFacilitiesPage() {
           return (
             <EmptyState
               icon={<MonitorCog className="h-10 w-10" />}
-              title="ניהול מתקנים אינו רלוונטי לסוג הספק שלך"
-              description="ניהול מתקנים זמין ליחידות רפואיות (מכון רפואי / מרפאת חוץ), שבהן השירותים מבוצעים על מכשירים וחדרים ייעודיים."
+              title="ניהול חדרים אינו רלוונטי לסוג הספק שלך"
+              description="ניהול חדרים זמין ליחידות רפואיות (מכון רפואי / מרפאת חוץ), שבהן הפריטים מבוצעים על מכשירים וחדרים ייעודיים."
             />
           );
         }

@@ -136,7 +136,7 @@ export function GeneralAppointmentForm({
           ))}
         </Select>
 
-        <Input label="שירות" required value={form.service_name} onChange={(e) => setForm({ ...form, service_name: e.target.value })} />
+        <Input label="פריט" required value={form.service_name} onChange={(e) => setForm({ ...form, service_name: e.target.value })} />
 
         <div className="grid grid-cols-2 gap-3">
           <Input type="date" label="תאריך" required value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />

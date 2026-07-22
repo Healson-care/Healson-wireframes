@@ -4,81 +4,102 @@ import { useMemo, useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Dialog, ConfirmDialog } from "@/components/ui/Dialog";
-import { Input, Select } from "@/components/ui/Input";
+import { Input, Select, Textarea } from "@/components/ui/Input";
 import { EmptyState } from "@/components/ui/Misc";
 import { Badge } from "@/components/ui/Badge";
 import { useStore } from "@/lib/store";
 import { formatCurrency, generateId } from "@/lib/utils";
-import { LayerPriceInputs, emptyLayerPrices } from "@/components/provider/PriceListSection";
-import { MohCodePicker } from "@/components/provider/MohCodePicker";
-import { OpenDecisionNote } from "@/components/ui/Misc";
-import { findMohCode, requiresMohCode } from "@/lib/moh-codes";
 import {
   ANESTHESIA_TYPE_LABELS,
   ANESTHESIA_TYPES,
   AnesthesiaType,
+  CATALOG_CODE_LABELS,
+  CATALOG_KIND_LABELS,
+  CatalogItem,
   ConsultationType,
-  INSURANCE_LAYERS,
   InsuranceLayer,
   LAYER_LABELS,
   PROVIDER_SERVICE_TYPE_LABELS,
   PROVIDER_SERVICE_TYPES,
   ProviderServiceType,
   ProviderType,
+  catalogKindForProviderType,
   getProviderServiceCategories,
   isUnitProviderType,
 } from "@/types";
-import { Plus, Pencil, Trash2, Stethoscope, MapPin, MonitorCog } from "lucide-react";
+import { Plus, Pencil, Trash2, Stethoscope, MapPin, MonitorCog, Search, Lock } from "lucide-react";
 
-/** Provider-side catalog editor for medical-service provider types (§PRV-02)
- * — the provider picks services from the admin-managed Skill Tree
- * (domain -> sub-domain -> catalog item) instead of typing a name freely,
- * then sets their own S/K/B/H prices for the item. */
+/** A room (ProviderFacility) or an individual service provider
+ * (AffiliatedDoctor) an item can be assigned to — passed in by the page so
+ * this section can assign items directly at entry time (§PRV-08). */
+export interface ResourceTarget {
+  id: string;
+  name: string;
+  service_ids: string[];
+}
+
+function layerPrice(item: CatalogItem | undefined, layer: InsuranceLayer): number | undefined {
+  return item?.layer_prices?.find((p) => p.layer === layer)?.price;
+}
+
+/** Provider-side item entry (§PRV-02) — the provider enters items by code or
+ * free-text search against the ONE reference catalog their provider type is
+ * exposed to (קטלוג מב"ר for מכון/חדרי ניתוח/בית מרקחת, קטלוג הילסון for
+ * individual providers and every other medical unit). S and H always mirror
+ * the Ministry of Health price list and are locked; Healson items add a full
+ * item price P plus editable K/B tariffs. */
 export function ServiceCatalogSection({
   items,
   onChange,
   providerId,
   itemLabel,
-  providerSpecialty,
   providerType,
+  roomTargets,
+  providerTargets,
+  onAssignResources,
 }: {
   items: ConsultationType[];
   onChange: (items: ConsultationType[]) => void;
   providerId: string;
   itemLabel: string;
-  // Doctor's own specialty (ProviderProfile.specialty) — when it matches a
-  // skill domain name_he (see medical-tree.ts), the picker below defaults to
-  // and stays scoped to that one domain instead of showing all of them.
-  providerSpecialty?: string;
   // Organization types (מרפאת חוץ / מכון רפואי) classify their catalog with
   // their own service vocabulary rather than the generic 7 service types —
   // the same list the applicant picked from during registration.
   providerType?: ProviderType;
+  // Medical units only — the unit's rooms and affiliated service providers,
+  // so an item is assigned to its resource at entry time.
+  roomTargets?: ResourceTarget[];
+  providerTargets?: ResourceTarget[];
+  onAssignResources?: (
+    serviceId: string,
+    selection: { roomIds: string[]; providerIds: string[] }
+  ) => void;
 }) {
   const serviceCategories = getProviderServiceCategories(providerType);
-  // A medical unit has a single site, so a service isn't linked to a location —
-  // it's linked to the resource that performs it (§PRV-08).
+  // A medical unit has a single site, so an item isn't linked to a location —
+  // it's linked to the resource (room / provider) that performs it (§PRV-08).
   const isUnit = isUnitProviderType(providerType);
-  const skillDomains = useStore((s) => s.skillDomains);
-  const skillSubdomains = useStore((s) => s.skillSubdomains);
+  const catalogKind = catalogKindForProviderType(providerType);
   const catalog = useStore((s) => s.catalog);
-
-  const matchedDomain = useMemo(
-    () => (providerSpecialty ? skillDomains.find((d) => d.name_he === providerSpecialty) : undefined),
-    [skillDomains, providerSpecialty]
-  );
+  const catalogRequests = useStore((s) => s.catalogRequests);
+  const addCatalogRequest = useStore((s) => s.addCatalogRequest);
+  const showToast = useStore((s) => s.showToast);
 
   const [open, setOpen] = useState(false);
+  const [requestOpen, setRequestOpen] = useState(false);
+  const [reqName, setReqName] = useState("");
+  const [reqType, setReqType] = useState<ProviderServiceType>("consultation");
+  const [reqDesc, setReqDesc] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [domainId, setDomainId] = useState("");
-  const [subdomainId, setSubdomainId] = useState("");
+  const [query, setQuery] = useState("");
   const [catalogItemId, setCatalogItemId] = useState("");
   const [duration, setDuration] = useState("30");
-  const [prices, setPrices] = useState<Record<InsuranceLayer, string>>(emptyLayerPrices());
+  const [priceFull, setPriceFull] = useState("");
+  const [priceK, setPriceK] = useState("");
+  const [priceB, setPriceB] = useState("");
   const [serviceType, setServiceType] = useState<ProviderServiceType>("consultation");
   const [serviceCategory, setServiceCategory] = useState<string>("");
-  const [showAllDomains, setShowAllDomains] = useState(!matchedDomain);
   const [requiresReferral, setRequiresReferral] = useState(false);
   const [requiresFasting, setRequiresFasting] = useState(false);
   const [sampleType, setSampleType] = useState("");
@@ -87,32 +108,99 @@ export function ServiceCatalogSection({
   const [requiresHospital, setRequiresHospital] = useState(false);
   const [requiresContrast, setRequiresContrast] = useState(false);
   const [hasRadiation, setHasRadiation] = useState(false);
-  const [mohCode, setMohCode] = useState<string | undefined>(undefined);
+  const [selectedRoomIds, setSelectedRoomIds] = useState<string[]>([]);
+  const [selectedProviderIds, setSelectedProviderIds] = useState<string[]>([]);
 
-  const availableCatalog = useMemo(
-    () => catalog.filter((c) => c.is_active && (c.provider_id == null || c.provider_id === providerId)),
-    [catalog, providerId]
+  // Only the catalog this provider type is exposed to — a מכון never sees
+  // Healson items and a מרפאת חוץ never sees מב"ר items.
+  const eligibleCatalog = useMemo(
+    () =>
+      catalog.filter(
+        (c) =>
+          c.catalog === catalogKind &&
+          c.is_active &&
+          (c.provider_id == null || c.provider_id === providerId)
+      ),
+    [catalog, catalogKind, providerId]
   );
 
-  const addedItemIds = useMemo(() => new Set(items.map((i) => i.catalog_item_id).filter(Boolean)), [items]);
-
-  const domainOptions = matchedDomain && !showAllDomains ? [matchedDomain] : skillDomains;
-  const subdomainOptions = skillSubdomains.filter((sd) => sd.domain_id === domainId);
-  const itemOptions = availableCatalog.filter(
-    (c) => c.skill_domain_id === domainId && c.skill_subdomain_id === subdomainId && (!addedItemIds.has(c.id) || c.id === catalogItemId)
+  const addedItemIds = useMemo(
+    () => new Set(items.map((i) => i.catalog_item_id).filter(Boolean)),
+    [items]
   );
-  const selectedCatalogItem = availableCatalog.find((c) => c.id === catalogItemId);
 
-  function openCreate() {
-    setEditingId(null);
-    setDomainId(matchedDomain?.id ?? skillDomains[0]?.id ?? "");
-    setSubdomainId("");
+  // This provider's still-open catalog requests (Healson catalog only) — shown
+  // so they don't re-request the same missing item while Ops is triaging it.
+  const myOpenRequests = useMemo(
+    () =>
+      catalogRequests.filter(
+        (r) => r.provider_id === providerId && (r.status === "pending" || r.status === "needs_info")
+      ),
+    [catalogRequests, providerId]
+  );
+
+  function openRequest() {
+    setReqName(query.trim());
+    setReqType(serviceType);
+    setReqDesc("");
+    setOpen(false);
+    setRequestOpen(true);
+  }
+
+  function submitRequest() {
+    addCatalogRequest({
+      provider_id: providerId,
+      requested_name: reqName.trim(),
+      service_type: reqType,
+      description: reqDesc.trim() || undefined,
+      catalog_kind: "healson",
+    });
+    showToast("הבקשה נשלחה לצוות הילסון — נעדכן אותך כשהפריט יתווסף", { variant: "success" });
+    setRequestOpen(false);
+  }
+
+  // Code or free-text search: "54021" matches by code, "MRI" completes every
+  // item whose name contains MRI, alongside its code.
+  const searchResults = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return eligibleCatalog
+      .filter((c) => !addedItemIds.has(c.id) || c.id === catalogItemId)
+      .filter(
+        (c) =>
+          (c.tavar_code ?? "").toLowerCase().includes(q) ||
+          c.name_he.toLowerCase().includes(q)
+      )
+      .slice(0, 20);
+  }, [eligibleCatalog, addedItemIds, catalogItemId, query]);
+
+  const selectedCatalogItem = eligibleCatalog.find((c) => c.id === catalogItemId);
+  const mohS = layerPrice(selectedCatalogItem, "S");
+  const mohH = layerPrice(selectedCatalogItem, "H");
+
+  function pickCatalogItem(item: CatalogItem) {
+    setCatalogItemId(item.id);
+    setQuery(`${item.tavar_code ?? ""} — ${item.name_he}`);
+    if (item.typical_duration_min) setDuration(String(item.typical_duration_min));
+    setRequiresReferral(item.requires_referral);
+    if (catalogKind === "healson") {
+      setPriceFull(item.price_full != null ? String(item.price_full) : String(item.base_price));
+      const k = layerPrice(item, "K");
+      const b = layerPrice(item, "B");
+      setPriceK(k != null ? String(k) : "");
+      setPriceB(b != null ? String(b) : "");
+    }
+  }
+
+  function resetForm() {
+    setQuery("");
     setCatalogItemId("");
     setDuration("30");
-    setPrices(emptyLayerPrices());
+    setPriceFull("");
+    setPriceK("");
+    setPriceB("");
     setServiceType("consultation");
     setServiceCategory(serviceCategories?.[0] ?? "");
-    setShowAllDomains(!matchedDomain);
     setRequiresReferral(false);
     setRequiresFasting(false);
     setSampleType("");
@@ -121,24 +209,28 @@ export function ServiceCatalogSection({
     setRequiresHospital(false);
     setRequiresContrast(false);
     setHasRadiation(false);
-    setMohCode(undefined);
+    setSelectedRoomIds([]);
+    setSelectedProviderIds([]);
+  }
+
+  function openCreate() {
+    setEditingId(null);
+    resetForm();
     setOpen(true);
   }
 
   function openEdit(item: ConsultationType) {
     setEditingId(item.id);
-    const catalogItem = availableCatalog.find((c) => c.id === item.catalog_item_id);
-    const itemDomainId = catalogItem?.skill_domain_id ?? "";
-    setDomainId(itemDomainId);
-    setSubdomainId(catalogItem?.skill_subdomain_id ?? "");
+    resetForm();
+    const catalogItem = eligibleCatalog.find((c) => c.id === item.catalog_item_id);
     setCatalogItemId(catalogItem?.id ?? "");
+    setQuery(catalogItem ? `${catalogItem.tavar_code ?? ""} — ${catalogItem.name_he}` : item.name);
     setDuration(String(item.duration_minutes));
-    const map = emptyLayerPrices();
-    item.prices.forEach((p) => (map[p.layer] = String(p.price)));
-    setPrices(map);
+    setPriceFull(item.price_full != null ? String(item.price_full) : "");
+    setPriceK(String(item.prices.find((p) => p.layer === "K")?.price ?? ""));
+    setPriceB(String(item.prices.find((p) => p.layer === "B")?.price ?? ""));
     setServiceType(item.service_type ?? "consultation");
     setServiceCategory(item.service_category ?? serviceCategories?.[0] ?? "");
-    setShowAllDomains(!matchedDomain || itemDomainId !== matchedDomain.id);
     setRequiresReferral(item.requires_referral ?? false);
     setRequiresFasting(item.requires_fasting ?? false);
     setSampleType(item.sample_type ?? "");
@@ -147,25 +239,46 @@ export function ServiceCatalogSection({
     setRequiresHospital(item.requires_hospital ?? false);
     setRequiresContrast(item.requires_contrast ?? false);
     setHasRadiation(item.has_radiation ?? false);
-    setMohCode(item.moh_code);
+    setSelectedRoomIds((roomTargets ?? []).filter((r) => r.service_ids.includes(item.id)).map((r) => r.id));
+    setSelectedProviderIds(
+      (providerTargets ?? []).filter((p) => p.service_ids.includes(item.id)).map((p) => p.id)
+    );
     setOpen(true);
   }
 
   function handleSave() {
-    const catalogItem = availableCatalog.find((c) => c.id === catalogItemId);
+    const catalogItem = eligibleCatalog.find((c) => c.id === catalogItemId);
     const editingExisting = editingId ? items.find((i) => i.id === editingId) : undefined;
+    const id = editingId ?? generateId("item");
+    const refItem = catalogItem ?? eligibleCatalog.find((c) => c.id === editingExisting?.catalog_item_id);
+
+    // S and H are never provider-set — they always mirror the MoH price list
+    // stored on the catalog item. Healson items add the provider-negotiated
+    // K/B tariffs on top of the full item price P.
+    const prices: ConsultationType["prices"] = [];
+    const s = layerPrice(refItem, "S");
+    const h = layerPrice(refItem, "H");
+    if (s != null) prices.push({ layer: "S", price: s });
+    if (catalogKind === "healson") {
+      if (priceK !== "") prices.push({ layer: "K", price: Number(priceK) || 0 });
+      if (priceB !== "") prices.push({ layer: "B", price: Number(priceB) || 0 });
+    }
+    if (h != null) prices.push({ layer: "H", price: h });
+
     const newItem: ConsultationType = {
-      id: editingId ?? generateId("item"),
-      name: catalogItem?.name_he ?? editingExisting?.name ?? "",
+      id,
+      name: refItem?.name_he ?? editingExisting?.name ?? "",
       duration_minutes: Number(duration) || 30,
-      prices: INSURANCE_LAYERS.filter((l) => prices[l] !== "").map((l) => ({ layer: l, price: Number(prices[l]) || 0 })),
-      catalog_item_id: catalogItem?.id ?? editingExisting?.catalog_item_id,
+      prices,
+      price_full:
+        catalogKind === "healson" && priceFull !== "" ? Number(priceFull) || 0 : undefined,
+      catalog_item_id: refItem?.id ?? editingExisting?.catalog_item_id,
       service_type: serviceType,
       service_category: serviceCategories ? serviceCategory || undefined : editingExisting?.service_category,
-      // Only the coded clinical types carry a MOH code — switching an item to
-      // "ייעוץ" must not leave a stale imaging code behind.
-      moh_code: requiresMohCode(serviceType) ? mohCode : undefined,
-      // Location linking is owned by the clinics screen now — preserve whatever
+      // The item's code always comes from the catalog it was entered from.
+      // For מב"ר items that code IS the Ministry of Health code.
+      moh_code: refItem?.catalog === "mabar" ? refItem.tavar_code : editingExisting?.moh_code,
+      // Location linking is owned by the clinics screen — preserve whatever
       // links already exist, never reset them from here.
       linked_clinic_ids: editingExisting?.linked_clinic_ids ?? [],
       requires_referral: requiresReferral,
@@ -182,45 +295,70 @@ export function ServiceCatalogSection({
     } else {
       onChange([...items, newItem]);
     }
+    if (isUnit && onAssignResources) {
+      onAssignResources(id, { roomIds: selectedRoomIds, providerIds: selectedProviderIds });
+    }
     setOpen(false);
   }
 
-  function domainName(id: string) {
-    return skillDomains.find((d) => d.id === id)?.name_he ?? "";
-  }
-  function subdomainName(id: string) {
-    return skillSubdomains.find((d) => d.id === id)?.name_he ?? "";
+  function toggleTarget(id: string, list: string[], setList: (v: string[]) => void) {
+    setList(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
   }
 
-  const needsMohCode = requiresMohCode(serviceType);
+  function assignmentLabel(item: ConsultationType): string | null {
+    if (!isUnit) return null;
+    const names = [
+      ...(roomTargets ?? []).filter((r) => r.service_ids.includes(item.id)).map((r) => r.name),
+      ...(providerTargets ?? []).filter((p) => p.service_ids.includes(item.id)).map((p) => p.name),
+    ];
+    return names.length > 0 ? names.join(", ") : null;
+  }
+
   const canSave =
     (editingId ? true : !!catalogItemId) &&
     (!serviceCategories || !!serviceCategory) &&
-    (!needsMohCode || !!mohCode);
+    (catalogKind !== "healson" || priceFull !== "");
 
   return (
     <div>
-      <div className="flex justify-end mb-3">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs text-slate-500">
+          מקור הפריטים: <strong className="text-slate-700">{CATALOG_KIND_LABELS[catalogKind]}</strong>
+        </p>
         <Button size="sm" onClick={openCreate}>
-          <Plus className="h-4 w-4" /> הוסף {itemLabel} מה-Skill Tree
+          <Plus className="h-4 w-4" /> הוספת {itemLabel} לפי קוד
         </Button>
       </div>
 
+      {catalogKind === "healson" && myOpenRequests.length > 0 && (
+        <div className="mb-3 flex items-start gap-2 rounded-lg border border-info-border bg-info-bg px-3 py-2 text-xs text-info-text">
+          <Search className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+          <span>
+            {myOpenRequests.length === 1
+              ? "בקשה אחת להוספת פריט לקטלוג ממתינה לצוות הילסון"
+              : `${myOpenRequests.length} בקשות להוספת פריטים לקטלוג ממתינות לצוות הילסון`}
+            : {myOpenRequests.map((r) => r.requested_name).join(" · ")}
+          </span>
+        </div>
+      )}
+
       {items.length === 0 ? (
-        <EmptyState icon={<Stethoscope className="h-10 w-10" />} title={`אין ${itemLabel} מוגדרים`} />
+        <EmptyState icon={<Stethoscope className="h-10 w-10" />} title={`אין ${itemLabel}ים מוגדרים`} />
       ) : (
         <div className="grid sm:grid-cols-2 gap-3">
           {items.map((item) => {
-            const catalogItem = availableCatalog.find((c) => c.id === item.catalog_item_id);
+            const catalogItem = catalog.find((c) => c.id === item.catalog_item_id);
+            const code = catalogItem?.tavar_code ?? item.moh_code;
+            const assigned = assignmentLabel(item);
             return (
               <Card key={item.id} className="p-4">
                 <div className="flex items-start justify-between">
                   <div>
                     <p className="font-medium text-slate-900">{item.name}</p>
                     <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                      {catalogItem && (
+                      {code && (
                         <Badge tone="slate">
-                          {domainName(catalogItem.skill_domain_id)} · {subdomainName(catalogItem.skill_subdomain_id)}
+                          {catalogItem ? CATALOG_CODE_LABELS[catalogItem.catalog] : "קוד"}: {code}
                         </Badge>
                       )}
                       {item.service_category ? (
@@ -230,11 +368,6 @@ export function ServiceCatalogSection({
                       )}
                       <span className="text-xs text-slate-500">{item.duration_minutes} דק׳</span>
                     </div>
-                    {item.moh_code && (
-                      <p className="mt-1 text-[11px] text-slate-500" title={findMohCode(item.moh_code)?.name_he}>
-                        קוד משרד הבריאות: <span className="font-medium text-slate-700">{item.moh_code}</span>
-                      </p>
-                    )}
                     <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                       {item.requires_referral && <Badge tone="amber">דורש הפניה</Badge>}
                       {item.requires_fasting && <Badge tone="amber">דורש צום</Badge>}
@@ -245,9 +378,15 @@ export function ServiceCatalogSection({
                     </div>
                     <div className="mt-1.5">
                       {isUnit ? (
-                        <span className="flex items-center gap-1 text-[11px] text-slate-500">
-                          <MonitorCog className="h-3 w-3" /> שייכו למתקן או לרופא/ה כדי לפתוח תורים
-                        </span>
+                        assigned ? (
+                          <span className="flex items-center gap-1 text-[11px] text-slate-500">
+                            <MonitorCog className="h-3 w-3" /> משויך ל: {assigned}
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-[11px] text-amber-600">
+                            <MonitorCog className="h-3 w-3" /> לא משויך לחדר או לנותן/ת שירות — לא ייפתחו תורים
+                          </span>
+                        )
                       ) : (item.linked_clinic_ids?.length ?? 0) > 0 ? (
                         <span className="flex items-center gap-1 text-[11px] text-slate-500">
                           <MapPin className="h-3 w-3" />
@@ -270,6 +409,12 @@ export function ServiceCatalogSection({
                   </div>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-1.5 text-xs">
+                  {item.price_full != null && (
+                    <div className="flex justify-between rounded-md bg-primary/5 px-2 py-1 col-span-2">
+                      <span className="text-slate-500">מחיר פריט מלא (P)</span>
+                      <span className="font-medium text-slate-700">{formatCurrency(item.price_full)}</span>
+                    </div>
+                  )}
                   {item.prices.map((p) => (
                     <div key={p.layer} className="flex justify-between rounded-md bg-slate-50 px-2 py-1">
                       <span className="text-slate-500">{LAYER_LABELS[p.layer]}</span>
@@ -285,77 +430,65 @@ export function ServiceCatalogSection({
 
       <Dialog open={open} onClose={() => setOpen(false)} title={editingId ? `עריכת ${itemLabel}` : `${itemLabel} חדש`} className="max-w-xl">
         <div className="flex flex-col gap-3">
-          {editingId && !selectedCatalogItem ? (
-            <p className="text-sm text-slate-500 rounded-lg bg-slate-50 px-3 py-2">{items.find((i) => i.id === editingId)?.name}</p>
-          ) : (
-            <div className="grid sm:grid-cols-2 gap-3">
-              {matchedDomain && !showAllDomains && (
-                <p className="sm:col-span-2 flex items-center justify-between gap-2 text-xs text-slate-500">
-                  <span>
-                    התחום מוצג לפי ההתמחות שלך: <strong className="text-slate-700">{matchedDomain.name_he}</strong>
-                  </span>
-                  <button type="button" onClick={() => setShowAllDomains(true)} className="shrink-0 font-medium text-primary hover:underline">
-                    לא מוצא/ת את השירות? הצג את כל התחומים
-                  </button>
-                </p>
-              )}
-              <Select
-                label="תחום"
-                value={domainId}
-                onChange={(e) => {
-                  setDomainId(e.target.value);
-                  setSubdomainId("");
-                  setCatalogItemId("");
-                }}
-                disabled={!!matchedDomain && !showAllDomains}
-              >
-                <option value="">בחר תחום</option>
-                {domainOptions.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name_he}
-                  </option>
-                ))}
-              </Select>
-              <Select
-                label="תת-תחום"
-                value={subdomainId}
-                onChange={(e) => {
-                  setSubdomainId(e.target.value);
-                  setCatalogItemId("");
-                }}
-                disabled={!domainId}
-              >
-                <option value="">בחר תת-תחום</option>
-                {subdomainOptions.map((sd) => (
-                  <option key={sd.id} value={sd.id}>
-                    {sd.name_he}
-                  </option>
-                ))}
-              </Select>
-              <Select
-                label="שירות"
-                value={catalogItemId}
-                onChange={(e) => {
-                  setCatalogItemId(e.target.value);
-                  const item = availableCatalog.find((c) => c.id === e.target.value);
-                  if (item?.typical_duration_min) setDuration(String(item.typical_duration_min));
-                }}
-                disabled={!subdomainId}
-                className="sm:col-span-2"
-              >
-                <option value="">בחר שירות</option>
-                {itemOptions.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name_he}
-                    {c.tavar_code ? ` (${c.tavar_code})` : ""}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          )}
+          {/* Code / free-text search against the provider's reference catalog */}
+          <div className="relative">
+            <Input
+              label={`חיפוש ב${CATALOG_KIND_LABELS[catalogKind]} — לפי קוד או טקסט חופשי`}
+              placeholder='לדוגמה: "MRI" או "54021"'
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setCatalogItemId("");
+              }}
+            />
+            <Search className="pointer-events-none absolute left-3 top-9 h-4 w-4 text-slate-400" />
+            {query.trim() && !catalogItemId && (
+              <div className="mt-1 max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-sm">
+                {searchResults.length === 0 ? (
+                  <div className="px-3 py-2.5">
+                    <p className="text-xs text-slate-400">
+                      לא נמצאו פריטים מתאימים ב{CATALOG_KIND_LABELS[catalogKind]}
+                    </p>
+                    {catalogKind === "healson" && query.trim().length >= 2 && (
+                      <button
+                        type="button"
+                        onClick={openRequest}
+                        className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                      >
+                        <Plus className="h-3.5 w-3.5" /> בקש להוסיף פריט לקטלוג
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  searchResults.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => pickCatalogItem(c)}
+                      className="flex w-full items-center justify-between gap-2 px-3 py-2 text-right text-sm hover:bg-slate-50"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Badge tone="slate">{c.tavar_code}</Badge>
+                        <span className="text-slate-800">{c.name_he}</span>
+                      </span>
+                      <span className="shrink-0 text-xs text-slate-400">
+                        {formatCurrency(c.catalog === "healson" ? c.price_full ?? c.base_price : c.base_price)}
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
 
           {selectedCatalogItem && (
-            <p className="text-xs text-slate-400">מחיר תב״ר ייחוס (משרד הבריאות): {formatCurrency(selectedCatalogItem.base_price)}</p>
+            <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              <span className="font-medium text-slate-700">
+                {CATALOG_CODE_LABELS[selectedCatalogItem.catalog]}: {selectedCatalogItem.tavar_code}
+              </span>
+              {" · "}
+              {selectedCatalogItem.name_he}
+            </div>
           )}
 
           <div className="grid sm:grid-cols-2 gap-3">
@@ -363,12 +496,12 @@ export function ServiceCatalogSection({
                 everyone else keeps the generic 7-way classification. */}
             {serviceCategories ? (
               <Select
-                label="סוג השירות"
+                label="קטגוריית הפריט"
                 value={serviceCategory}
                 onChange={(e) => setServiceCategory(e.target.value)}
                 required
               >
-                <option value="">בחר/י סוג שירות</option>
+                <option value="">בחר/י קטגוריה</option>
                 {serviceCategories.map((c) => (
                   <option key={c} value={c}>
                     {c}
@@ -376,7 +509,7 @@ export function ServiceCatalogSection({
                 ))}
               </Select>
             ) : (
-              <Select label="סוג שירות" value={serviceType} onChange={(e) => setServiceType(e.target.value as ProviderServiceType)}>
+              <Select label="סוג פריט" value={serviceType} onChange={(e) => setServiceType(e.target.value as ProviderServiceType)}>
                 {PROVIDER_SERVICE_TYPES.map((t) => (
                   <option key={t} value={t}>
                     {PROVIDER_SERVICE_TYPE_LABELS[t]}
@@ -404,16 +537,106 @@ export function ServiceCatalogSection({
             </Select>
           )}
 
-          {/* Ministry of Health code (§PRV-09) — mandatory for the clinical
-              types that have one, absent for consultations/products. */}
-          {needsMohCode ? (
-            <MohCodePicker serviceType={serviceType} value={mohCode} onChange={setMohCode} />
-          ) : (
-            <OpenDecisionNote className="mb-0">
-              <b>שאלה פתוחה:</b> ל{PROVIDER_SERVICE_TYPE_LABELS[serviceType]} אין קוד רשמי של משרד הבריאות. עדיין
-              לא הוחלט איך מקודדים שירותים פנימיים כאלה — קוד פנימי של Healson, קוד שהספק מגדיר בעצמו, או ללא קוד
-              כלל. עד להחלטה השירות נשמר לפי שמו מה-Skill Tree בלבד.
-            </OpenDecisionNote>
+          {/* Pricing — S/H are the MoH price list, always locked. Healson
+              items add the full item price P and the K/B Healson tariffs. */}
+          <div className="flex flex-col gap-2 rounded-lg border border-slate-200 p-3">
+            <p className="text-xs font-medium text-slate-600">מחירים</p>
+            {catalogKind === "healson" && (
+              <div className="grid sm:grid-cols-3 gap-2">
+                <Input
+                  label="מחיר פריט מלא (P)"
+                  type="number"
+                  value={priceFull}
+                  onChange={(e) => setPriceFull(e.target.value)}
+                  required
+                />
+                <Input label={`מחיר ${LAYER_LABELS.K} (K)`} type="number" value={priceK} onChange={(e) => setPriceK(e.target.value)} />
+                <Input label={`מחיר ${LAYER_LABELS.B} (B)`} type="number" value={priceB} onChange={(e) => setPriceB(e.target.value)} />
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="flex items-center justify-between rounded-md bg-slate-50 px-2 py-1.5">
+                <span className="flex items-center gap-1 text-slate-500">
+                  <Lock className="h-3 w-3" /> {LAYER_LABELS.S} (S)
+                </span>
+                <span className="font-medium text-slate-700">{mohS != null ? formatCurrency(mohS) : "—"}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-md bg-slate-50 px-2 py-1.5">
+                <span className="flex items-center gap-1 text-slate-500">
+                  <Lock className="h-3 w-3" /> {LAYER_LABELS.H} (H)
+                </span>
+                <span className="font-medium text-slate-700">{mohH != null ? formatCurrency(mohH) : "—"}</span>
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              S ו-H נקבעים תמיד לפי מחירון משרד הבריאות ואינם ניתנים לעריכה.
+              {catalogKind === "healson" && " תעריפי K ו-B הם תעריפי הילסון בתיאום מולכם."}
+            </p>
+          </div>
+
+          {/* Unit types assign the item to its resource right here — a room
+              (MRI 1, חדר פעולות) or an individual service provider. */}
+          {isUnit && (
+            <div className="flex flex-col gap-2 rounded-lg border border-slate-200 p-3">
+              <p className="text-xs font-medium text-slate-600">שיוך הפריט — חדר או נותן/ת שירות</p>
+              {(roomTargets?.length ?? 0) === 0 && (providerTargets?.length ?? 0) === 0 ? (
+                <p className="text-xs text-slate-400">
+                  עדיין לא הוגדרו חדרים או נותני שירות ביחידה — ניתן לשייך מאוחר יותר בלשוניות &quot;חדרים&quot;
+                  ו&quot;נותני שירות&quot;.
+                </p>
+              ) : (
+                <>
+                  {(roomTargets?.length ?? 0) > 0 && (
+                    <div>
+                      <p className="mb-1 text-[11px] text-slate-500">חדרים</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {roomTargets!.map((r) => {
+                          const picked = selectedRoomIds.includes(r.id);
+                          return (
+                            <button
+                              key={r.id}
+                              type="button"
+                              onClick={() => toggleTarget(r.id, selectedRoomIds, setSelectedRoomIds)}
+                              className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                                picked
+                                  ? "border-primary bg-primary/10 text-primary font-medium"
+                                  : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                              }`}
+                            >
+                              {r.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  {(providerTargets?.length ?? 0) > 0 && (
+                    <div>
+                      <p className="mb-1 text-[11px] text-slate-500">נותני שירות</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {providerTargets!.map((p) => {
+                          const picked = selectedProviderIds.includes(p.id);
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => toggleTarget(p.id, selectedProviderIds, setSelectedProviderIds)}
+                              className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                                picked
+                                  ? "border-primary bg-primary/10 text-primary font-medium"
+                                  : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                              }`}
+                            >
+                              {p.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           )}
 
           <div className="flex flex-col gap-2 rounded-lg border border-slate-200 p-3">
@@ -495,23 +718,13 @@ export function ServiceCatalogSection({
             )}
           </div>
 
-          <p className="flex items-start gap-1.5 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
-            {isUnit ? (
-              <>
-                <MonitorCog className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                ליחידה רפואית אין סניפים — היחידה עצמה היא הסניף. את השירות משייכים למתקן (MRI 1, CT 1) בלשונית
-                &quot;מתקנים&quot;, או לרופא/ה בלשונית &quot;רופאים&quot; — שם גם נקבעת הזמינות שלו.
-              </>
-            ) : (
-              <>
-                <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                שיוך השירות למיקומים נעשה בלשונית &quot;מרפאות&quot; — שם בוחרים לכל מיקום אילו שירותים מוצעים בו.
-              </>
-            )}
-          </p>
+          {!isUnit && (
+            <p className="flex items-start gap-1.5 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+              <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              שיוך הפריט למיקומים נעשה בלשונית &quot;מרפאות&quot; — שם בוחרים לכל מיקום אילו פריטים מוצעים בו.
+            </p>
+          )}
 
-          <p className="text-xs text-slate-400">מחיר לשכבת ביטוח — השאירו ריק אם הספק לא עובד מול שכבה זו</p>
-          <LayerPriceInputs prices={prices} onChange={setPrices} />
           <Button onClick={handleSave} disabled={!canSave}>
             שמור
           </Button>
@@ -529,6 +742,43 @@ export function ServiceCatalogSection({
           if (deleteId) onChange(items.filter((i) => i.id !== deleteId));
         }}
       />
+
+      {/* Request a missing Healson catalog item (§catalog requests) */}
+      <Dialog
+        open={requestOpen}
+        onClose={() => setRequestOpen(false)}
+        title="בקשה להוספת פריט לקטלוג"
+        description="הפריט שחיפשת אינו קיים בקטלוג הילסון. שלח/י בקשה קצרה וצוות הילסון יוסיף אותו."
+      >
+        <div className="flex flex-col gap-3">
+          <Input
+            label="שם הפריט המבוקש"
+            value={reqName}
+            onChange={(e) => setReqName(e.target.value)}
+            required
+          />
+          <Select
+            label="סוג הפריט"
+            value={reqType}
+            onChange={(e) => setReqType(e.target.value as ProviderServiceType)}
+          >
+            {PROVIDER_SERVICE_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {PROVIDER_SERVICE_TYPE_LABELS[t]}
+              </option>
+            ))}
+          </Select>
+          <Textarea
+            label="פירוט קצר (אופציונלי)"
+            placeholder="למשל: משך הפעולה, האם נדרשת הפניה, ותיאור קליני קצר שיעזור לצוות."
+            value={reqDesc}
+            onChange={(e) => setReqDesc(e.target.value)}
+          />
+          <Button onClick={submitRequest} disabled={reqName.trim().length < 2}>
+            שלח בקשה
+          </Button>
+        </div>
+      </Dialog>
     </div>
   );
 }

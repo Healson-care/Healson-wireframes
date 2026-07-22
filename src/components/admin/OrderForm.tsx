@@ -149,8 +149,8 @@ export function OrderForm({
           ))}
         </Select>
 
-        <Select label="שירות מהקטלוג" value={form.catalog_item_id} onChange={(e) => pickCatalogItem(e.target.value)}>
-          <option value="">בחר שירות (אופציונלי)...</option>
+        <Select label="פריט מהקטלוג" value={form.catalog_item_id} onChange={(e) => pickCatalogItem(e.target.value)}>
+          <option value="">בחר פריט (אופציונלי)...</option>
           {itemsForProvider.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name_he}
@@ -159,7 +159,7 @@ export function OrderForm({
         </Select>
 
         <Input
-          label="שם השירות"
+          label="שם הפריט"
           required
           value={form.item_name}
           onChange={(e) => setForm({ ...form, item_name: e.target.value })}

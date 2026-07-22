@@ -38,7 +38,7 @@ export default function ProviderOrdersPage() {
         rowKey={(o) => o.id}
         emptyIcon={<ShoppingCart className="h-10 w-10" />}
         emptyTitle="אין הזמנות עדיין"
-        emptyDescription="הזמנות שירותים ומוצרים של לקוחות יופיעו כאן ברגע שיתקבלו."
+        emptyDescription="הזמנות פריטים ומוצרים של לקוחות יופיעו כאן ברגע שיתקבלו."
         columns={
           [
             {
@@ -48,7 +48,7 @@ export default function ProviderOrdersPage() {
               sortValue: (o) => o.patient_name,
               render: (o) => <span className="font-medium text-slate-900">{o.patient_name}</span>,
             },
-            { key: "item", header: "שירות", render: (o) => <span className="text-slate-600">{o.item_name}</span> },
+            { key: "item", header: "פריט", render: (o) => <span className="text-slate-600">{o.item_name}</span> },
             {
               key: "price",
               header: "מחיר",

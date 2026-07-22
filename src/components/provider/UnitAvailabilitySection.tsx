@@ -68,10 +68,10 @@ export function UnitAvailabilitySection({
           זמינות כללית
         </TabsTrigger>
         <TabsTrigger value="facilities" icon={<MonitorCog className="h-4 w-4" />}>
-          מתקנים ({facilities.length})
+          חדרים ({facilities.length})
         </TabsTrigger>
         <TabsTrigger value="doctors" icon={<Stethoscope className="h-4 w-4" />}>
-          רופאים ({affiliations.length})
+          נותני שירות ({affiliations.length})
         </TabsTrigger>
       </TabsList>
 
@@ -81,8 +81,8 @@ export function UnitAvailabilitySection({
 
       <TabsContent value="facilities">
         <ResourcePicker
-          emptyTitle="לא הוגדרו מתקנים"
-          emptyDescription='הוסיפו מתקנים בלשונית "מתקנים" — לכל מכשיר או חדר לוח זמנים משלו, והשירותים המבוצעים עליו מקושרים אליו.'
+          emptyTitle="לא הוגדרו חדרים"
+          emptyDescription='הוסיפו חדרים בלשונית "חדרים" — לכל מכשיר או חדר לוח זמנים משלו, והפריטים המבוצעים בו מקושרים אליו.'
           items={facilities.map((f) => ({
             id: f.id,
             label: f.name,
@@ -93,8 +93,8 @@ export function UnitAvailabilitySection({
                 holder={f}
                 title={f.name}
                 subtitle={resources.find((r) => r.id === f.id)?.subtitle}
-                emptyLabel="למתקן אין עדיין לוח זמנים"
-                serviceScopeLabel="כל השירותים של המתקן"
+                emptyLabel="לחדר אין עדיין לוח זמנים"
+                serviceScopeLabel="כל הפריטים של החדר"
                 services={services.filter((s) => f.service_ids.includes(s.id))}
                 onChange={updateFacility}
               />
@@ -105,22 +105,22 @@ export function UnitAvailabilitySection({
 
       <TabsContent value="doctors">
         <ResourcePicker
-          emptyTitle="לא שויכו רופאים"
-          emptyDescription='הוסיפו רופאים בלשונית "רופאים" — לכל רופא/ה לוח זמנים משלו/ה ביחידה, והשירותים שהוא/היא מבצע/ת מקושרים אליו/ה.'
+          emptyTitle="לא שויכו נותני שירות"
+          emptyDescription='הוסיפו נותני שירות בלשונית "נותני שירות" — לכל נותן/ת שירות לוח זמנים משלו/ה ביחידה, והפריטים שהוא/היא מבצע/ת מקושרים אליו/ה.'
           items={affiliations.map((a) => {
             const info = doctorInfo.get(a.doctor_provider_id);
             return {
               id: a.id,
-              label: info?.name ?? "רופא/ה",
+              label: info?.name ?? "נותן/ת שירות",
               hasAvailability: hasAnyAvailability(a),
               render: () => (
                 <ScheduleEditor
                   key={a.id}
                   holder={a}
-                  title={info?.name ?? "רופא/ה"}
+                  title={info?.name ?? "נותן/ת שירות"}
                   subtitle={[a.role, info?.specialty].filter(Boolean).join(" · ") || undefined}
-                  emptyLabel="לרופא/ה אין עדיין לוח זמנים ביחידה"
-                  serviceScopeLabel="כל השירותים של הרופא/ה"
+                  emptyLabel="לנותן/ת השירות אין עדיין לוח זמנים ביחידה"
+                  serviceScopeLabel="כל הפריטים של נותן/ת השירות"
                   services={services.filter((s) => a.service_ids.includes(s.id))}
                   onChange={updateAffiliation}
                 />
@@ -159,7 +159,7 @@ function GeneralAvailability({
             <div>
               <p className="text-sm font-medium text-slate-900">תמונת מצב — כל היחידה</p>
               <p className="text-xs text-slate-500">
-                {overview.facilities.length} מתקנים · {overview.doctors.length} רופאים ·{" "}
+                {overview.facilities.length} חדרים · {overview.doctors.length} נותני שירות ·{" "}
                 {overview.activeDays} ימי פעילות בשבוע · {overview.totalWeeklyHours.toFixed(1)} שעות משאב נטו
               </p>
             </div>
@@ -189,7 +189,7 @@ function GeneralAvailability({
             );
           })}
         </div>
-        <p className="mt-2 text-[11px] text-slate-400">מספר המשאבים (מתקנים + רופאים) הפעילים בכל יום.</p>
+        <p className="mt-2 text-[11px] text-slate-400">מספר המשאבים (חדרים + נותני שירות) הפעילים בכל יום.</p>
       </Card>
 
       {/* Warnings — the two ways a unit's schedule ends up not bookable. */}
@@ -202,7 +202,7 @@ function GeneralAvailability({
       )}
       {overview.servicesWithoutResource.length > 0 && (
         <WarningRow>
-          {overview.servicesWithoutResource.length} שירותים אינם מקושרים למתקן או לרופא/ה:{" "}
+          {overview.servicesWithoutResource.length} פריטים אינם מקושרים לחדר או לנותן/ת שירות:{" "}
           {overview.servicesWithoutResource
             .slice(0, 4)
             .map((s) => s.name)
@@ -244,8 +244,8 @@ function GeneralAvailability({
           <CalendarClock className="h-4 w-4 text-slate-400" /> שעות הפעילות של היחידה
         </p>
         <p className="mb-3 text-xs text-slate-500">
-          שעות הפתיחה של היחידה כולה — מוצגות למטופלים, ומשמשות כברירת מחדל לשירותים שעדיין לא שויכו למתקן או
-          לרופא/ה. הן אינן מגבילות את לוחות הזמנים של המשאבים.
+          שעות הפתיחה של היחידה כולה — מוצגות למטופלים, ומשמשות כברירת מחדל לפריטים שעדיין לא שויכו לחדר או
+          לנותן/ת שירות. הן אינן מגבילות את לוחות הזמנים של המשאבים.
         </p>
         {unit ? (
           <ScheduleEditor
@@ -275,8 +275,8 @@ function ResourceWeekRow({ resource }: { resource: UnitResource }) {
       <td className="p-2 align-top">
         <p className="font-medium text-slate-800">{resource.name}</p>
         <p className="text-[10px] text-slate-400">
-          {resource.kind === "facility" ? "מתקן" : "רופא/ה"}
-          {resource.service_ids.length > 0 ? ` · ${resource.service_ids.length} שירותים` : ""}
+          {resource.kind === "facility" ? "חדר" : "נותן/ת שירות"}
+          {resource.service_ids.length > 0 ? ` · ${resource.service_ids.length} פריטים` : ""}
         </p>
       </td>
       {DAY_KEYS.map((day) => {

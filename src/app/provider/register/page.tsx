@@ -391,7 +391,7 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
     nameLabel: "שם הרשת / המרפאה",
     showContactName: true,
     contactNameLabel: "שם איש קשר",
-    specialtyLabel: "סוג השירותים במרפאה",
+    specialtyLabel: "סוג הפריטים במרפאה",
     specialtyOptions: OUTPATIENT_SERVICE_TYPES,
     multiSpecialty: true,
     showBusinessRegNumber: true,
@@ -412,7 +412,7 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
     nameLabel: "שם המכון",
     showContactName: true,
     contactNameLabel: " שם איש קשר ",
-    specialtyLabel: "סוגי השירותים במכון",
+    specialtyLabel: "סוגי הפריטים במכון",
     specialtyOptions: INSTITUTE_SERVICE_TYPES,
     multiSpecialty: true,
     showBusinessRegNumber: true,
@@ -448,7 +448,7 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
     nameLabel: "שם המוקד",
     showContactName: true,
     contactNameLabel: "שם איש קשר",
-    specialtyLabel: "סוג השירותים במוקד",
+    specialtyLabel: "סוג הפריטים במוקד",
     specialtyOptions: CALL_CENTER_SERVICES,
     multiSpecialty: true,
     showBusinessRegNumber: true,
@@ -1291,7 +1291,7 @@ export default function ProviderRegisterPage() {
               <ul className="space-y-1.5 text-right text-xs text-slate-500">
                 <li>· חתימה על הסכם השירותים מול Healson</li>
                 <li>· הסדרי ביטוח (קופות, ביטוח פרטי)</li>
-                <li>· השירותים או המוצרים שלכם</li>
+                <li>· הפריטים או המוצרים שלכם</li>
                 <li>· מיקומים (מרפאה, סניף וכו&apos;)</li>
                 <li>· זמינות ושעות פעילות</li>
                 <li>· בקשת פרסום סופית</li>
@@ -1676,7 +1676,7 @@ export default function ProviderRegisterPage() {
               <Network className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>
                 <strong className="font-semibold">סוגי הספקים הפועלים בארגון —</strong> אין צורך להזין אותם כאן.
-                צוות Healson מזין ומקשר את הספקים הפועלים בארגון (מחלקות, מרפאות חוץ, מכונים ורופאים) לאחר
+                צוות Healson מזין ומקשר את הספקים הפועלים בארגון (מחלקות, מרפאות חוץ, מכונים ונותני שירות) לאחר
                 השלמת ההצטרפות.
               </span>
             </div>

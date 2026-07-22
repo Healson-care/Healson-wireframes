@@ -58,8 +58,8 @@ export function getProfileSections(setupConfig: ProviderTypeSetupConfig): Profil
       label: setupConfig.locationLabelPlural,
       icon: MapPin,
       description: setupConfig.singleLocation
-        ? "כתובת היחידה, פרטי התקשרות ושירותים — היחידה עצמה היא הסניף"
-        : `ניהול ה${setupConfig.locationLabelPlural} והשירותים המקושרים אליהם`,
+        ? "כתובת היחידה, פרטי התקשרות ופריטים — היחידה עצמה היא הסניף"
+        : `ניהול ה${setupConfig.locationLabelPlural} והפריטים המקושרים אליהם`,
     },
     // Medical units (§PRV-08) — machines/rooms that hold their own queue.
     ...(setupConfig.showFacilities
@@ -67,9 +67,9 @@ export function getProfileSections(setupConfig: ProviderTypeSetupConfig): Profil
           {
             key: "facilities",
             href: "/provider/profile/facilities",
-            label: "מתקנים",
+            label: "חדרים",
             icon: MonitorCog,
-            description: "MRI, CT, חדרי פעולות — והשירותים המבוצעים על כל אחד",
+            description: "MRI, CT, חדרי פעולות — והפריטים המבוצעים בכל אחד",
           },
         ]
       : []),
@@ -81,7 +81,7 @@ export function getProfileSections(setupConfig: ProviderTypeSetupConfig): Profil
             label: "זמינות",
             icon: CalendarClock,
             description: setupConfig.showFacilities
-              ? "זמינות כללית של היחידה, ולוח זמנים נפרד לכל מתקן ולכל רופא/ה"
+              ? "זמינות כללית של היחידה, ולוח זמנים נפרד לכל חדר ולכל נותן/ת שירות"
               : "משמרות, הפסקות, חריגות ותאריכים חסומים",
           },
         ]
@@ -91,9 +91,9 @@ export function getProfileSections(setupConfig: ProviderTypeSetupConfig): Profil
           {
             key: "doctors",
             href: "/provider/profile/doctors",
-            label: "רופאים",
+            label: "נותני שירות",
             icon: Stethoscope,
-            description: "הרופאים הפועלים בארגון והשירותים שכל אחד מבצע",
+            description: "נותני השירות הפועלים בארגון והפריטים שכל אחד מבצע",
           },
         ]
       : []),

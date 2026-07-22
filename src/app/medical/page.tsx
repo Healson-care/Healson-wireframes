@@ -94,7 +94,7 @@ export default function MedicalReferencePage() {
               transition={{ duration: 0.15 }}
             >
               {services.length === 0 ? (
-                <EmptyState title="אין שירותים מוגדרים בקטגוריה זו" />
+                <EmptyState title="אין פריטים מוגדרים בקטגוריה זו" />
               ) : (
                 <div className="flex flex-col gap-3">
                   {services.map((item) => {
