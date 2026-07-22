@@ -667,6 +667,7 @@ function AdminPatientChartPageContent() {
           updatePatient(patient.id, {
             ...values,
             gender: values.gender || undefined,
+            kupah: values.kupah || undefined,
             k_level: values.k_level || undefined,
             b_insurance_company: values.has_b_insurance ? values.b_insurance_company : undefined,
             b_policy_number: values.has_b_insurance ? values.b_policy_number : undefined,
