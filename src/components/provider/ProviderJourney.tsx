@@ -55,6 +55,7 @@ export function ProviderJourney({
     ...(setupConfig.showFacilities ? [{ key: "facilities", label: "מתקנים" }] : []),
     ...(setupConfig.showAvailability ? [{ key: "availability", label: "זמינות ולוח זמנים" }] : []),
     ...(setupConfig.showAffiliatedDoctors ? [{ key: "doctors", label: "רופאים משויכים" }] : []),
+    { key: "photo", label: "תמונת פרופיל · מומלץ" },
     { key: "publish", label: "פרסום הפרופיל וקבלת הזמנות" },
   ];
 

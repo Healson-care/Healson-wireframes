@@ -128,7 +128,7 @@ export default function ClientSearchPage() {
     });
     setPendingAppointmentId(appointment.id);
     setSelectedSlot({ date, time, label });
-    // eslint-disable-next-line react-hooks/purity -- event handler, not render logic
+     
     setHoldExpiresAt(Date.now() + HOLD_SECONDS * 1000);
     setStep(3);
   }

@@ -275,7 +275,10 @@ export function getNextProviderAction(provider: ProviderProfile): string | null 
     if (provider.go_live_requested_at) {
       return "ביקשת פרסום — ממתינים לאישור Go-Live סופי של צוות Healson.";
     }
-    return 'החשבון שלך מוכן להפעלה — לחצו על "פרסם" כדי לשלוח לאישור סופי.';
+    // The photo is recommended, never a gate — nudge without blocking.
+    return provider.image_url
+      ? 'החשבון שלך מוכן להפעלה — לחצו על "פרסם" כדי לשלוח לאישור סופי.'
+      : 'החשבון שלך מוכן להפעלה — מומלץ להעלות תמונת פרופיל (זה מה שמטופלים יראו בחיפוש), ואז ללחוץ על "פרסם".';
   }
 
   if (provider.status === "approved" && !provider.is_published) {

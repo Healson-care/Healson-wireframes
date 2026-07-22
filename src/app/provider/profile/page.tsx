@@ -47,6 +47,7 @@ export default function ProviderProfileOverviewPage() {
       ? [{ ok: isLocationsComplete(provider), label: setupConfig.locationLabelPlural }]
       : []),
     ...(setupConfig.showAvailability ? [{ ok: isAvailabilityComplete(provider), label: "זמינות שבועית" }] : []),
+    { ok: !!provider.image_url, label: "תמונת פרופיל · מומלץ" },
     { ok: isVerified, label: "אישור Healson" },
     { ok: provider.is_published, label: "פרסום פרופיל" },
   ];

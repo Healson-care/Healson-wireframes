@@ -6,11 +6,10 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Dialog } from "@/components/ui/Dialog";
 import { Input, Textarea } from "@/components/ui/Input";
-import { fileToDataUrl } from "@/lib/file";
 import { formatDateHe } from "@/lib/utils";
 import { DOCTOR_SUBTYPE_LABELS, ProviderProfile, ToastItem } from "@/types";
-import { Lock, Pencil, Save, Upload, SendHorizontal } from "lucide-react";
-import { Avatar } from "@/components/ui/Misc";
+import { Lock, Pencil, Save, SendHorizontal } from "lucide-react";
+import { ProfilePhotoField } from "@/components/provider/ProfilePhotoField";
 
 const LANGUAGE_OPTIONS = ["עברית", "ערבית", "רוסית", "אנגלית"];
 
@@ -36,27 +35,12 @@ export function ProfileFieldsSection({
   });
   const [languages, setLanguages] = useState<string[]>(provider.languages ?? []);
   const [imageUrl, setImageUrl] = useState<string | undefined>(provider.image_url);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   const [requestField, setRequestField] = useState<string | null>(null);
   const [requestReason, setRequestReason] = useState("");
 
   function toggleLanguage(lang: string) {
     setLanguages((prev) => (prev.includes(lang) ? prev.filter((l) => l !== lang) : [...prev, lang]));
-  }
-
-  async function handlePhotoSelect(file: File | undefined) {
-    if (!file) return;
-    setUploadingPhoto(true);
-    try {
-      const url = await fileToDataUrl(file);
-      setImageUrl(url);
-      onSave({ image_url: url });
-    } catch (err) {
-      showToast("שגיאה בהעלאת התמונה", { description: err instanceof Error ? err.message : undefined, variant: "destructive" });
-    } finally {
-      setUploadingPhoto(false);
-    }
   }
 
   function handleSave(e: React.FormEvent) {
@@ -85,13 +69,15 @@ export function ProfileFieldsSection({
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSave} className="grid sm:grid-cols-2 gap-3">
-            <div className="sm:col-span-2 flex items-center gap-4">
-              <Avatar name={form.display_name || provider.display_name} src={imageUrl} className="h-16 w-16 text-lg" />
-              <label className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 px-4 py-2.5 text-sm text-slate-600 cursor-pointer hover:border-primary">
-                <Upload className="h-4 w-4" />
-                {uploadingPhoto ? "מעלה..." : "העלאת תמונת פרופיל"}
-                <input type="file" accept=".jpg,.jpeg,.png" className="hidden" onChange={(e) => handlePhotoSelect(e.target.files?.[0])} />
-              </label>
+            <div className="sm:col-span-2">
+              <ProfilePhotoField
+                name={form.display_name || provider.display_name}
+                imageUrl={imageUrl}
+                onUpload={(url) => {
+                  setImageUrl(url);
+                  onSave({ image_url: url });
+                }}
+              />
             </div>
             <Input
               label="שם תצוגה (כינוי)"
