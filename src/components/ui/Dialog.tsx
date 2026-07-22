@@ -27,6 +27,17 @@ export function Dialog({
   const titleId = useId();
   const descriptionId = useId();
 
+  // onClose is almost always an inline arrow (new identity every render). If
+  // the effect below depended on it, ANY parent re-render — e.g. a keystroke
+  // in a controlled input inside the dialog — would tear down and re-run the
+  // effect, and its cleanup/setup would steal focus from the field being
+  // typed in. Keep the latest callback in a ref so the effect only reacts to
+  // `open`.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+
   useEffect(() => {
     if (!open) return;
     const previouslyFocused = document.activeElement as HTMLElement | null;
@@ -39,7 +50,7 @@ export function Dialog({
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key !== "Tab") return;
@@ -70,7 +81,7 @@ export function Dialog({
       document.body.style.overflow = prevOverflow;
       previouslyFocused?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   return (
     <AnimatePresence>

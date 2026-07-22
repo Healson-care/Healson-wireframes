@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { ProgressRing } from "@/components/ui/Progress";
 import { AgreementSignSection } from "@/components/provider/AgreementSignSection";
+import { ProfilePhotoField } from "@/components/provider/ProfilePhotoField";
 import { DemoPanel } from "@/components/provider/DemoPanel";
 import { cn } from "@/lib/utils";
 import type { ProviderProfile } from "@/types";
@@ -29,6 +30,11 @@ interface Step {
   href?: string;
   /** The agreement-signing step opens a dialog instead of navigating. */
   sign?: boolean;
+  /** The profile-photo step also opens a dialog (upload happens in place). */
+  photo?: boolean;
+  /** Recommended but never blocks the go-live request, and doesn't count
+   * toward the completion percent. */
+  optional?: boolean;
 }
 
 /**
@@ -45,7 +51,9 @@ export function OnboardingProgress({ provider, className }: { provider: Provider
   const requestProviderGoLive = useStore((s) => s.requestProviderGoLive);
   const approveProviderGoLive = useStore((s) => s.approveProviderGoLive);
   const showToast = useStore((s) => s.showToast);
+  const updateProviderById = useStore((s) => s.updateProviderById);
   const [signDialogOpen, setSignDialogOpen] = useState(false);
+  const [photoDialogOpen, setPhotoDialogOpen] = useState(false);
 
   const setupConfig = getProviderSetupConfig(provider.provider_type);
   const steps: Step[] = [
@@ -73,9 +81,11 @@ export function OnboardingProgress({ provider, className }: { provider: Provider
           },
         ]
       : []),
+    { key: "photo", ok: !!provider.image_url, label: "תמונת פרופיל · מומלץ", photo: true, optional: true },
   ];
-  const percent = Math.round((steps.filter((s) => s.ok).length / steps.length) * 100);
-  const firstIncomplete = steps.find((s) => !s.ok);
+  const requiredSteps = steps.filter((s) => !s.optional);
+  const percent = Math.round((requiredSteps.filter((s) => s.ok).length / requiredSteps.length) * 100);
+  const firstIncomplete = requiredSteps.find((s) => !s.ok);
   const goLiveRequested = !!provider.go_live_requested_at;
   const message = getNextProviderAction(provider) ?? "כמעט שם — נותרו כמה שלבים לפני הפרסום.";
 
@@ -136,9 +146,14 @@ export function OnboardingProgress({ provider, className }: { provider: Provider
                   {step.label}
                 </>
               );
-              if (step.sign) {
+              if (step.sign || step.photo) {
                 return (
-                  <button key={step.key} type="button" onClick={() => setSignDialogOpen(true)} className={chipClass}>
+                  <button
+                    key={step.key}
+                    type="button"
+                    onClick={() => (step.sign ? setSignDialogOpen(true) : setPhotoDialogOpen(true))}
+                    className={chipClass}
+                  >
                     {inner}
                   </button>
                 );
@@ -172,6 +187,28 @@ export function OnboardingProgress({ provider, className }: { provider: Provider
           </Button>
         </DemoPanel>
       )}
+
+      <Dialog open={photoDialogOpen} onClose={() => setPhotoDialogOpen(false)} title="תמונת פרופיל">
+        <div className="flex flex-col gap-4">
+          <p className="text-sm leading-relaxed text-slate-600">
+            התמונה (או הלוגו) תוצג למטופלים בתוצאות החיפוש ובעמוד הפרופיל שלך. אפשר להחליף אותה בכל עת
+            דרך פרופיל ← הגדרות.
+          </p>
+          <ProfilePhotoField
+            name={provider.display_name}
+            imageUrl={provider.image_url}
+            onUpload={(url) => {
+              updateProviderById(provider.id, { image_url: url });
+              showToast("תמונת הפרופיל נשמרה", { variant: "success" });
+            }}
+          />
+          {provider.image_url && (
+            <Button className="self-end" onClick={() => setPhotoDialogOpen(false)}>
+              סיום
+            </Button>
+          )}
+        </div>
+      </Dialog>
 
       <Dialog open={signDialogOpen} onClose={() => setSignDialogOpen(false)} title="חתימה על ההסכם עם Healson">
         <AgreementSignSection

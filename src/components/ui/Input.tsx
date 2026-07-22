@@ -27,7 +27,7 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ className, icon, label, error, hint, id, ...props }, ref) => {
+  ({ className, icon, label, error, hint, endAdornment, id, ...props }, ref) => {
     const autoId = useId();
     const fieldId = id ?? autoId;
     const messageId = `${fieldId}-message`;

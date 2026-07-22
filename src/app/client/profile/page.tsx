@@ -147,21 +147,34 @@ function ContactVerificationDialog({
     setResendUnlockAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
   }
 
+  // Reset the wizard when the dialog opens — done during render (React's
+  // documented "adjust state when props change" pattern) rather than in an
+  // effect, so it doesn't trigger a second cascading render pass.
+  const [prevOpen, setPrevOpen] = useState(false);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setPhase(needsSms ? "sms" : "email");
+      setCode("");
+      setError("");
+    }
+  }
+
+  // Sending the code is a real side effect (toast + cooldown), so it stays in
+  // an effect — deferred to a timeout callback so its state updates don't run
+  // synchronously in the effect body (and so StrictMode's double-mount, whose
+  // cleanup clears the pending timeout, fires it only once).
   useEffect(() => {
     if (!open) return;
-    const firstPhase = needsSms ? "sms" : "email";
-    setPhase(firstPhase);
-    setCode("");
-    setError("");
-    sendCode(firstPhase);
+    const t = setTimeout(() => sendCode(needsSms ? "sms" : "email"), 0);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, needsSms, needsEmail]);
 
   useEffect(() => {
-    if (!resendUnlockAt) {
-      setSecondsLeft(0);
-      return;
-    }
+    // resendUnlockAt starts null and is only ever set forward, so there is
+    // nothing to reset here — secondsLeft already starts (and counts down to) 0.
+    if (!resendUnlockAt) return;
     const tick = () => setSecondsLeft(Math.max(0, Math.ceil((resendUnlockAt - Date.now()) / 1000)));
     tick();
     const id = setInterval(tick, 1000);
@@ -676,7 +689,12 @@ function RectifyDetailsDialog({
   });
   const [error, setError] = useState("");
 
-  useEffect(() => {
+  // Re-seed the form from the patient record when the dialog opens — done
+  // during render (React's "adjust state when props change" pattern) instead
+  // of in an effect, avoiding a cascading second render.
+  const [prevOpen, setPrevOpen] = useState(false);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
     if (open) {
       setValues({
         full_name: patient.full_name ?? "",
@@ -686,7 +704,7 @@ function RectifyDetailsDialog({
       });
       setError("");
     }
-  }, [open, patient]);
+  }
 
   const idNumberError =
     values.id_number && !isValidIsraeliId(values.id_number) ? "מספר תעודת זהות לא תקין" : undefined;

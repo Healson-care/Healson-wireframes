@@ -322,10 +322,9 @@ export default function ClientLoginPage() {
   }, [mode, phase]);
 
   useEffect(() => {
-    if (!resendUnlockAt) {
-      setSecondsLeft(0);
-      return;
-    }
+    // resendUnlockAt starts null and is only ever set forward, so there is
+    // nothing to reset here — secondsLeft already starts (and counts down to) 0.
+    if (!resendUnlockAt) return;
     const tick = () => setSecondsLeft(Math.max(0, Math.ceil((resendUnlockAt - Date.now()) / 1000)));
     tick();
     const id = setInterval(tick, 1000);
