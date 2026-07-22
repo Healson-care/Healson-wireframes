@@ -12,6 +12,7 @@ import { FileDropzone } from "@/components/ui/FileDropzone";
 import { Stepper } from "@/components/shared/Stepper";
 import { PasswordRequirements, passwordMeetsRequirements } from "@/components/shared/PasswordRequirements";
 import { useStore } from "@/lib/store";
+import { useCurrentPatient } from "@/lib/useCurrentPatient";
 import { isValidIsraeliId, isValidEmail, isValidIsraeliPhone } from "@/lib/utils";
 import { fileToDataUrl } from "@/lib/file";
 import { homeForRole } from "@/lib/useRequireRole";
@@ -93,11 +94,31 @@ function ResendControl({
   );
 }
 
+/** Replaces the code form entirely once too many resends failed after a
+ * report was already filed — endless retries don't help a broken channel,
+ * and freezing the screen makes the "wait for staff" state unambiguous. */
+function BlockedPanel() {
+  return (
+    <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-3 text-sm text-amber-800">
+      התקלה דווחה לצוות ועדיין לא טופלה — לא ניתן להמשיך בשלב הזה עד לבדיקה. ניצור איתך קשר בהקדם, והמסך הזה ייפתח מחדש אוטומטית ברגע שהתקלה תטופל.
+    </div>
+  );
+}
+
 const RESEND_COOLDOWN_SECONDS = 30;
 // After this many resends without success, offer "לא קיבלתי" to flag a real
 // delivery problem (wrong carrier, blocked sender, etc.) instead of letting
 // the user resend forever.
 const OTP_ISSUE_THRESHOLD = 2;
+// Once reported, the user gets this many more resend attempts before the
+// screen locks entirely — endless retries don't help if the channel is
+// actually broken, and it's the signal that staff needs to step in.
+const MAX_RESENDS_AFTER_REPORT = 2;
+// Wrong-code guessing had no rate limit at all — unlike resend, "אמת קוד"
+// could be clicked with a bad guess as many times as you like. This caps it
+// so the code can't just be brute-forced (6-digit numeric code, no backend).
+const MAX_WRONG_ATTEMPTS = 5;
+const WRONG_ATTEMPTS_LOCKOUT_SECONDS = 60;
 
 // The SMS + email OTP screens share one step here — they're already shown as
 // sub-phases "(1/2)" / "(2/2)" of a single "אימות דו-שלבי" inside that screen,
@@ -143,26 +164,20 @@ function calcAge(dob: string): number | null {
   return Math.floor(diffMs / (365.25 * 24 * 3600 * 1000));
 }
 
-// Local to this page only — adds a "back to home" link without touching the
-// shared AuthLayout used by /login, /register, /forgot-password, etc.
-function PageShell({ children }: { children: React.ReactNode }) {
-  return (
-    <>
-      <Link
-        href="/"
-        className="fixed top-4 right-4 z-10 text-sm text-slate-500 hover:text-primary"
-      >
-        חזרה לדף הבית
-      </Link>
-      <AuthLayout>{children}</AuthLayout>
-    </>
-  );
+// Thin wrapper requiring every screen in this flow to supply onClose (see
+// handleClose below) — AuthLayout itself falls back to a plain, no-cleanup
+// "/" link when onClose is omitted, which is exactly the bug this fixes.
+function PageShell({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  return <AuthLayout onClose={onClose}>{children}</AuthLayout>;
 }
 
 export default function ClientLoginPage() {
   const router = useRouter();
   const showToast = useStore((s) => s.showToast);
   const patients = useStore((s) => s.patients);
+  const currentUser = useStore((s) => s.currentUser);
+  const logout = useStore((s) => s.logout);
+  const currentPatient = useCurrentPatient();
 
   // New-patient registration
   const register = useStore((s) => s.register);
@@ -180,8 +195,8 @@ export default function ClientLoginPage() {
   const resendLoginOtp = useStore((s) => s.resendLoginOtp);
   const reportOtpIssue = useStore((s) => s.reportOtpIssue);
 
-  const [mode, setMode] = useState<Mode>("new");
-  const [phase, setPhase] = useState<Phase>("new-credentials");
+  const [mode, setMode] = useState<Mode>("existing");
+  const [phase, setPhase] = useState<Phase>("existing-form");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [smsCode, setSmsCode] = useState("");
@@ -196,6 +211,22 @@ export default function ClientLoginPage() {
   const [emailResendCount, setEmailResendCount] = useState(0);
   const [smsIssueReported, setSmsIssueReported] = useState(false);
   const [emailIssueReported, setEmailIssueReported] = useState(false);
+  // Tracks the specific report this screen filed, so it can watch (live,
+  // via the store) whether staff already resolved it — see the blocking
+  // logic below and the two useEffects that watch these.
+  const [smsIssueReportId, setSmsIssueReportId] = useState<string | null>(null);
+  const [emailIssueReportId, setEmailIssueReportId] = useState<string | null>(null);
+  const smsIssueReport = useStore((s) => (smsIssueReportId ? s.otpIssueReports.find((r) => r.id === smsIssueReportId) : undefined));
+  const emailIssueReport = useStore((s) =>
+    emailIssueReportId ? s.otpIssueReports.find((r) => r.id === emailIssueReportId) : undefined
+  );
+  // Wrong-code lockout — same "one active phase at a time" reasoning as
+  // resendUnlockAt above, so a single pair covers whichever OTP screen is
+  // showing. Resending clears it too (a fresh code deserves a fresh count).
+  const [smsWrongAttempts, setSmsWrongAttempts] = useState(0);
+  const [emailWrongAttempts, setEmailWrongAttempts] = useState(0);
+  const [verifyLockUntil, setVerifyLockUntil] = useState<number | null>(null);
+  const [verifyLockSecondsLeft, setVerifyLockSecondsLeft] = useState(0);
 
   // New-patient form fields
   const [email, setEmail] = useState("");
@@ -301,6 +332,17 @@ export default function ClientLoginPage() {
     return () => clearInterval(id);
   }, [resendUnlockAt]);
 
+  useEffect(() => {
+    if (!verifyLockUntil) {
+      setVerifyLockSecondsLeft(0);
+      return;
+    }
+    const tick = () => setVerifyLockSecondsLeft(Math.max(0, Math.ceil((verifyLockUntil - Date.now()) / 1000)));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [verifyLockUntil]);
+
   function fillGoogleDemo() {
     if (mode === "new") {
       setFullName(GOOGLE_DEMO_NEW.full_name);
@@ -326,6 +368,19 @@ export default function ClientLoginPage() {
     const redirectTo = sessionStorage.getItem(POST_REGISTER_REDIRECT_KEY);
     sessionStorage.removeItem(POST_REGISTER_REDIRECT_KEY);
     router.push(redirectTo || fallback);
+  }
+
+  // register()+verifyOtp() (step 1 of the "new" flow, see
+  // handleCredentialsSubmit) already create a real logged-in session, purely
+  // so completePatientRegistration has a userId to attach the Patient
+  // record to at the very end. If the user bails out via "חזרה לדף הבית"
+  // before that final step, currentUser stays set with no Patient behind
+  // it — useRequireRole("patient") would then happily let them into
+  // /client with a broken, patient-less session. Clear it here so leaving
+  // mid-registration really starts fresh, same as /register's handleClose.
+  function handleClose() {
+    if (currentUser && !currentPatient) logout();
+    router.push("/");
   }
 
   function handleCredentialsSubmit(e: React.FormEvent) {
@@ -398,6 +453,8 @@ export default function ClientLoginPage() {
     setPhase("otp-sms");
     setSmsResendCount(0);
     setSmsIssueReported(false);
+    setSmsWrongAttempts(0);
+    setVerifyLockUntil(null);
     setResendUnlockAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
     const hint = resendRegistrationOtp("sms");
     showToast("קוד אימות נשלח ב-SMS", { description: `קוד הדגמה: ${hint}`, variant: "success" });
@@ -449,6 +506,8 @@ export default function ClientLoginPage() {
         setPhase("otp-sms");
         setSmsResendCount(0);
         setSmsIssueReported(false);
+        setSmsWrongAttempts(0);
+        setVerifyLockUntil(null);
         setResendUnlockAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
         const hint = resendLoginOtp("sms");
         showToast("קוד אימות נשלח ב-SMS", { description: `קוד הדגמה: ${hint}`, variant: "success" });
@@ -462,17 +521,29 @@ export default function ClientLoginPage() {
   function handleVerifySms(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    if (verifyLockSecondsLeft > 0) return;
     setLoading(true);
     setTimeout(() => {
       const result = mode === "new" ? verifyRegistrationSmsOtp(smsCode) : verifyLoginSmsOtp(smsCode);
       setLoading(false);
       if (!result.ok) {
         setError(result.error ?? "שגיאה באימות");
+        setSmsWrongAttempts((c) => {
+          const next = c + 1;
+          if (next >= MAX_WRONG_ATTEMPTS) {
+            setVerifyLockUntil(Date.now() + WRONG_ATTEMPTS_LOCKOUT_SECONDS * 1000);
+            return 0;
+          }
+          return next;
+        });
         return;
       }
+      setSmsWrongAttempts(0);
       setPhase("otp-email");
       setEmailResendCount(0);
       setEmailIssueReported(false);
+      setEmailWrongAttempts(0);
+      setVerifyLockUntil(null);
       setResendUnlockAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
       const hint = mode === "new" ? resendRegistrationOtp("email") : resendLoginOtp("email");
       showToast("קוד אימות נשלח באימייל", { description: `קוד הדגמה: ${hint}`, variant: "success" });
@@ -482,23 +553,27 @@ export default function ClientLoginPage() {
   function handleVerifyEmail(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    if (verifyLockSecondsLeft > 0) return;
     setLoading(true);
     setTimeout(async () => {
+      const result = mode === "new" ? verifyRegistrationEmailOtp(emailCode) : verifyLoginEmailOtp(emailCode);
+      setLoading(false);
+      if (!result.ok) {
+        setError(result.error ?? "שגיאה באימות");
+        setEmailWrongAttempts((c) => {
+          const next = c + 1;
+          if (next >= MAX_WRONG_ATTEMPTS) {
+            setVerifyLockUntil(Date.now() + WRONG_ATTEMPTS_LOCKOUT_SECONDS * 1000);
+            return 0;
+          }
+          return next;
+        });
+        return;
+      }
+      setEmailWrongAttempts(0);
       if (mode === "new") {
-        const result = verifyRegistrationEmailOtp(emailCode);
-        setLoading(false);
-        if (!result.ok) {
-          setError(result.error ?? "שגיאה באימות");
-          return;
-        }
         await finishNewRegistration();
       } else {
-        const result = verifyLoginEmailOtp(emailCode);
-        setLoading(false);
-        if (!result.ok) {
-          setError(result.error ?? "שגיאה באימות");
-          return;
-        }
         const user = useStore.getState().currentUser;
         goAfterAuth(user ? homeForRole(user.role) : "/login");
       }
@@ -506,21 +581,25 @@ export default function ClientLoginPage() {
   }
 
   function handleResendSms() {
-    if (secondsLeft > 0) return;
+    if (secondsLeft > 0 || smsBlocked) return;
     const otp = mode === "new" ? resendRegistrationOtp("sms") : resendLoginOtp("sms");
     if (otp) {
       showToast("קוד חדש נשלח ב-SMS", { description: `קוד הדגמה: ${otp}` });
       setSmsResendCount((c) => c + 1);
+      setSmsWrongAttempts(0);
+      setVerifyLockUntil(null);
       setResendUnlockAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
     }
   }
 
   function handleResendEmail() {
-    if (secondsLeft > 0) return;
+    if (secondsLeft > 0 || emailBlocked) return;
     const otp = mode === "new" ? resendRegistrationOtp("email") : resendLoginOtp("email");
     if (otp) {
       showToast("קוד חדש נשלח באימייל", { description: `קוד הדגמה: ${otp}` });
       setEmailResendCount((c) => c + 1);
+      setEmailWrongAttempts(0);
+      setVerifyLockUntil(null);
       setResendUnlockAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
     }
   }
@@ -529,11 +608,40 @@ export default function ClientLoginPage() {
   // problem — filed for the team to look into, not just another resend.
   function handleReportOtpIssue(channel: "sms" | "email") {
     const contact = channel === "sms" ? phoneForOtpDisplay : mode === "new" ? email : existingEmail;
-    reportOtpIssue(channel, contact, mode === "new" ? "registration" : "login");
-    if (channel === "sms") setSmsIssueReported(true);
-    else setEmailIssueReported(true);
+    const record = reportOtpIssue(channel, contact, mode === "new" ? "registration" : "login");
+    if (channel === "sms") {
+      setSmsIssueReported(true);
+      setSmsIssueReportId(record.id);
+    } else {
+      setEmailIssueReported(true);
+      setEmailIssueReportId(record.id);
+    }
     showToast("התקלה דווחה לצוות", { description: "ניצור איתך קשר בהקדם לבירור העניין", variant: "success" });
   }
+
+  const smsBlocked = smsIssueReported && smsResendCount >= OTP_ISSUE_THRESHOLD + MAX_RESENDS_AFTER_REPORT;
+  const emailBlocked = emailIssueReported && emailResendCount >= OTP_ISSUE_THRESHOLD + MAX_RESENDS_AFTER_REPORT;
+
+  // Once staff marks the report "טופל" (resolved), lift the block
+  // automatically instead of making the user refresh — the store update is
+  // live, so this fires as soon as that happens on the staff side.
+  useEffect(() => {
+    if (smsIssueReport?.status === "טופל") {
+      showToast("התקלה טופלה על ידי הצוות — אפשר לנסות שוב", { variant: "success" });
+      setSmsIssueReported(false);
+      setSmsIssueReportId(null);
+      setSmsResendCount(0);
+    }
+  }, [smsIssueReport?.status]);
+
+  useEffect(() => {
+    if (emailIssueReport?.status === "טופל") {
+      showToast("התקלה טופלה על ידי הצוות — אפשר לנסות שוב", { variant: "success" });
+      setEmailIssueReported(false);
+      setEmailIssueReportId(null);
+      setEmailResendCount(0);
+    }
+  }, [emailIssueReport?.status]);
 
   const modeToggle = (
     <div className="mb-5 grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1">
@@ -570,7 +678,7 @@ export default function ClientLoginPage() {
   if (phase === "otp-sms" || phase === "otp-email") {
     const stepIdx = mode === "new" ? NEW_PHASE_INDEX[phase] : undefined;
     return (
-      <PageShell>
+      <PageShell onClose={handleClose}>
         {mode === "new" && stepIdx !== undefined && (
           <>
             <Stepper steps={NEW_STEPS} step={stepIdx} onStepClick={goToStep} />
@@ -584,56 +692,76 @@ export default function ClientLoginPage() {
               שלחנו קוד אימות ב-SMS{phoneForOtpDisplay ? ` למספר ${phoneForOtpDisplay}` : ""}
             </p>
             {errorBox}
-            <form onSubmit={handleVerifySms} className="flex flex-col gap-3">
-              <Input
-                inputMode="numeric"
-                maxLength={6}
-                placeholder="123456"
-                label="קוד מ-SMS"
-                value={smsCode}
-                onChange={(e) => setSmsCode(e.target.value)}
-                className="text-center tracking-[0.4em] text-lg"
-                required
-              />
-              <Button type="submit" loading={loading} className="w-full">
-                אמת קוד SMS
-              </Button>
-              <ResendControl
-                secondsLeft={secondsLeft}
-                onResend={handleResendSms}
-                resendCount={smsResendCount}
-                issueReported={smsIssueReported}
-                onReportIssue={() => handleReportOtpIssue("sms")}
-              />
-            </form>
+            {smsBlocked ? (
+              <BlockedPanel />
+            ) : (
+              <form onSubmit={handleVerifySms} className="flex flex-col gap-3">
+                <Input
+                  inputMode="numeric"
+                  maxLength={6}
+                  placeholder="123456"
+                  label="קוד מ-SMS"
+                  value={smsCode}
+                  onChange={(e) => setSmsCode(e.target.value)}
+                  className="text-center tracking-[0.4em] text-lg"
+                  disabled={verifyLockSecondsLeft > 0}
+                  required
+                />
+                {verifyLockSecondsLeft > 0 && (
+                  <p className="-mt-1.5 text-center text-xs font-medium text-danger-text">
+                    יותר מדי ניסיונות שגויים — ניתן לנסות שוב בעוד 0:{String(verifyLockSecondsLeft).padStart(2, "0")}, או לשלוח קוד חדש
+                  </p>
+                )}
+                <Button type="submit" loading={loading} disabled={verifyLockSecondsLeft > 0} className="w-full">
+                  אמת קוד SMS
+                </Button>
+                <ResendControl
+                  secondsLeft={secondsLeft}
+                  onResend={handleResendSms}
+                  resendCount={smsResendCount}
+                  issueReported={smsIssueReported}
+                  onReportIssue={() => handleReportOtpIssue("sms")}
+                />
+              </form>
+            )}
           </>
         ) : (
           <>
             <h1 className="text-lg font-semibold text-slate-900 mb-1">אימות דו-שלבי (2/2)</h1>
             <p className="text-sm text-slate-500 mb-5">שלחנו קוד אימות נוסף לכתובת האימייל שלך</p>
             {errorBox}
-            <form onSubmit={handleVerifyEmail} className="flex flex-col gap-3">
-              <Input
-                inputMode="numeric"
-                maxLength={6}
-                placeholder="123456"
-                label="קוד מהאימייל"
-                value={emailCode}
-                onChange={(e) => setEmailCode(e.target.value)}
-                className="text-center tracking-[0.4em] text-lg"
-                required
-              />
-              <Button type="submit" loading={loading} className="w-full">
-                {mode === "new" ? "אמת קוד וסיים הרשמה" : "אמת קוד וכניסה"}
-              </Button>
-              <ResendControl
-                secondsLeft={secondsLeft}
-                onResend={handleResendEmail}
-                resendCount={emailResendCount}
-                issueReported={emailIssueReported}
-                onReportIssue={() => handleReportOtpIssue("email")}
-              />
-            </form>
+            {emailBlocked ? (
+              <BlockedPanel />
+            ) : (
+              <form onSubmit={handleVerifyEmail} className="flex flex-col gap-3">
+                <Input
+                  inputMode="numeric"
+                  maxLength={6}
+                  placeholder="123456"
+                  label="קוד מהאימייל"
+                  value={emailCode}
+                  onChange={(e) => setEmailCode(e.target.value)}
+                  className="text-center tracking-[0.4em] text-lg"
+                  disabled={verifyLockSecondsLeft > 0}
+                  required
+                />
+                {verifyLockSecondsLeft > 0 && (
+                  <p className="-mt-1.5 text-center text-xs font-medium text-danger-text">
+                    יותר מדי ניסיונות שגויים — ניתן לנסות שוב בעוד 0:{String(verifyLockSecondsLeft).padStart(2, "0")}, או לשלוח קוד חדש
+                  </p>
+                )}
+                <Button type="submit" loading={loading} disabled={verifyLockSecondsLeft > 0} className="w-full">
+                  {mode === "new" ? "אמת קוד וסיים הרשמה" : "אמת קוד וכניסה"}
+                </Button>
+                <ResendControl
+                  secondsLeft={secondsLeft}
+                  onResend={handleResendEmail}
+                  resendCount={emailResendCount}
+                  issueReported={emailIssueReported}
+                  onReportIssue={() => handleReportOtpIssue("email")}
+                />
+              </form>
+            )}
           </>
         )}
       </PageShell>
@@ -643,7 +771,7 @@ export default function ClientLoginPage() {
   // ---- New-patient step 2: personal details ----
   if (phase === "new-profile") {
     return (
-      <PageShell>
+      <PageShell onClose={handleClose}>
         <Stepper steps={NEW_STEPS} step={NEW_PHASE_INDEX["new-profile"]!} onStepClick={goToStep} />
         <p className="text-xs text-slate-400 mb-4">{NEW_STEPS[1]}</p>
         <button onClick={() => setPhase("new-credentials")} className="text-sm text-primary mb-3 flex items-center gap-1">
@@ -817,7 +945,7 @@ export default function ClientLoginPage() {
   // ---- New-patient step 3: insurance profile ----
   if (phase === "new-insurance") {
     return (
-      <PageShell>
+      <PageShell onClose={handleClose}>
         <Stepper steps={NEW_STEPS} step={NEW_PHASE_INDEX["new-insurance"]!} onStepClick={goToStep} />
         <p className="text-xs text-slate-400 mb-4">{NEW_STEPS[2]}</p>
         <button onClick={() => setPhase("new-profile")} className="text-sm text-primary mb-3 flex items-center gap-1">
@@ -837,7 +965,7 @@ export default function ClientLoginPage() {
   if (phase === "new-consent") {
     const canFinish = areRequiredConsentsChecked(consents);
     return (
-      <PageShell>
+      <PageShell onClose={handleClose}>
         <Stepper steps={NEW_STEPS} step={NEW_PHASE_INDEX["new-consent"]!} onStepClick={goToStep} />
         <p className="text-xs text-slate-400 mb-4">{NEW_STEPS[3]}</p>
         <button onClick={() => setPhase("new-insurance")} className="text-sm text-primary mb-3 flex items-center gap-1">
@@ -853,7 +981,7 @@ export default function ClientLoginPage() {
 
   // ---- Default: mode toggle + step 1 (new) or the single existing-patient form ----
   return (
-    <PageShell>
+    <PageShell onClose={handleClose}>
       {modeToggle}
 
       {mode === "new" && (
@@ -968,7 +1096,16 @@ export default function ClientLoginPage() {
         </form>
       )}
 
-      <p className="mt-5 text-center text-sm text-slate-500">
+      {mode === "existing" && (
+        <p className="mt-5 text-center text-sm text-slate-500">
+          אין לך משתמש?{" "}
+          <button type="button" onClick={() => switchMode("new")} className="text-primary font-medium hover:underline">
+            הרשם
+          </button>
+        </p>
+      )}
+
+      <p className="mt-2 text-center text-sm text-slate-500">
         נותן שירות?{" "}
         <Link href="/apply" className="text-primary font-medium hover:underline">
           הגישו בקשת הצטרפות כספק
