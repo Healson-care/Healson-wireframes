@@ -371,6 +371,7 @@ interface EntitiesState {
   updateVisitRecord: (id: string, data: Partial<VisitRecord>) => void;
   addDocument: (d: Omit<PatientDocument, "id" | "created_date">) => PatientDocument;
   updateDocument: (id: string, data: Partial<PatientDocument>) => void;
+  deleteDocument: (id: string) => void;
 
   addWaitlistEntry: (w: Omit<WaitlistEntry, "id" | "created_date" | "status">) => WaitlistEntry;
 
@@ -1402,6 +1403,7 @@ export const useStore = create<Store>()(
         set((s) => ({
           documents: s.documents.map((d) => (d.id === id ? { ...d, ...data } : d)),
         })),
+      deleteDocument: (id) => set((s) => ({ documents: s.documents.filter((d) => d.id !== id) })),
 
       addWaitlistEntry: (w) => {
         const record: WaitlistEntry = { ...w, id: generateId("wait"), status: "ממתין", created_date: new Date().toISOString() };
