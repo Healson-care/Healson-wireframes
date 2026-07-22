@@ -14,7 +14,6 @@ import { ConfirmDialog, Dialog } from "@/components/ui/Dialog";
 import { Input } from "@/components/ui/Input";
 import { FileDropzone } from "@/components/ui/FileDropzone";
 import { Popover } from "@/components/ui/Popover";
-import { FilterDropdown } from "@/components/ui/FilterDropdown";
 import { AppointmentReminderPlan } from "@/components/patient/AppointmentReminderPlan";
 import { SlotPicker } from "@/components/book/SlotPicker";
 import { WaitlistJoinDialog } from "@/components/book/WaitlistJoinDialog";
@@ -24,12 +23,14 @@ import {
   Calendar,
   CalendarClock,
   CalendarRange,
+  Check,
   ChevronDown,
   Circle,
   ClipboardList,
   Clock,
   CreditCard,
   FileText,
+  ListFilter,
   MapPin,
   Phone,
   ShieldCheck,
@@ -38,7 +39,6 @@ import {
   Stethoscope,
   Upload,
   Wallet,
-  X,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -449,13 +449,9 @@ function SectionJumpTab({ label, count, targetId }: { label: string; count: numb
   return (
     <button
       onClick={() => document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" })}
-      className="flex flex-1 flex-col items-center justify-center gap-0.5 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-medium text-slate-600 shadow-sm transition-all hover:border-primary hover:bg-primary/5 hover:text-primary hover:shadow active:scale-[0.97]"
+      className="text-xs font-medium text-slate-500 underline decoration-slate-300 decoration-dotted underline-offset-2 transition-colors hover:text-primary hover:decoration-primary"
     >
-      <span className="flex items-center gap-1 truncate">
-        {label}
-        <ChevronDown className="h-3 w-3 shrink-0 text-slate-400" />
-      </span>
-      <span className="text-[10px] font-semibold text-slate-400">{count}</span>
+      {label} <span className="text-slate-400">({count})</span>
     </button>
   );
 }
@@ -576,62 +572,8 @@ function AppointmentListCard({
             <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
               <MapPin className="h-3 w-3" /> {item.data.provider_name}
             </p>
-            {linkedDocs.length > 0 && (
-              <Popover
-                trigger={
-                  <span className="flex items-center gap-1 text-xs text-primary hover:underline mt-1">
-                    <FileText className="h-3 w-3" /> מסמכים מקושרים ({linkedDocs.length})
-                  </span>
-                }
-              >
-                {(close) => (
-                  <div className="flex flex-col gap-2 text-sm">
-                    <p className="font-semibold text-slate-900">מסמכים לתור זה</p>
-                    <div className="flex flex-col gap-1.5">
-                      {linkedDocs.map((d) => {
-                        const isPending = d.status === "ממתין למילוי";
-                        return (
-                          <div
-                            key={d.id}
-                            className={cn(
-                              "flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5",
-                              isPending ? "bg-warning-bg" : "bg-slate-50"
-                            )}
-                          >
-                            <span className={cn("text-xs font-medium truncate", isPending ? "text-warning-text" : "text-slate-700")}>
-                              {d.title}
-                            </span>
-                            <span className={cn("shrink-0 text-[10px]", isPending ? "text-warning-text" : "text-slate-400")}>
-                              {isPending ? "ממתין למילוי" : DOCUMENT_CATEGORIES.find((c) => c.id === d.category)?.label}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <Button
-                      size="sm"
-                      className="mt-1 w-full"
-                      onClick={() => {
-                        close();
-                        router.push(`/client/documents?appointment=${item.data.id}`);
-                      }}
-                    >
-                      לצפייה מלאה במסמכים
-                    </Button>
-                  </div>
-                )}
-              </Popover>
-            )}
-            {item.kind === "appointment" && (
-              <button
-                onClick={() => setUploadOpen(true)}
-                className="flex items-center gap-1 text-xs text-primary hover:underline mt-1"
-              >
-                <Upload className="h-3 w-3" /> הוספת מסמך אחר
-              </button>
-            )}
           </div>
-          <div className="shrink-0">
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
             {item.kind === "appointment" ? (
               item.data.status === "ממתין לתשלום מקדמה" ? (
                 <button
@@ -681,79 +623,17 @@ function AppointmentListCard({
                 )}
               </Popover>
             )}
+            {item.kind === "appointment" && pendingRequiredDocs.length > 0 && (
+              <button
+                onClick={() => !isExpanded && onToggleExpanded()}
+                title="יש מסמכים שממתינים לכם לפני התור — לחצו לפרטים"
+                className="flex items-center gap-1 rounded-full border border-warning-border bg-warning-bg px-2 py-0.5 text-[11px] font-medium text-warning-text"
+              >
+                <ClipboardList className="h-3 w-3" /> {pendingRequiredDocs.length} מסמכים נדרשים
+              </button>
+            )}
           </div>
         </div>
-
-        {pendingRequiredDocs.length > 0 && (
-          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 mb-2">
-              <ClipboardList className="h-3.5 w-3.5 text-primary" /> מסמכים נדרשים לפני התור ({pendingRequiredDocs.length})
-            </p>
-            <div className="flex flex-col gap-2">
-              {pendingRequiredDocs.map((d) => (
-                <div
-                  key={d.id}
-                  className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2"
-                >
-                  <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-slate-700">
-                    <Circle className="h-4 w-4 shrink-0 text-slate-300" />
-                    <span className="truncate">{d.title}</span>
-                  </span>
-                  {d.category === "questionnaire" ? (
-                    <Button variant="outline" size="sm" className="shrink-0" onClick={() => handleFillQuestionnaire(d.id)}>
-                      מלא עכשיו
-                    </Button>
-                  ) : (
-                    <label className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-primary hover:text-primary">
-                      <Upload className="h-3.5 w-3.5" /> העלאה
-                      <input
-                        type="file"
-                        accept=".pdf,.jpg,.jpeg,.png"
-                        className="hidden"
-                        onChange={(e) => handleFulfillRequiredDoc(d.id, e.target.files?.[0] ?? null)}
-                      />
-                    </label>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {item.kind === "appointment" && item.data.status !== "בוטל" && item.data.status !== "בוצע" && (
-          <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
-            {/* "שלם יתרה" only appears once the deposit is paid ("מאושר").
-                TODO(product, unresolved): nothing here flags or blocks an
-                appointment whose date arrives with the balance still
-                unpaid — see the note on AppointmentStatus in types/index.ts
-                and README.md. */}
-            {item.data.status === "מאושר" && (
-              <Button size="sm" onClick={() => onPayBalance(item.data)}>
-                שלם יתרה
-              </Button>
-            )}
-            <Button variant="outline" size="sm" onClick={() => onReschedule(item.data)}>
-              <CalendarClock className="h-3.5 w-3.5" /> עדכון תור
-            </Button>
-            {getCancellationInfo(item.data).canCancel ? (
-              <Button variant="outline" size="sm" onClick={() => onCancel(item.data)}>
-                בטל תור
-              </Button>
-            ) : (
-              <span className="text-xs text-slate-400">חלף המועד לביטול תור זה</span>
-            )}
-          </div>
-        )}
-
-        {item.data.status === "בוטל" && (
-          <div className="mt-3 flex justify-end">
-            <Link href="/client/search">
-              <Button size="sm">
-                קבע מחדש <ArrowLeft className="h-3.5 w-3.5" />
-              </Button>
-            </Link>
-          </div>
-        )}
 
         <button
           onClick={onToggleExpanded}
@@ -772,44 +652,46 @@ function AppointmentListCard({
               transition={{ duration: 0.2 }}
               className="overflow-hidden"
             >
-              <div className="mt-3 pt-3 border-t border-slate-100 flex flex-col gap-2.5 text-sm">
-                {item.kind === "appointment" && item.data.price !== undefined && (
-                  <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-1.5 text-slate-500">
-                      <Wallet className="h-3.5 w-3.5" /> מחיר
-                    </span>
-                    <span className="font-medium text-slate-800">
-                      {formatCurrency(item.data.price)}
-                      {item.data.deposit_amount !== undefined && (
-                        <span className="text-xs font-normal text-slate-400">
-                          {" "}
-                          (מקדמה {formatCurrency(item.data.deposit_amount)})
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                )}
+              <div className="mt-3 pt-3 border-t border-slate-100 flex flex-col gap-4 text-sm">
                 {item.kind === "appointment" && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-500">משך הפגישה</span>
-                    <span className="font-medium text-slate-800">{item.data.duration_minutes} דק׳</span>
-                  </div>
-                )}
-                {item.kind === "appointment" && bookedClinic && (
-                  <div className="flex items-start justify-between">
-                    <span className="text-slate-500">סניף</span>
-                    <span className="text-left">
-                      <span className="block font-medium text-slate-800">{bookedClinic.name}</span>
-                      <span className="text-xs text-slate-400">
-                        {bookedClinic.address}, {bookedClinic.city}
-                      </span>
-                    </span>
-                  </div>
-                )}
-                {item.kind === "appointment" && item.data.notes && (
-                  <div>
-                    <span className="block text-slate-500 mb-0.5">הערות</span>
-                    <p className="text-slate-700">{item.data.notes}</p>
+                  <div className="flex flex-col gap-2 rounded-lg bg-slate-50 p-3">
+                    {item.data.price !== undefined && (
+                      <div className="flex items-center justify-between">
+                        <span className="flex items-center gap-1.5 text-slate-500">
+                          <Wallet className="h-3.5 w-3.5" /> מחיר
+                        </span>
+                        <span className="font-medium text-slate-800">
+                          {formatCurrency(item.data.price)}
+                          {item.data.deposit_amount !== undefined && (
+                            <span className="text-xs font-normal text-slate-400">
+                              {" "}
+                              (מקדמה {formatCurrency(item.data.deposit_amount)})
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">משך הפגישה</span>
+                      <span className="font-medium text-slate-800">{item.data.duration_minutes} דק׳</span>
+                    </div>
+                    {bookedClinic && (
+                      <div className="flex items-start justify-between">
+                        <span className="text-slate-500">סניף</span>
+                        <span className="text-left">
+                          <span className="block font-medium text-slate-800">{bookedClinic.name}</span>
+                          <span className="text-xs text-slate-400">
+                            {bookedClinic.address}, {bookedClinic.city}
+                          </span>
+                        </span>
+                      </div>
+                    )}
+                    {item.data.notes && (
+                      <div className="pt-2 border-t border-slate-200">
+                        <span className="block text-slate-500 mb-0.5">הערות</span>
+                        <p className="text-slate-700">{item.data.notes}</p>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -837,12 +719,143 @@ function AppointmentListCard({
                   </div>
                 )}
 
+                {item.kind === "appointment" && (
+                  <div className="flex flex-col gap-2">
+                    <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-500">
+                      <FileText className="h-3.5 w-3.5 text-primary" /> מסמכים
+                    </p>
+                    {pendingRequiredDocs.length > 0 && (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                        <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 mb-2">
+                          <ClipboardList className="h-3.5 w-3.5 text-primary" /> מסמכים נדרשים לפני התור ({pendingRequiredDocs.length})
+                        </p>
+                        <div className="flex flex-col gap-2">
+                          {pendingRequiredDocs.map((d) => (
+                            <div
+                              key={d.id}
+                              className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2"
+                            >
+                              <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-slate-700">
+                                <Circle className="h-4 w-4 shrink-0 text-slate-300" />
+                                <span className="truncate">{d.title}</span>
+                              </span>
+                              {d.category === "questionnaire" ? (
+                                <Button variant="outline" size="sm" className="shrink-0" onClick={() => handleFillQuestionnaire(d.id)}>
+                                  מלא עכשיו
+                                </Button>
+                              ) : (
+                                <label className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-primary hover:text-primary">
+                                  <Upload className="h-3.5 w-3.5" /> העלאה
+                                  <input
+                                    type="file"
+                                    accept=".pdf,.jpg,.jpeg,.png"
+                                    className="hidden"
+                                    onChange={(e) => handleFulfillRequiredDoc(d.id, e.target.files?.[0] ?? null)}
+                                  />
+                                </label>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                      {linkedDocs.length > 0 && (
+                        <Popover
+                          trigger={
+                            <span className="flex items-center gap-1 text-xs text-primary hover:underline">
+                              <FileText className="h-3 w-3" /> מסמכים מקושרים ({linkedDocs.length})
+                            </span>
+                          }
+                        >
+                          {(close) => (
+                            <div className="flex flex-col gap-2 text-sm">
+                              <p className="font-semibold text-slate-900">מסמכים לתור זה</p>
+                              <div className="flex flex-col gap-1.5">
+                                {linkedDocs.map((d) => {
+                                  const isPending = d.status === "ממתין למילוי";
+                                  return (
+                                    <div
+                                      key={d.id}
+                                      className={cn(
+                                        "flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5",
+                                        isPending ? "bg-warning-bg" : "bg-slate-50"
+                                      )}
+                                    >
+                                      <span className={cn("text-xs font-medium truncate", isPending ? "text-warning-text" : "text-slate-700")}>
+                                        {d.title}
+                                      </span>
+                                      <span className={cn("shrink-0 text-[10px]", isPending ? "text-warning-text" : "text-slate-400")}>
+                                        {isPending ? "ממתין למילוי" : DOCUMENT_CATEGORIES.find((c) => c.id === d.category)?.label}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              <Button
+                                size="sm"
+                                className="mt-1 w-full"
+                                onClick={() => {
+                                  close();
+                                  router.push(`/client/documents?appointment=${item.data.id}`);
+                                }}
+                              >
+                                לצפייה מלאה במסמכים
+                              </Button>
+                            </div>
+                          )}
+                        </Popover>
+                      )}
+                      <button
+                        onClick={() => setUploadOpen(true)}
+                        className="flex items-center gap-1 text-xs text-primary hover:underline"
+                      >
+                        <Upload className="h-3 w-3" /> הוספת מסמך אחר
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {item.kind === "appointment" &&
                   item.data.status !== "בוטל" &&
                   item.data.status !== "בוצע" && (
                     <AppointmentReminderPlan appointment={item.data} provider={provider} />
                   )}
 
+                {item.kind === "appointment" && item.data.status !== "בוטל" && item.data.status !== "בוצע" && (
+                  <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 pt-3">
+                    {/* "שלם יתרה" only appears once the deposit is paid ("מאושר").
+                        TODO(product, unresolved): nothing here flags or blocks an
+                        appointment whose date arrives with the balance still
+                        unpaid — see the note on AppointmentStatus in types/index.ts
+                        and README.md. */}
+                    {item.data.status === "מאושר" && (
+                      <Button size="sm" onClick={() => onPayBalance(item.data)}>
+                        שלם יתרה
+                      </Button>
+                    )}
+                    <Button variant="outline" size="sm" onClick={() => onReschedule(item.data)}>
+                      <CalendarClock className="h-3.5 w-3.5" /> עדכון תור
+                    </Button>
+                    {getCancellationInfo(item.data).canCancel ? (
+                      <Button variant="outline" size="sm" onClick={() => onCancel(item.data)}>
+                        בטל תור
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-slate-400">חלף המועד לביטול תור זה</span>
+                    )}
+                  </div>
+                )}
+
+                {item.data.status === "בוטל" && (
+                  <div className="flex justify-end border-t border-slate-100 pt-3">
+                    <Link href="/client/search">
+                      <Button size="sm">
+                        קבע מחדש <ArrowLeft className="h-3.5 w-3.5" />
+                      </Button>
+                    </Link>
+                  </div>
+                )}
               </div>
             </motion.div>
           )}
@@ -878,6 +891,55 @@ function AppointmentListCard({
   );
 }
 
+// One collapsible group of checkboxes inside the combined filter popover —
+// shared markup for the status/provider/service sections so the panel stays
+// visually consistent without three near-duplicate blocks.
+function FilterChecklist({
+  label,
+  values,
+  options,
+  onChange,
+}: {
+  label: string;
+  values: string[];
+  options: { value: string; label: string }[];
+  onChange: (values: string[]) => void;
+}) {
+  function toggle(value: string) {
+    onChange(values.includes(value) ? values.filter((v) => v !== value) : [...values, value]);
+  }
+  return (
+    <div>
+      <p className="mb-1 text-xs font-semibold text-slate-500">{label}</p>
+      <div className="flex flex-col gap-0.5">
+        {options.map((opt) => {
+          const checked = values.includes(opt.value);
+          return (
+            <button
+              key={opt.value}
+              onClick={() => toggle(opt.value)}
+              className={cn(
+                "flex items-center gap-2 rounded-lg px-2 py-1.5 text-right text-sm transition-colors",
+                checked ? "font-medium text-primary" : "text-slate-700 hover:bg-slate-50"
+              )}
+            >
+              <span
+                className={cn(
+                  "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                  checked ? "border-primary bg-primary text-white" : "border-slate-300"
+                )}
+              >
+                {checked && <Check className="h-3 w-3" />}
+              </span>
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function AppointmentSection({
   id,
   title,
@@ -887,6 +949,9 @@ function AppointmentSection({
   emptyTitle,
   emptyDescription,
   showEmptyState,
+  showDateFilter = true,
+  showProviderFilter = false,
+  showServiceFilter = false,
   highlightId,
   expandedIds,
   onToggleExpanded,
@@ -903,6 +968,9 @@ function AppointmentSection({
   emptyTitle?: string;
   emptyDescription?: string;
   showEmptyState?: boolean;
+  showDateFilter?: boolean;
+  showProviderFilter?: boolean;
+  showServiceFilter?: boolean;
   highlightId: string | null;
   expandedIds: Record<string, boolean>;
   onToggleExpanded: (id: string) => void;
@@ -915,22 +983,50 @@ function AppointmentSection({
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [dateDialogOpen, setDateDialogOpen] = useState(false);
+  const [providerFilter, setProviderFilter] = useState<string[]>([]);
+  const [serviceFilter, setServiceFilter] = useState<string[]>([]);
+
+  const providerOptions = useMemo(() => {
+    const names = new Set(items.map((item) => item.data.provider_name));
+    return [...names].sort().map((name) => ({ value: name, label: name }));
+  }, [items]);
+
+  const serviceOptions = useMemo(() => {
+    const names = new Set(
+      items.filter((item): item is { kind: "appointment"; data: Appointment } => item.kind === "appointment").map((item) => item.data.service_name)
+    );
+    return [...names].sort().map((name) => ({ value: name, label: name }));
+  }, [items]);
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
       if (statusFilter.length > 0 && !statusFilter.includes(item.data.status)) return false;
       if (dateFrom && item.data.date && item.data.date < dateFrom) return false;
       if (dateTo && item.data.date && item.data.date > dateTo) return false;
+      if (providerFilter.length > 0 && !providerFilter.includes(item.data.provider_name)) return false;
+      if (serviceFilter.length > 0 && (item.kind !== "appointment" || !serviceFilter.includes(item.data.service_name))) return false;
       return true;
     });
-  }, [items, statusFilter, dateFrom, dateTo]);
+  }, [items, statusFilter, dateFrom, dateTo, providerFilter, serviceFilter]);
 
-  const hasActiveFilters = statusFilter.length > 0 || !!dateFrom || !!dateTo;
+  const hasActiveFilters =
+    statusFilter.length > 0 ||
+    (showDateFilter && (!!dateFrom || !!dateTo)) ||
+    providerFilter.length > 0 ||
+    serviceFilter.length > 0;
+
+  const activeFilterCount =
+    (statusFilter.length > 0 ? 1 : 0) +
+    (providerFilter.length > 0 ? 1 : 0) +
+    (serviceFilter.length > 0 ? 1 : 0) +
+    (showDateFilter && (dateFrom || dateTo) ? 1 : 0);
 
   function clearFilters() {
     setStatusFilter([]);
     setDateFrom("");
     setDateTo("");
+    setProviderFilter([]);
+    setServiceFilter([]);
   }
 
   // Nothing here and nothing to say about it — stay out of the way instead
@@ -947,37 +1043,85 @@ function AppointmentSection({
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-1.5 mb-3 mt-3">
-            <FilterDropdown
-              values={statusFilter}
-              options={statusOptions.map((opt) => ({ value: opt.value, label: opt.label }))}
-              allLabel="כל הסטטוסים"
-              onChange={setStatusFilter}
-            />
-
-            <button
-              onClick={() => setDateDialogOpen(true)}
-              className={cn(
-                "flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-                dateFrom || dateTo
-                  ? "border-primary bg-primary/5 text-primary"
-                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-              )}
+            <Popover
+              trigger={
+                <span
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                    hasActiveFilters
+                      ? "border-primary bg-primary/5 text-primary"
+                      : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                  )}
+                >
+                  <ListFilter className="h-3.5 w-3.5" />
+                  סינון
+                  {hasActiveFilters && (
+                    <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-white">
+                      {activeFilterCount}
+                    </span>
+                  )}
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </span>
+              }
             >
-              <CalendarRange className="h-3.5 w-3.5" />
-              {dateFrom || dateTo
-                ? `${dateFrom ? formatShortDate(dateFrom) : "…"}-${dateTo ? formatShortDate(dateTo) : "…"}`
-                : "תאריכים"}
-            </button>
-
-            {hasActiveFilters && (
-              <button
-                onClick={clearFilters}
-                title="נקה סינון"
-                className="flex shrink-0 items-center justify-center rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            )}
+              {(close) => (
+                <div className="flex w-60 flex-col gap-3">
+                  <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                    <button
+                      onClick={clearFilters}
+                      disabled={!hasActiveFilters}
+                      className="text-xs font-medium text-slate-500 hover:text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      נקה הכל
+                    </button>
+                    <Button size="sm" onClick={close}>
+                      החל
+                    </Button>
+                  </div>
+                  <FilterChecklist
+                    label="סטטוס"
+                    values={statusFilter}
+                    options={statusOptions.map((opt) => ({ value: opt.value, label: opt.label }))}
+                    onChange={setStatusFilter}
+                  />
+                  {showProviderFilter && (
+                    <FilterChecklist
+                      label="נותן שירות"
+                      values={providerFilter}
+                      options={providerOptions}
+                      onChange={setProviderFilter}
+                    />
+                  )}
+                  {showServiceFilter && (
+                    <FilterChecklist
+                      label="סוג טיפול"
+                      values={serviceFilter}
+                      options={serviceOptions}
+                      onChange={setServiceFilter}
+                    />
+                  )}
+                  {showDateFilter && (
+                    <div>
+                      <p className="mb-1 text-xs font-semibold text-slate-500">טווח תאריכים</p>
+                      <button
+                        onClick={() => setDateDialogOpen(true)}
+                        className={cn(
+                          "flex w-full items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm transition-colors",
+                          dateFrom || dateTo
+                            ? "border-primary text-primary"
+                            : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                        )}
+                      >
+                        <CalendarRange className="h-3.5 w-3.5" />
+                        {dateFrom || dateTo
+                          ? `${dateFrom ? formatShortDate(dateFrom) : "…"}-${dateTo ? formatShortDate(dateTo) : "…"}`
+                          : "בחירת טווח"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </Popover>
           </div>
 
           <Dialog open={dateDialogOpen} onClose={() => setDateDialogOpen(false)} title="סינון לפי תאריכים">
@@ -1114,15 +1258,15 @@ function ClientAppointmentsPageContent() {
     <ClientLayout>
       <PageHeader title="התורים שלי" description="כל התורים ובקשות ההמתנה שלכם, לפי תאריך" />
 
-      <CancellationPolicy />
-
       {historyItems.length === 0 ? (
         <EmptyState title="אין לך תורים" description="ניתן לקבוע תור חדש דרך מסך החיפוש" />
       ) : (
         <>
-          <div className="flex items-stretch gap-2 mb-4">
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mb-4">
             <SectionJumpTab label="תורים קרובים" count={upcomingItems.length} targetId="section-upcoming" />
+            <span className="text-xs text-slate-300">·</span>
             <SectionJumpTab label="ממתינים לאישור" count={pendingItems.length} targetId="section-pending" />
+            <span className="text-xs text-slate-300">·</span>
             <SectionJumpTab label="היסטוריית תורים" count={pastItems.length} targetId="section-history" />
           </div>
 
@@ -1135,6 +1279,7 @@ function ClientAppointmentsPageContent() {
             emptyTitle="אין תורים קרובים"
             emptyDescription="ניתן לקבוע תור חדש דרך מסך החיפוש"
             showEmptyState
+            showDateFilter={false}
             highlightId={highlightId}
             expandedIds={expandedIds}
             onToggleExpanded={toggleExpanded}
@@ -1168,6 +1313,8 @@ function ClientAppointmentsPageContent() {
             description="תורים שהתקיימו, בוטלו, או שתאריכם כבר חלף"
             items={pastItems}
             statusOptions={HISTORY_STATUS_OPTIONS}
+            showProviderFilter
+            showServiceFilter
             highlightId={highlightId}
             expandedIds={expandedIds}
             onToggleExpanded={toggleExpanded}
@@ -1176,6 +1323,8 @@ function ClientAppointmentsPageContent() {
             onCancel={setCancelAppointment}
             onReschedule={setRescheduleAppointment}
           />
+
+          <CancellationPolicy />
         </>
       )}
 
