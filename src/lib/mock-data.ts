@@ -1477,7 +1477,50 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
       created_by_id: patient.id,
     };
   }
-);
+).concat([
+  // Two extra history items for the demo patient specifically, from two
+  // different providers/services — the generated appointments above only
+  // give the demo patient (SEED_PATIENTS[0]) a single past item, which
+  // isn't enough to demo the "נותן שירות" / "סוג טיפול" filters on
+  // /client/appointments (§ היסטוריית תורים).
+  {
+    id: generateId("appt"),
+    client_name: SEED_PATIENTS[0].full_name,
+    client_phone: SEED_PATIENTS[0].phone,
+    provider_id: provider1.id,
+    provider_name: provider1.display_name,
+    service_name: "ייעוץ אורתופדי - ברך",
+    clinic_id: provider1ClinicId,
+    date: isoDateDaysFromNow(-10),
+    time: "10:30",
+    duration_minutes: 30,
+    status: "בוצע",
+    price: 450,
+    deposit_amount: 135,
+    deposit_paid_at: isoTimestampHoursFromNow(-240),
+    kupah: SEED_PATIENTS[0].kupah,
+    notes: "",
+    created_by_id: SEED_PATIENTS[0].id,
+  },
+  {
+    id: generateId("appt"),
+    client_name: SEED_PATIENTS[0].full_name,
+    client_phone: SEED_PATIENTS[0].phone,
+    provider_id: provider2.id,
+    provider_name: provider2.display_name,
+    service_name: "ייעוץ קרדיולוגי כללי",
+    clinic_id: provider2ClinicId,
+    date: isoDateDaysFromNow(-15),
+    time: "09:00",
+    duration_minutes: 30,
+    status: "בוטל",
+    price: 420,
+    deposit_amount: 126,
+    kupah: SEED_PATIENTS[0].kupah,
+    notes: "",
+    created_by_id: SEED_PATIENTS[0].id,
+  },
+]);
 
 // ---------------------------------------------------------------------------
 // Orders — final price resolved from the reference catalog price by the
