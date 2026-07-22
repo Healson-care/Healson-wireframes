@@ -822,40 +822,38 @@ function AppointmentListCard({
                     <AppointmentReminderPlan appointment={item.data} provider={provider} />
                   )}
 
-                {((item.kind === "appointment" && item.data.status !== "בוטל" && item.data.status !== "בוצע") ||
-                  item.data.status === "בוטל") && (
+                {item.kind === "appointment" && item.data.status !== "בוטל" && item.data.status !== "בוצע" && (
                   <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 pt-3">
-                    {item.kind === "appointment" && item.data.status !== "בוטל" && item.data.status !== "בוצע" && (
-                      <>
-                        {/* "שלם יתרה" only appears once the deposit is paid ("מאושר").
-                            TODO(product, unresolved): nothing here flags or blocks an
-                            appointment whose date arrives with the balance still
-                            unpaid — see the note on AppointmentStatus in types/index.ts
-                            and README.md. */}
-                        {item.data.status === "מאושר" && (
-                          <Button size="sm" onClick={() => onPayBalance(item.data)}>
-                            שלם יתרה
-                          </Button>
-                        )}
-                        <Button variant="outline" size="sm" onClick={() => onReschedule(item.data)}>
-                          <CalendarClock className="h-3.5 w-3.5" /> עדכון תור
-                        </Button>
-                        {getCancellationInfo(item.data).canCancel ? (
-                          <Button variant="outline" size="sm" onClick={() => onCancel(item.data)}>
-                            בטל תור
-                          </Button>
-                        ) : (
-                          <span className="text-xs text-slate-400">חלף המועד לביטול תור זה</span>
-                        )}
-                      </>
+                    {/* "שלם יתרה" only appears once the deposit is paid ("מאושר").
+                        TODO(product, unresolved): nothing here flags or blocks an
+                        appointment whose date arrives with the balance still
+                        unpaid — see the note on AppointmentStatus in types/index.ts
+                        and README.md. */}
+                    {item.data.status === "מאושר" && (
+                      <Button size="sm" onClick={() => onPayBalance(item.data)}>
+                        שלם יתרה
+                      </Button>
                     )}
-                    {item.data.status === "בוטל" && (
-                      <Link href="/client/search">
-                        <Button size="sm">
-                          קבע מחדש <ArrowLeft className="h-3.5 w-3.5" />
-                        </Button>
-                      </Link>
+                    <Button variant="outline" size="sm" onClick={() => onReschedule(item.data)}>
+                      <CalendarClock className="h-3.5 w-3.5" /> עדכון תור
+                    </Button>
+                    {getCancellationInfo(item.data).canCancel ? (
+                      <Button variant="outline" size="sm" onClick={() => onCancel(item.data)}>
+                        בטל תור
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-slate-400">חלף המועד לביטול תור זה</span>
                     )}
+                  </div>
+                )}
+
+                {item.data.status === "בוטל" && (
+                  <div className="flex justify-end border-t border-slate-100 pt-3">
+                    <Link href="/client/search">
+                      <Button size="sm">
+                        קבע מחדש <ArrowLeft className="h-3.5 w-3.5" />
+                      </Button>
+                    </Link>
                   </div>
                 )}
               </div>
