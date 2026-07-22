@@ -92,7 +92,7 @@ export function AppointmentForm({
           ))}
         </Select>
 
-        <Input label="שירות" required value={form.service_name} onChange={(e) => setForm({ ...form, service_name: e.target.value })} />
+        <Input label="פריט" required value={form.service_name} onChange={(e) => setForm({ ...form, service_name: e.target.value })} />
 
         <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm">
           <span className="text-slate-500">קופת חולים</span>

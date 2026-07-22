@@ -60,7 +60,7 @@ const DEMO_ACCOUNTS: DemoAccount[] = [
     kind: "unit",
     user: DEMO_INSTITUTE_USER,
     label: "מכון רפואי",
-    description: "בדיקות, פעולות וניתוחים, עם רופאים משויכים",
+    description: "בדיקות, פעולות וניתוחים, עם נותני שירות משויכים",
     icon: Building2,
   },
   {
@@ -68,7 +68,7 @@ const DEMO_ACCOUNTS: DemoAccount[] = [
     kind: "unit",
     user: DEMO_OUTPATIENT_USER,
     label: "מרפאת חוץ",
-    description: "ייעוצים, אבחונים וטיפולים, עם רופאים משויכים",
+    description: "ייעוצים, אבחונים וטיפולים, עם נותני שירות משויכים",
     icon: Network,
   },
 ];

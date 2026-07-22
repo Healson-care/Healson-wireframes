@@ -92,16 +92,16 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
         <div className="flex items-center gap-2">
           <Stethoscope className="h-4 w-4 text-slate-400" />
           <div>
-            <p className="text-sm font-medium text-slate-900">רופאים משויכים</p>
+            <p className="text-sm font-medium text-slate-900">נותני שירות משויכים</p>
             <p className="text-xs text-slate-500">
-              {affiliations.length} רופאים · {doctorServices.length - unstaffedServices.length} מתוך{" "}
-              {doctorServices.length} שירותים מאוישים
-              {isUnitProviderType(provider.provider_type) && " · הזמינות נקבעת לכל רופא/ה בנפרד"}
+              {affiliations.length} נותני שירות · {doctorServices.length - unstaffedServices.length} מתוך{" "}
+              {doctorServices.length} פריטים מאוישים
+              {isUnitProviderType(provider.provider_type) && " · הזמינות נקבעת לכל נותן/ת שירות בנפרד"}
             </p>
           </div>
         </div>
         <Button size="sm" onClick={() => setAddOpen(true)}>
-          <UserPlus className="h-4 w-4" /> הוספת רופא/ה
+          <UserPlus className="h-4 w-4" /> הוספת נותן/ת שירות
         </Button>
       </Card>
 
@@ -109,7 +109,7 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
         <div className="flex items-start gap-2 rounded-lg border border-warning-border bg-warning-bg px-3 py-2 text-sm text-warning-text">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
-            {unstaffedServices.length} שירותים עדיין ללא רופא/ה משויך/ת:{" "}
+            {unstaffedServices.length} פריטים עדיין ללא נותן/ת שירות משויך/ת:{" "}
             {unstaffedServices.map((s) => s.name).join(", ")}
           </span>
         </div>
@@ -118,8 +118,8 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
       {affiliations.length === 0 ? (
         <EmptyState
           icon={<Stethoscope className="h-10 w-10" />}
-          title="לא שויכו עדיין רופאים"
-          description="כל שירות המבוסס על ייעוץ מתבצע בפועל על ידי רופא/ה. הוסיפו את הרופאים הפועלים אצלכם ושייכו אותם לשירותים הרלוונטיים."
+          title="לא שויכו עדיין נותני שירות"
+          description="כל פריט המבוסס על ייעוץ מתבצע בפועל על ידי נותן/ת שירות. הוסיפו את נותני השירות הפועלים אצלכם ושייכו אותם לפריטים הרלוונטיים."
         />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
@@ -170,9 +170,9 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
                 </div>
 
                 <div className="mt-3">
-                  <p className="mb-1 text-[11px] font-medium text-slate-500">שירותים משויכים</p>
+                  <p className="mb-1 text-[11px] font-medium text-slate-500">פריטים משויכים</p>
                   {linkedServices.length === 0 ? (
-                    <p className="text-xs text-slate-400">לא שויכו שירותים</p>
+                    <p className="text-xs text-slate-400">לא שויכו פריטים</p>
                   ) : (
                     <div className="flex flex-wrap gap-1">
                       {linkedServices.map((s) => (
@@ -225,10 +225,10 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
         onCreate={(data) => {
           const result = addAffiliatedDoctor(provider.id, data);
           if (!result.ok) {
-            showToast(result.error ?? "שגיאה בהוספת הרופא/ה", { variant: "destructive" });
+            showToast(result.error ?? "שגיאה בהוספת נותן/ת השירות", { variant: "destructive" });
             return false;
           }
-          showToast("הרופא/ה נוסף/ה ושויך/ה", {
+          showToast("נותן/ת השירות נוסף/ה ושויך/ה", {
             description: "הרישיון יועבר לאימות צוות Healson",
             variant: "success",
           });
@@ -241,7 +241,7 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
             showToast(result.error ?? "שגיאה בשיוך", { variant: "destructive" });
             return false;
           }
-          showToast("הרופא/ה הקיים/ת שויך/ה לארגון", { variant: "success" });
+          showToast("נותן/ת השירות הקיים/ת שויך/ה לארגון", { variant: "success" });
           setAddOpen(false);
           return true;
         }}
@@ -265,14 +265,14 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
       <ConfirmDialog
         open={!!removing}
         onClose={() => setRemoving(null)}
-        title="הסרת שיוך רופא/ה"
-        description="הרופא/ה יוסר/תוסר מהארגון ומהשירותים המשויכים. רשומת הרופא/ה עצמה נשמרת במערכת."
+        title="הסרת שיוך נותן/ת שירות"
+        description="נותן/ת השירות יוסר/תוסר מהארגון ומהפריטים המשויכים. רשומת נותן/ת השירות עצמה נשמרת במערכת."
         destructive
         confirmLabel="הסר שיוך"
         onConfirm={() => {
           if (removing) {
             removeAffiliatedDoctor(provider.id, removing.id);
-            showToast("שיוך הרופא/ה הוסר", { variant: "success" });
+            showToast("שיוך נותן/ת השירות הוסר", { variant: "success" });
           }
         }}
       />
@@ -412,14 +412,14 @@ function AddDoctorDialog({
   }
 
   return (
-    <Dialog open={open} onClose={handleClose} title="הוספת רופא/ה לארגון" className="max-w-2xl">
+    <Dialog open={open} onClose={handleClose} title="הוספת נותן/ת שירות לארגון" className="max-w-2xl">
       <div className="flex flex-col gap-3">
         {/* Two ways in — look up an existing doctor, or create a new record. */}
         <div className="flex gap-2">
           {(
             [
-              ["search", "חיפוש רופא/ה קיים/ת במערכת"],
-              ["create", "הוספת רופא/ה חדש/ה"],
+              ["search", "חיפוש נותן/ת שירות קיים/ת במערכת"],
+              ["create", "הוספת נותן/ת שירות חדש/ה"],
             ] as const
           ).map(([value, label]) => (
             <button
@@ -477,7 +477,7 @@ function AddDoctorDialog({
         <>
         <p className="flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
           <Search className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          התחילו להזין את פרטי הרופא/ה. אם הרופא/ה כבר קיים/ת במערכת — נזהה זאת ונציע לשייך את הרשומה
+          התחילו להזין את פרטי נותן/ת השירות. אם נותן/ת השירות כבר קיים/ת במערכת — נזהה זאת ונציע לשייך את הרשומה
           הקיימת, כדי שלא ייווצרו כפילויות.
         </p>
 
@@ -487,9 +487,9 @@ function AddDoctorDialog({
             <div className="mb-2 flex items-start gap-2">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-info-text" />
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-info-text">נמצאה רשומת רופא/ה קיימת במערכת</p>
+                <p className="text-sm font-semibold text-info-text">נמצאה רשומת נותן/ת שירות קיימת במערכת</p>
                 <p className="text-xs text-info-text/80">
-                  בחרו את הרופא/ה הקיים/ת כדי לשייך אותו/ה לארגון — הרשומה נשמרת אחת בלבד.
+                  בחרו את נותן/ת השירות הקיים/ת כדי לשייך אותו/ה לארגון — הרשומה נשמרת אחת בלבד.
                 </p>
               </div>
               <button
@@ -497,7 +497,7 @@ function AddDoctorDialog({
                 onClick={() => setDismissedMatches(true)}
                 className="shrink-0 text-[11px] font-medium text-info-text hover:underline"
               >
-                זה לא אותו/ה רופא/ה
+                זה לא אותו/ה נותן/ת שירות
               </button>
             </div>
             <div className="flex flex-col gap-1.5">
@@ -530,7 +530,7 @@ function AddDoctorDialog({
                       if (ok) reset();
                     }}
                   >
-                    <Link2 className="h-3.5 w-3.5" /> שייך רופא/ה קיים/ת
+                    <Link2 className="h-3.5 w-3.5" /> שייך נותן/ת שירות קיים/ת
                   </Button>
                 </div>
               ))}
@@ -587,7 +587,7 @@ function AddDoctorDialog({
               setLicenseNumber(e.target.value);
               setDismissedMatches(false);
             }}
-            hint="המזהה החזק ביותר לאיתור רופא/ה קיים/ת"
+            hint="המזהה החזק ביותר לאיתור נותן/ת שירות קיים/ת"
           />
         </div>
 
@@ -669,12 +669,12 @@ function SearchExistingDoctor({
         placeholder="שם, מספר רישיון, התמחות, טלפון או אימייל"
         value={search}
         onChange={(e) => onSearchChange(e.target.value)}
-        hint="רופא/ה קיים/ת משויך/ת לארגון — הרשומה נשמרת אחת בלבד ולא נוצרת כפילות"
+        hint="נותן/ת שירות קיים/ת משויך/ת לארגון — הרשומה נשמרת אחת בלבד ולא נוצרת כפילות"
       />
 
       {search.trim().length < 2 ? (
         <p className="rounded-lg bg-slate-50 px-3 py-3 text-xs text-slate-500">
-          הזינו לפחות שני תווים כדי לחפש. אם הרופא/ה עדיין לא רשום/ה במערכת —{" "}
+          הזינו לפחות שני תווים כדי לחפש. אם נותן/ת השירות עדיין לא רשום/ה במערכת —{" "}
           <button type="button" onClick={onSwitchToCreate} className="font-medium text-primary hover:underline">
             הוסיפו רשומה חדשה
           </button>
@@ -682,9 +682,9 @@ function SearchExistingDoctor({
         </p>
       ) : results.length === 0 ? (
         <p className="rounded-lg border border-dashed border-slate-300 px-3 py-3 text-xs text-slate-500">
-          לא נמצא/ה רופא/ה תואם/ת ל&quot;{search}&quot;.{" "}
+          לא נמצא/ה נותן/ת שירות תואם/ת ל&quot;{search}&quot;.{" "}
           <button type="button" onClick={onSwitchToCreate} className="font-medium text-primary hover:underline">
-            הוספת רופא/ה חדש/ה
+            הוספת נותן/ת שירות חדש/ה
           </button>
         </p>
       ) : (
@@ -750,7 +750,7 @@ function EditAffiliationDialog({
       open={!!affiliation}
       onClose={onClose}
       title={doctor ? `${doctor.title} ${doctor.display_name}` : "עריכת שיוך"}
-      description="תפקיד בארגון, שירותים ומיקומים"
+      description="תפקיד בארגון, פריטים ומיקומים"
       className="max-w-lg"
     >
       {affiliation && (
@@ -808,7 +808,7 @@ function ServicePicker({
     <div className="rounded-lg border border-slate-200 p-3">
       <div className="mb-2 flex items-center justify-between">
         <span className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
-          <Stethoscope className="h-3.5 w-3.5 text-slate-400" /> שירותים שהרופא/ה מבצע/ת
+          <Stethoscope className="h-3.5 w-3.5 text-slate-400" /> פריטים שנותן/ת השירות מבצע/ת
         </span>
         {services.length > 0 && (
           <button
@@ -821,7 +821,7 @@ function ServicePicker({
         )}
       </div>
       {services.length === 0 ? (
-        <p className="text-xs text-slate-400">אין עדיין שירותים בקטלוג — הוסיפו שירותים כדי לשייך אותם לרופאים.</p>
+        <p className="text-xs text-slate-400">אין עדיין פריטים בקטלוג — הוסיפו פריטים כדי לשייך אותם לנותני השירות.</p>
       ) : (
         <div className="flex flex-wrap gap-1.5">
           {services.map((s) => {

@@ -8,30 +8,80 @@ import { BodyMap, OptionGrid, PriceCalculator, SelectableOption, StepIndicator }
 import { BodyRegionMeta } from "@/lib/medical-tree";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
-import { EmptyState, PageHeader } from "@/components/ui/Misc";
+import { EmptyState, PageHeader, Avatar } from "@/components/ui/Misc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
-import { Input, Select } from "@/components/ui/Input";
+import { Input, Select, Textarea } from "@/components/ui/Input";
 import { Dialog, ConfirmDialog } from "@/components/ui/Dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/Tabs";
 import { DataTable, DataTableColumn } from "@/components/ui/DataTable";
-import { CatalogItem, SERVICE_TYPES, SERVICE_TYPE_LABELS, ServiceType, SkillDomain, SkillSubdomain } from "@/types";
-import { RotateCcw, Plus, Pencil, Trash2, LayoutGrid, Search } from "lucide-react";
+import { formatDateHe } from "@/lib/utils";
+import {
+  CATALOG_CODE_LABELS,
+  CATALOG_KIND_LABELS,
+  CATALOG_KINDS,
+  CATALOG_REQUEST_STATUS_LABELS,
+  CatalogItem,
+  CatalogKind,
+  CatalogRequest,
+  CatalogRequestStatus,
+  PriceByLayer,
+  PROVIDER_SERVICE_TYPE_LABELS,
+  ProviderProfile,
+  ProviderServiceType,
+  SERVICE_TYPES,
+  SERVICE_TYPE_LABELS,
+  ServiceType,
+  SkillDomain,
+  SkillSubdomain,
+} from "@/types";
+import {
+  RotateCcw,
+  Plus,
+  Pencil,
+  Trash2,
+  LayoutGrid,
+  Search,
+  Inbox,
+  Check,
+  GitMerge,
+  MessageSquareText,
+  Ban,
+} from "lucide-react";
 
 export default function AdminCatalogPage() {
+  const pendingRequests = useStore(
+    (s) => s.catalogRequests.filter((r) => r.status === "pending").length
+  );
   return (
     <AppLayout>
-      <PageHeader title="קטלוג שירותים" description="עיון בקטלוג לצורך הפניה וייעוץ למטופלים, וניהול הטקסונומיה הרפואית" />
+      <PageHeader
+        title="קטלוגי פריטים"
+        description='שני קטלוגים נפרדים — קטלוג מב"ר (קודי משרד הבריאות, תעריפי S/H) וקטלוג הילסון (קודי הילסון, מחיר P ותעריפי K/B). ניהול התחומים ותתי-התחומים עבר לעמוד "תחומים רפואיים"'
+      />
 
       <Tabs defaultValue="browse">
-        <TabsList className="mb-5 max-w-xs">
+        <TabsList className="mb-5 max-w-md">
           <TabsTrigger value="browse" icon={<Search className="h-3.5 w-3.5" />}>עיון</TabsTrigger>
-          <TabsTrigger value="manage" icon={<LayoutGrid className="h-3.5 w-3.5" />}>ניהול</TabsTrigger>
+          <TabsTrigger value="manage" icon={<LayoutGrid className="h-3.5 w-3.5" />}>ניהול פריטים</TabsTrigger>
+          <TabsTrigger value="requests" icon={<Inbox className="h-3.5 w-3.5" />}>
+            <span className="flex items-center gap-1.5">
+              בקשות קטלוג
+              {pendingRequests > 0 && (
+                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-warning px-1.5 text-[11px] font-bold tabular-nums text-white">
+                  {pendingRequests}
+                </span>
+              )}
+            </span>
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="browse">
           <BrowseWizard />
         </TabsContent>
         <TabsContent value="manage">
-          <CatalogManager />
+          <ItemsManager />
+        </TabsContent>
+        <TabsContent value="requests">
+          <CatalogRequestsManager />
         </TabsContent>
       </Tabs>
     </AppLayout>
@@ -157,7 +207,7 @@ function BrowseWizard() {
               </div>
               <p className="text-sm text-slate-500 mb-3">תוצאות ({results.length})</p>
               {results.length === 0 ? (
-                <EmptyState title="לא נמצאו שירותים" action={<ResetButton onReset={handleReset} />} />
+                <EmptyState title="לא נמצאו פריטים" action={<ResetButton onReset={handleReset} />} />
               ) : (
                 <div className="flex flex-col gap-3">
                   {results.map((item) => {
@@ -170,7 +220,9 @@ function BrowseWizard() {
                         <div className="flex items-start justify-between gap-2">
                           <div>
                             <p className="font-medium text-slate-900">{item.name_he}</p>
-                            <p className="text-xs text-slate-400">{item.tavar_code}</p>
+                            <p className="text-xs text-slate-400">
+                              {CATALOG_CODE_LABELS[item.catalog]}: {item.tavar_code}
+                            </p>
                             <p className="text-xs text-slate-500 mt-1">
                               {SERVICE_TYPE_LABELS[item.service_type]}
                               {provider && ` · ${provider.title ?? ""} ${provider.display_name}`}
@@ -215,248 +267,295 @@ function ResetButton({ onReset }: { onReset: () => void }) {
 }
 
 // ---------------------------------------------------------------------------
-// Management tab — CRUD for Skill Domains / Sub-domains / Catalog items (ADM-03)
+// Management tab — CRUD for catalog items (ADM-03). Domain / sub-domain
+// management moved to its own page: /medical-tree ("תחומים רפואיים").
 // ---------------------------------------------------------------------------
-function CatalogManager() {
-  return (
-    <div className="flex flex-col gap-5">
-      <DomainsManager />
-      <SubdomainsManager />
-      <ItemsManager />
-    </div>
-  );
-}
-
-function DomainsManager() {
-  const skillDomains = useStore((s) => s.skillDomains);
-  const skillSubdomains = useStore((s) => s.skillSubdomains);
-  const catalog = useStore((s) => s.catalog);
-  const addSkillDomain = useStore((s) => s.addSkillDomain);
-  const updateSkillDomain = useStore((s) => s.updateSkillDomain);
-  const deleteSkillDomain = useStore((s) => s.deleteSkillDomain);
-  const showToast = useStore((s) => s.showToast);
-
-  const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<SkillDomain | null>(null);
-  const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [form, setForm] = useState({ name_he: "", emoji: "", slug: "" });
-
-  const deleteImpact = deleteId
-    ? {
-        subdomains: skillSubdomains.filter((sd) => sd.domain_id === deleteId).length,
-        items: catalog.filter((c) => c.skill_domain_id === deleteId).length,
-      }
-    : null;
-
-  function openCreate() {
-    setEditing(null);
-    setForm({ name_he: "", emoji: "", slug: "" });
-    setOpen(true);
-  }
-  function openEdit(d: SkillDomain) {
-    setEditing(d);
-    setForm({ name_he: d.name_he, emoji: d.emoji ?? "", slug: d.slug });
-    setOpen(true);
-  }
-  function handleSave() {
-    if (editing) {
-      updateSkillDomain(editing.id, form);
-      showToast("התחום עודכן", { variant: "success" });
-    } else {
-      addSkillDomain(form);
-      showToast("תחום חדש נוסף", { variant: "success" });
-    }
-    setOpen(false);
-  }
-
-  return (
-    <Card>
-      <CardHeader className="flex items-center justify-between flex-row">
-        <CardTitle>תחומים רפואיים (Domains)</CardTitle>
-        <Button size="sm" onClick={openCreate}>
-          <Plus className="h-4 w-4" /> תחום חדש
-        </Button>
-      </CardHeader>
-      <CardContent>
-        <DataTable<SkillDomain>
-          rows={skillDomains}
-          rowKey={(d) => d.id}
-          emptyTitle="אין תחומים מוגדרים"
-          columns={
-            [
-              { key: "emoji", header: "", render: (d) => <span className="text-lg">{d.emoji}</span> },
-              { key: "name", header: "שם", render: (d) => <span className="font-medium text-slate-900">{d.name_he}</span> },
-              { key: "slug", header: "מזהה", render: (d) => <span className="text-xs text-slate-400 font-mono">{d.slug}</span> },
-            ] satisfies DataTableColumn<SkillDomain>[]
-          }
-          rowActions={(d) => (
-            <>
-              <button onClick={() => openEdit(d)} className="p-1.5 rounded-md hover:bg-slate-100 text-slate-500">
-                <Pencil className="h-3.5 w-3.5" />
-              </button>
-              <button onClick={() => setDeleteId(d.id)} className="p-1.5 rounded-md hover:bg-red-50 text-red-500">
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </>
-          )}
-        />
-      </CardContent>
-
-      <Dialog open={open} onClose={() => setOpen(false)} title={editing ? "עריכת תחום" : "תחום חדש"}>
-        <div className="flex flex-col gap-3">
-          <Input label="שם התחום" value={form.name_he} onChange={(e) => setForm({ ...form, name_he: e.target.value })} required />
-          <Input label="אימוג'י" value={form.emoji} onChange={(e) => setForm({ ...form, emoji: e.target.value })} />
-          <Input label="מזהה (slug)" value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })} required />
-          <Button onClick={handleSave}>שמור</Button>
-        </div>
-      </Dialog>
-
-      <ConfirmDialog
-        open={!!deleteId}
-        onClose={() => setDeleteId(null)}
-        title="מחיקת תחום"
-        description={
-          deleteImpact && (deleteImpact.subdomains > 0 || deleteImpact.items > 0)
-            ? `יימחקו גם ${deleteImpact.subdomains} תתי-תחומים ו-${deleteImpact.items} פריטי קטלוג המשויכים לתחום זה.`
-            : "אין תתי-תחומים או פריטי קטלוג המשויכים לתחום זה."
-        }
-        destructive
-        confirmLabel="מחק"
-        onConfirm={() => {
-          if (deleteId) {
-            deleteSkillDomain(deleteId);
-            showToast("התחום נמחק", { variant: "success" });
-          }
-        }}
-      />
-    </Card>
-  );
-}
-
-function SubdomainsManager() {
-  const skillDomains = useStore((s) => s.skillDomains);
-  const skillSubdomains = useStore((s) => s.skillSubdomains);
-  const catalog = useStore((s) => s.catalog);
-  const addSkillSubdomain = useStore((s) => s.addSkillSubdomain);
-  const updateSkillSubdomain = useStore((s) => s.updateSkillSubdomain);
-  const deleteSkillSubdomain = useStore((s) => s.deleteSkillSubdomain);
-  const showToast = useStore((s) => s.showToast);
-
-  const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<SkillSubdomain | null>(null);
-  const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [form, setForm] = useState({ name_he: "", slug: "", domain_id: skillDomains[0]?.id ?? "" });
-
-  const deleteItemCount = deleteId ? catalog.filter((c) => c.skill_subdomain_id === deleteId).length : 0;
-
-  function openCreate() {
-    setEditing(null);
-    setForm({ name_he: "", slug: "", domain_id: skillDomains[0]?.id ?? "" });
-    setOpen(true);
-  }
-  function openEdit(sd: SkillSubdomain) {
-    setEditing(sd);
-    setForm({ name_he: sd.name_he, slug: sd.slug, domain_id: sd.domain_id });
-    setOpen(true);
-  }
-  function handleSave() {
-    if (editing) {
-      updateSkillSubdomain(editing.id, form);
-      showToast("תת-התחום עודכן", { variant: "success" });
-    } else {
-      addSkillSubdomain(form);
-      showToast("תת-תחום חדש נוסף", { variant: "success" });
-    }
-    setOpen(false);
-  }
-
-  return (
-    <Card>
-      <CardHeader className="flex items-center justify-between flex-row">
-        <CardTitle>תתי-תחומים (Sub-domains)</CardTitle>
-        <Button size="sm" onClick={openCreate} disabled={skillDomains.length === 0}>
-          <Plus className="h-4 w-4" /> תת-תחום חדש
-        </Button>
-      </CardHeader>
-      <CardContent>
-        <DataTable<SkillSubdomain>
-          rows={skillSubdomains}
-          rowKey={(sd) => sd.id}
-          emptyTitle="אין תתי-תחומים מוגדרים"
-          columns={
-            [
-              { key: "name", header: "שם", render: (sd) => <span className="font-medium text-slate-900">{sd.name_he}</span> },
-              {
-                key: "domain",
-                header: "תחום",
-                render: (sd) => (
-                  <span className="text-slate-600">{skillDomains.find((d) => d.id === sd.domain_id)?.name_he ?? "—"}</span>
-                ),
-              },
-              { key: "slug", header: "מזהה", render: (sd) => <span className="text-xs text-slate-400 font-mono">{sd.slug}</span> },
-            ] satisfies DataTableColumn<SkillSubdomain>[]
-          }
-          rowActions={(sd) => (
-            <>
-              <button onClick={() => openEdit(sd)} className="p-1.5 rounded-md hover:bg-slate-100 text-slate-500">
-                <Pencil className="h-3.5 w-3.5" />
-              </button>
-              <button onClick={() => setDeleteId(sd.id)} className="p-1.5 rounded-md hover:bg-red-50 text-red-500">
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </>
-          )}
-        />
-      </CardContent>
-
-      <Dialog open={open} onClose={() => setOpen(false)} title={editing ? "עריכת תת-תחום" : "תת-תחום חדש"}>
-        <div className="flex flex-col gap-3">
-          <Select label="תחום" value={form.domain_id} onChange={(e) => setForm({ ...form, domain_id: e.target.value })} required>
-            {skillDomains.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name_he}
-              </option>
-            ))}
-          </Select>
-          <Input label="שם תת-התחום" value={form.name_he} onChange={(e) => setForm({ ...form, name_he: e.target.value })} required />
-          <Input label="מזהה (slug)" value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })} required />
-          <Button onClick={handleSave}>שמור</Button>
-        </div>
-      </Dialog>
-
-      <ConfirmDialog
-        open={!!deleteId}
-        onClose={() => setDeleteId(null)}
-        title="מחיקת תת-תחום"
-        description={
-          deleteItemCount > 0
-            ? `יימחקו גם ${deleteItemCount} פריטי קטלוג המשויכים לתת-תחום זה.`
-            : "אין פריטי קטלוג המשויכים לתת-תחום זה."
-        }
-        destructive
-        confirmLabel="מחק"
-        onConfirm={() => {
-          if (deleteId) {
-            deleteSkillSubdomain(deleteId);
-            showToast("תת-התחום נמחק", { variant: "success" });
-          }
-        }}
-      />
-    </Card>
-  );
-}
-
 interface ItemFormValues {
   name_he: string;
   tavar_code: string;
+  catalog: CatalogKind;
   skill_domain_id: string;
   skill_subdomain_id: string;
   service_type: ServiceType;
-  base_price: string;
+  // מב"ר: S+H מחירון משרד הבריאות. הילסון: P מלא + K/B תעריפי הילסון,
+  // כש-S/H תמיד לפי מחירון משרד הבריאות.
+  price_s: string;
+  price_k: string;
+  price_b: string;
+  price_h: string;
+  price_full: string;
   typical_duration_min: string;
   requires_referral: boolean;
   provider_id: string;
   is_active: boolean;
+}
+
+function priceOf(item: CatalogItem, layer: PriceByLayer["layer"]): string {
+  const v = item.layer_prices?.find((p) => p.layer === layer)?.price;
+  return v != null ? String(v) : "";
+}
+
+function makeEmptyForm(
+  skillDomains: SkillDomain[],
+  skillSubdomains: SkillSubdomain[],
+  catalog: CatalogKind = "mabar"
+): ItemFormValues {
+  return {
+    name_he: "",
+    tavar_code: "",
+    catalog,
+    skill_domain_id: skillDomains[0]?.id ?? "",
+    skill_subdomain_id: skillSubdomains.find((sd) => sd.domain_id === skillDomains[0]?.id)?.id ?? "",
+    service_type: "consultation",
+    price_s: "",
+    price_k: "",
+    price_b: "",
+    price_h: "",
+    price_full: "",
+    typical_duration_min: "",
+    requires_referral: false,
+    provider_id: "",
+    is_active: true,
+  };
+}
+
+function formFromItem(item: CatalogItem): ItemFormValues {
+  return {
+    name_he: item.name_he,
+    tavar_code: item.tavar_code ?? "",
+    catalog: item.catalog,
+    skill_domain_id: item.skill_domain_id,
+    skill_subdomain_id: item.skill_subdomain_id,
+    service_type: item.service_type,
+    price_s: priceOf(item, "S"),
+    price_k: priceOf(item, "K"),
+    price_b: priceOf(item, "B"),
+    price_h: priceOf(item, "H"),
+    price_full: item.price_full != null ? String(item.price_full) : "",
+    typical_duration_min: item.typical_duration_min ? String(item.typical_duration_min) : "",
+    requires_referral: item.requires_referral,
+    provider_id: item.provider_id ?? "",
+    is_active: item.is_active,
+  };
+}
+
+// מב"ר carries S+H only (the MoH price list); Healson adds P plus its own K/B
+// tariffs, with S/H still mirroring the MoH list. Single source of truth for
+// turning the form into a CatalogItem — used by create/edit AND approve-request.
+function buildCatalogValues(form: ItemFormValues): Omit<CatalogItem, "id"> {
+  const layer_prices: PriceByLayer[] = [];
+  if (form.price_s !== "") layer_prices.push({ layer: "S", price: Number(form.price_s) || 0 });
+  if (form.catalog === "healson") {
+    if (form.price_k !== "") layer_prices.push({ layer: "K", price: Number(form.price_k) || 0 });
+    if (form.price_b !== "") layer_prices.push({ layer: "B", price: Number(form.price_b) || 0 });
+  }
+  if (form.price_h !== "") layer_prices.push({ layer: "H", price: Number(form.price_h) || 0 });
+  return {
+    name_he: form.name_he,
+    tavar_code: form.tavar_code || undefined,
+    catalog: form.catalog,
+    skill_domain_id: form.skill_domain_id,
+    skill_subdomain_id: form.skill_subdomain_id,
+    service_type: form.service_type,
+    // Headline price: מב"ר → the MoH S price; הילסון → the full item price P.
+    base_price: form.catalog === "mabar" ? Number(form.price_s) || 0 : Number(form.price_full) || 0,
+    price_full: form.catalog === "healson" ? Number(form.price_full) || 0 : undefined,
+    layer_prices,
+    typical_duration_min: form.typical_duration_min ? Number(form.typical_duration_min) : undefined,
+    requires_referral: form.requires_referral,
+    provider_id: form.provider_id || undefined,
+    is_active: form.is_active,
+  };
+}
+
+/** Shared create/edit form for a catalog item (fields + submit). Holds its own
+ * form state seeded from `initial`; remount it with a `key` to reset. When
+ * `lockCatalog` is set the catalog is fixed (used by the approve-request flow,
+ * which always creates a Healson item). */
+function CatalogItemForm({
+  skillDomains,
+  skillSubdomains,
+  providers,
+  initial,
+  lockCatalog,
+  submitLabel = "שמור",
+  onSubmit,
+}: {
+  skillDomains: SkillDomain[];
+  skillSubdomains: SkillSubdomain[];
+  providers: ProviderProfile[];
+  initial?: ItemFormValues;
+  lockCatalog?: CatalogKind;
+  submitLabel?: string;
+  onSubmit: (values: Omit<CatalogItem, "id">) => void;
+}) {
+  const [form, setForm] = useState<ItemFormValues>(
+    () => initial ?? makeEmptyForm(skillDomains, skillSubdomains, lockCatalog)
+  );
+  const subdomainOptionsForForm = skillSubdomains.filter((sd) => sd.domain_id === form.skill_domain_id);
+  const canSave = form.name_he.trim().length > 0 && form.tavar_code.trim().length > 0;
+
+  return (
+    <div className="grid sm:grid-cols-2 gap-3">
+      <Input
+        label="שם הפריט"
+        className="sm:col-span-2"
+        value={form.name_he}
+        onChange={(e) => setForm({ ...form, name_he: e.target.value })}
+        required
+      />
+      <Select
+        label="קטלוג"
+        value={form.catalog}
+        disabled={!!lockCatalog}
+        onChange={(e) => setForm({ ...form, catalog: e.target.value as CatalogKind })}
+      >
+        {CATALOG_KINDS.map((k) => (
+          <option key={k} value={k}>
+            {CATALOG_KIND_LABELS[k]}
+          </option>
+        ))}
+      </Select>
+      <Input
+        label={CATALOG_CODE_LABELS[form.catalog]}
+        placeholder={form.catalog === "mabar" ? "לדוגמה: 54021" : "לדוגמה: HLS-20034"}
+        value={form.tavar_code}
+        onChange={(e) => setForm({ ...form, tavar_code: e.target.value })}
+        required
+      />
+      <Select
+        label="סוג פריט"
+        value={form.service_type}
+        onChange={(e) => setForm({ ...form, service_type: e.target.value as ServiceType })}
+      >
+        {SERVICE_TYPES.map((t) => (
+          <option key={t} value={t}>
+            {SERVICE_TYPE_LABELS[t]}
+          </option>
+        ))}
+      </Select>
+      <Select
+        label="תחום"
+        value={form.skill_domain_id}
+        onChange={(e) => {
+          const domain_id = e.target.value;
+          setForm({
+            ...form,
+            skill_domain_id: domain_id,
+            skill_subdomain_id: skillSubdomains.find((sd) => sd.domain_id === domain_id)?.id ?? "",
+          });
+        }}
+      >
+        {skillDomains.map((d) => (
+          <option key={d.id} value={d.id}>
+            {d.name_he}
+          </option>
+        ))}
+      </Select>
+      <Select
+        label="תת-תחום"
+        value={form.skill_subdomain_id}
+        onChange={(e) => setForm({ ...form, skill_subdomain_id: e.target.value })}
+      >
+        {subdomainOptionsForForm.map((sd) => (
+          <option key={sd.id} value={sd.id}>
+            {sd.name_he}
+          </option>
+        ))}
+      </Select>
+      <div className="sm:col-span-2 rounded-lg border border-slate-200 p-3">
+        <p className="mb-2 text-xs font-medium text-slate-600">
+          {form.catalog === "mabar"
+            ? 'מחירון משרד הבריאות (תעריפי S ו-H בלבד)'
+            : "מחירון הילסון — P מחיר פריט מלא, K/B תעריפי הילסון; S/H תמיד לפי מחירון משרד הבריאות"}
+        </p>
+        <div className="grid sm:grid-cols-3 gap-2">
+          {form.catalog === "healson" && (
+            <Input
+              label="מחיר פריט מלא P (₪)"
+              type="number"
+              value={form.price_full}
+              onChange={(e) => setForm({ ...form, price_full: e.target.value })}
+              required
+            />
+          )}
+          <Input
+            label="מחיר S — משרד הבריאות (₪)"
+            type="number"
+            value={form.price_s}
+            onChange={(e) => setForm({ ...form, price_s: e.target.value })}
+            required
+          />
+          {form.catalog === "healson" && (
+            <>
+              <Input
+                label="מחיר K — תעריף הילסון (₪)"
+                type="number"
+                value={form.price_k}
+                onChange={(e) => setForm({ ...form, price_k: e.target.value })}
+              />
+              <Input
+                label="מחיר B — תעריף הילסון (₪)"
+                type="number"
+                value={form.price_b}
+                onChange={(e) => setForm({ ...form, price_b: e.target.value })}
+              />
+            </>
+          )}
+          <Input
+            label="מחיר H — משרד הבריאות (₪)"
+            type="number"
+            value={form.price_h}
+            onChange={(e) => setForm({ ...form, price_h: e.target.value })}
+            required
+          />
+        </div>
+      </div>
+      <Input
+        label="משך טיפול ממוצע (דקות)"
+        type="number"
+        value={form.typical_duration_min}
+        onChange={(e) => setForm({ ...form, typical_duration_min: e.target.value })}
+      />
+      <Select
+        label="ספק (אופציונלי)"
+        value={form.provider_id}
+        onChange={(e) => setForm({ ...form, provider_id: e.target.value })}
+      >
+        <option value="">ללא ספק משויך</option>
+        {providers.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.title} {p.display_name}
+          </option>
+        ))}
+      </Select>
+      <label className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2.5 cursor-pointer self-end">
+        <input
+          type="checkbox"
+          checked={form.requires_referral}
+          onChange={(e) => setForm({ ...form, requires_referral: e.target.checked })}
+          className="h-4 w-4 rounded border-slate-300 accent-primary"
+        />
+        <span className="text-sm text-slate-700">דורש הפניה (טופס 17)</span>
+      </label>
+      <label className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2.5 cursor-pointer self-end">
+        <input
+          type="checkbox"
+          checked={form.is_active}
+          onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
+          className="h-4 w-4 rounded border-slate-300 accent-primary"
+        />
+        <span className="text-sm text-slate-700">פעיל בקטלוג הציבורי</span>
+      </label>
+      <Button
+        onClick={() => onSubmit(buildCatalogValues(form))}
+        disabled={!canSave}
+        className="sm:col-span-2 mt-1"
+      >
+        {submitLabel}
+      </Button>
+    </div>
+  );
 }
 
 function ItemsManager() {
@@ -471,6 +570,7 @@ function ItemsManager() {
   const bulkSetCatalogItemsActive = useStore((s) => s.bulkSetCatalogItemsActive);
   const showToast = useStore((s) => s.showToast);
 
+  const [catalogFilter, setCatalogFilter] = useState<CatalogKind | "">("");
   const [query, setQuery] = useState("");
   const [domainFilter, setDomainFilter] = useState("");
   const [subdomainFilter, setSubdomainFilter] = useState("");
@@ -482,25 +582,12 @@ function ItemsManager() {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const emptyForm = (): ItemFormValues => ({
-    name_he: "",
-    tavar_code: "",
-    skill_domain_id: skillDomains[0]?.id ?? "",
-    skill_subdomain_id: skillSubdomains.find((sd) => sd.domain_id === skillDomains[0]?.id)?.id ?? "",
-    service_type: "consultation",
-    base_price: "",
-    typical_duration_min: "",
-    requires_referral: false,
-    provider_id: "",
-    is_active: true,
-  });
-  const [form, setForm] = useState<ItemFormValues>(emptyForm());
-
   const subdomainOptionsForFilter = skillSubdomains.filter((sd) => sd.domain_id === domainFilter);
 
   const filtered = useMemo(
     () =>
       catalog.filter((c) => {
+        if (catalogFilter && c.catalog !== catalogFilter) return false;
         if (query && !c.name_he.includes(query) && !(c.tavar_code ?? "").includes(query)) return false;
         if (domainFilter && c.skill_domain_id !== domainFilter) return false;
         if (subdomainFilter && c.skill_subdomain_id !== subdomainFilter) return false;
@@ -509,44 +596,19 @@ function ItemsManager() {
         if (statusFilter === "inactive" && c.is_active) return false;
         return true;
       }),
-    [catalog, query, domainFilter, subdomainFilter, typeFilter, statusFilter]
+    [catalog, catalogFilter, query, domainFilter, subdomainFilter, typeFilter, statusFilter]
   );
 
   function openCreate() {
     setEditing(null);
-    setForm(emptyForm());
     setOpen(true);
   }
   function openEdit(item: CatalogItem) {
     setEditing(item);
-    setForm({
-      name_he: item.name_he,
-      tavar_code: item.tavar_code ?? "",
-      skill_domain_id: item.skill_domain_id,
-      skill_subdomain_id: item.skill_subdomain_id,
-      service_type: item.service_type,
-      base_price: String(item.base_price),
-      typical_duration_min: item.typical_duration_min ? String(item.typical_duration_min) : "",
-      requires_referral: item.requires_referral,
-      provider_id: item.provider_id ?? "",
-      is_active: item.is_active,
-    });
     setOpen(true);
   }
 
-  function handleSave() {
-    const values = {
-      name_he: form.name_he,
-      tavar_code: form.tavar_code || undefined,
-      skill_domain_id: form.skill_domain_id,
-      skill_subdomain_id: form.skill_subdomain_id,
-      service_type: form.service_type,
-      base_price: Number(form.base_price) || 0,
-      typical_duration_min: form.typical_duration_min ? Number(form.typical_duration_min) : undefined,
-      requires_referral: form.requires_referral,
-      provider_id: form.provider_id || undefined,
-      is_active: form.is_active,
-    };
+  function handleSubmit(values: Omit<CatalogItem, "id">) {
     if (editing) {
       updateCatalogItem(editing.id, values);
       showToast("פריט הקטלוג עודכן", { variant: "success" });
@@ -557,15 +619,13 @@ function ItemsManager() {
     setOpen(false);
   }
 
-  const subdomainOptionsForForm = skillSubdomains.filter((sd) => sd.domain_id === form.skill_domain_id);
-
   return (
     <Card>
       <CardHeader className="flex items-center justify-between flex-row flex-wrap gap-2">
         <CardTitle>פריטי קטלוג (Items)</CardTitle>
         <div className="flex items-center gap-2">
           <Input
-            placeholder="חיפוש לפי שם או קוד תב״ר..."
+            placeholder="חיפוש לפי שם או קוד..."
             icon={<Search className="h-4 w-4" />}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -578,6 +638,18 @@ function ItemsManager() {
       </CardHeader>
       <CardContent>
         <div className="flex flex-wrap items-center gap-2 mb-3">
+          <Select
+            value={catalogFilter}
+            onChange={(e) => setCatalogFilter(e.target.value as CatalogKind | "")}
+            className="max-w-[200px]"
+          >
+            <option value="">שני הקטלוגים</option>
+            {CATALOG_KINDS.map((k) => (
+              <option key={k} value={k}>
+                {CATALOG_KIND_LABELS[k]}
+              </option>
+            ))}
+          </Select>
           <Select
             value={domainFilter}
             onChange={(e) => {
@@ -611,7 +683,7 @@ function ItemsManager() {
             onChange={(e) => setTypeFilter(e.target.value as ServiceType | "")}
             className="max-w-[160px]"
           >
-            <option value="">כל סוגי השירות</option>
+            <option value="">כל סוגי הפריטים</option>
             {SERVICE_TYPES.map((t) => (
               <option key={t} value={t}>
                 {SERVICE_TYPE_LABELS[t]}
@@ -627,11 +699,12 @@ function ItemsManager() {
             <option value="active">פעיל</option>
             <option value="inactive">מושבת</option>
           </Select>
-          {(domainFilter || subdomainFilter || typeFilter || statusFilter) && (
+          {(catalogFilter || domainFilter || subdomainFilter || typeFilter || statusFilter) && (
             <Button
               variant="outline"
               size="sm"
               onClick={() => {
+                setCatalogFilter("");
                 setDomainFilter("");
                 setSubdomainFilter("");
                 setTypeFilter("");
@@ -683,12 +756,21 @@ function ItemsManager() {
             [
               {
                 key: "name",
-                header: "שם השירות",
+                header: "שם הפריט",
                 render: (c) => (
                   <div>
                     <p className="font-medium text-slate-900">{c.name_he}</p>
                     <p className="text-xs text-slate-400">{c.tavar_code}</p>
                   </div>
+                ),
+              },
+              {
+                key: "catalog",
+                header: "קטלוג",
+                render: (c) => (
+                  <Badge tone={c.catalog === "mabar" ? "purple" : "blue"}>
+                    {c.catalog === "mabar" ? 'מב"ר' : "הילסון"}
+                  </Badge>
                 ),
               },
               {
@@ -703,15 +785,22 @@ function ItemsManager() {
               },
               {
                 key: "type",
-                header: "סוג שירות",
+                header: "סוג פריט",
                 render: (c) => <Badge tone="slate">{SERVICE_TYPE_LABELS[c.service_type]}</Badge>,
               },
               {
                 key: "price",
-                header: "מחיר תב״ר",
+                header: "מחיר",
                 sortable: true,
                 sortValue: (c) => c.base_price,
-                render: (c) => <span className="font-medium text-slate-800">₪{c.base_price}</span>,
+                render: (c) => (
+                  <div>
+                    <span className="font-medium text-slate-800">₪{c.base_price}</span>
+                    <p className="text-[10px] text-slate-400">
+                      {c.catalog === "mabar" ? "S — מחירון משה\"ב" : "P — מחיר מלא"}
+                    </p>
+                  </div>
+                ),
               },
               {
                 key: "referral",
@@ -738,95 +827,20 @@ function ItemsManager() {
         />
       </CardContent>
 
-      <Dialog open={open} onClose={() => setOpen(false)} title={editing ? "עריכת פריט קטלוג" : "פריט קטלוג חדש"} className="max-w-2xl">
-        <div className="grid sm:grid-cols-2 gap-3">
-          <Input
-            label="שם השירות"
-            className="sm:col-span-2"
-            value={form.name_he}
-            onChange={(e) => setForm({ ...form, name_he: e.target.value })}
-            required
-          />
-          <Input label="קוד תב״ר" value={form.tavar_code} onChange={(e) => setForm({ ...form, tavar_code: e.target.value })} />
-          <Select
-            label="סוג שירות"
-            value={form.service_type}
-            onChange={(e) => setForm({ ...form, service_type: e.target.value as ServiceType })}
-          >
-            {SERVICE_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {SERVICE_TYPE_LABELS[t]}
-              </option>
-            ))}
-          </Select>
-          <Select
-            label="תחום"
-            value={form.skill_domain_id}
-            onChange={(e) => {
-              const domain_id = e.target.value;
-              setForm({ ...form, skill_domain_id: domain_id, skill_subdomain_id: skillSubdomains.find((sd) => sd.domain_id === domain_id)?.id ?? "" });
-            }}
-          >
-            {skillDomains.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name_he}
-              </option>
-            ))}
-          </Select>
-          <Select
-            label="תת-תחום"
-            value={form.skill_subdomain_id}
-            onChange={(e) => setForm({ ...form, skill_subdomain_id: e.target.value })}
-          >
-            {subdomainOptionsForForm.map((sd) => (
-              <option key={sd.id} value={sd.id}>
-                {sd.name_he}
-              </option>
-            ))}
-          </Select>
-          <Input
-            label="מחיר תב״ר בסיסי (₪)"
-            type="number"
-            value={form.base_price}
-            onChange={(e) => setForm({ ...form, base_price: e.target.value })}
-            required
-          />
-          <Input
-            label="משך טיפול ממוצע (דקות)"
-            type="number"
-            value={form.typical_duration_min}
-            onChange={(e) => setForm({ ...form, typical_duration_min: e.target.value })}
-          />
-          <Select label="ספק (אופציונלי)" value={form.provider_id} onChange={(e) => setForm({ ...form, provider_id: e.target.value })}>
-            <option value="">ללא ספק משויך</option>
-            {providers.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.title} {p.display_name}
-              </option>
-            ))}
-          </Select>
-          <label className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2.5 cursor-pointer self-end">
-            <input
-              type="checkbox"
-              checked={form.requires_referral}
-              onChange={(e) => setForm({ ...form, requires_referral: e.target.checked })}
-              className="h-4 w-4 rounded border-slate-300 accent-primary"
-            />
-            <span className="text-sm text-slate-700">דורש הפניה (טופס 17)</span>
-          </label>
-          <label className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2.5 cursor-pointer self-end">
-            <input
-              type="checkbox"
-              checked={form.is_active}
-              onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
-              className="h-4 w-4 rounded border-slate-300 accent-primary"
-            />
-            <span className="text-sm text-slate-700">פעיל בקטלוג הציבורי</span>
-          </label>
-          <Button onClick={handleSave} className="sm:col-span-2 mt-1">
-            שמור
-          </Button>
-        </div>
+      <Dialog
+        open={open}
+        onClose={() => setOpen(false)}
+        title={editing ? "עריכת פריט קטלוג" : "פריט קטלוג חדש"}
+        className="max-w-2xl"
+      >
+        <CatalogItemForm
+          key={editing?.id ?? "new"}
+          skillDomains={skillDomains}
+          skillSubdomains={skillSubdomains}
+          providers={providers}
+          initial={editing ? formFromItem(editing) : undefined}
+          onSubmit={handleSubmit}
+        />
       </Dialog>
 
       <ConfirmDialog
@@ -857,6 +871,327 @@ function ItemsManager() {
           setBulkDeleteOpen(false);
         }}
       />
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Catalog requests tab — Ops triage queue for provider-submitted "add this
+// Healson item" requests. Approve → create item (reuses CatalogItemForm),
+// merge into an existing item, ask for more info, or reject.
+// ---------------------------------------------------------------------------
+const REQUEST_STATUS_TONE: Record<CatalogRequestStatus, "warning" | "blue" | "green" | "danger" | "purple"> = {
+  pending: "warning",
+  needs_info: "blue",
+  approved: "green",
+  rejected: "danger",
+  merged: "purple",
+};
+
+// A provider's guessed 7-way service type mapped to the admin catalog's 5-way
+// ServiceType, so the approve form arrives sensibly pre-filled.
+const PROVIDER_TO_CATALOG_SERVICE: Record<ProviderServiceType, ServiceType> = {
+  consultation: "consultation",
+  treatment: "treatment",
+  surgery: "surgery",
+  procedure: "treatment",
+  imaging: "diagnostics",
+  test: "diagnostics",
+  product: "extra",
+};
+
+function requestToFormInitial(
+  req: CatalogRequest,
+  skillDomains: SkillDomain[],
+  skillSubdomains: SkillSubdomain[]
+): ItemFormValues {
+  return {
+    ...makeEmptyForm(skillDomains, skillSubdomains, "healson"),
+    name_he: req.requested_name,
+    service_type: req.service_type ? PROVIDER_TO_CATALOG_SERVICE[req.service_type] : "consultation",
+  };
+}
+
+function CatalogRequestsManager() {
+  const catalogRequests = useStore((s) => s.catalogRequests);
+  const providers = useStore((s) => s.providers);
+  const catalog = useStore((s) => s.catalog);
+  const skillDomains = useStore((s) => s.skillDomains);
+  const skillSubdomains = useStore((s) => s.skillSubdomains);
+  const approveCatalogRequestAsItem = useStore((s) => s.approveCatalogRequestAsItem);
+  const mergeCatalogRequest = useStore((s) => s.mergeCatalogRequest);
+  const rejectCatalogRequest = useStore((s) => s.rejectCatalogRequest);
+  const requestCatalogRequestInfo = useStore((s) => s.requestCatalogRequestInfo);
+  const showToast = useStore((s) => s.showToast);
+
+  const [statusFilter, setStatusFilter] = useState<CatalogRequestStatus | "open" | "">("open");
+  const [approveTarget, setApproveTarget] = useState<CatalogRequest | null>(null);
+  const [mergeTarget, setMergeTarget] = useState<CatalogRequest | null>(null);
+  const [mergeQuery, setMergeQuery] = useState("");
+  const [noteTarget, setNoteTarget] = useState<{ req: CatalogRequest; mode: "reject" | "needs_info" } | null>(null);
+  const [note, setNote] = useState("");
+
+  const providerName = (id: string) => {
+    const p = providers.find((pr) => pr.id === id);
+    return p ? `${p.title ?? ""} ${p.display_name}`.trim() : "ספק לא ידוע";
+  };
+
+  const filtered = useMemo(
+    () =>
+      catalogRequests.filter((r) => {
+        if (statusFilter === "open") return r.status === "pending" || r.status === "needs_info";
+        if (statusFilter === "") return true;
+        return r.status === statusFilter;
+      }),
+    [catalogRequests, statusFilter]
+  );
+
+  const mergeCandidates = useMemo(() => {
+    const q = mergeQuery.trim().toLowerCase();
+    return catalog
+      .filter((c) => c.catalog === "healson")
+      .filter(
+        (c) =>
+          !q ||
+          c.name_he.toLowerCase().includes(q) ||
+          (c.tavar_code ?? "").toLowerCase().includes(q)
+      )
+      .slice(0, 20);
+  }, [catalog, mergeQuery]);
+
+  const isOpen = (r: CatalogRequest) => r.status === "pending" || r.status === "needs_info";
+
+  return (
+    <Card>
+      <CardHeader className="flex items-center justify-between flex-row flex-wrap gap-2">
+        <div>
+          <CardTitle>בקשות להוספת פריטים לקטלוג</CardTitle>
+          <p className="mt-0.5 text-xs text-slate-500">
+            בקשות שהגישו נותני שירות לפריטים שחסרים בקטלוג הילסון
+          </p>
+        </div>
+        <Select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as CatalogRequestStatus | "open" | "")}
+          className="max-w-[200px]"
+        >
+          <option value="open">פתוחות (לטיפול)</option>
+          <option value="">כל הבקשות</option>
+          {(Object.keys(CATALOG_REQUEST_STATUS_LABELS) as CatalogRequestStatus[]).map((s) => (
+            <option key={s} value={s}>
+              {CATALOG_REQUEST_STATUS_LABELS[s]}
+            </option>
+          ))}
+        </Select>
+      </CardHeader>
+      <CardContent>
+        <DataTable<CatalogRequest>
+          rows={filtered}
+          rowKey={(r) => r.id}
+          emptyIcon={<Inbox className="h-10 w-10" />}
+          emptyTitle="אין בקשות קטלוג"
+          columns={
+            [
+              {
+                key: "provider",
+                header: "ספק",
+                render: (r) => {
+                  const p = providers.find((pr) => pr.id === r.provider_id);
+                  return (
+                    <div className="flex items-center gap-2.5">
+                      <Avatar name={p?.display_name || "?"} src={p?.image_url} />
+                      <div className="min-w-0">
+                        <p className="font-medium text-slate-900">{providerName(r.provider_id)}</p>
+                        <p className="text-xs text-slate-400">{p?.specialty || "—"}</p>
+                      </div>
+                    </div>
+                  );
+                },
+              },
+              {
+                key: "item",
+                header: "פריט מבוקש",
+                render: (r) => (
+                  <div className="max-w-xs">
+                    <p className="font-medium text-slate-900">{r.requested_name}</p>
+                    {r.service_type && (
+                      <Badge tone="blue" className="mt-1">
+                        {PROVIDER_SERVICE_TYPE_LABELS[r.service_type]}
+                      </Badge>
+                    )}
+                    {r.description && (
+                      <p className="mt-1 text-xs text-slate-500 line-clamp-2">{r.description}</p>
+                    )}
+                  </div>
+                ),
+              },
+              {
+                key: "date",
+                header: "התקבלה",
+                sortable: true,
+                sortValue: (r) => r.created_date,
+                render: (r) => <span className="text-sm text-slate-600">{formatDateHe(r.created_date)}</span>,
+              },
+              {
+                key: "status",
+                header: "סטטוס",
+                render: (r) => (
+                  <div>
+                    <Badge tone={REQUEST_STATUS_TONE[r.status]}>{CATALOG_REQUEST_STATUS_LABELS[r.status]}</Badge>
+                    {r.admin_note && (r.status === "needs_info" || r.status === "rejected") && (
+                      <p className="mt-1 max-w-[220px] text-xs text-slate-500">{r.admin_note}</p>
+                    )}
+                  </div>
+                ),
+              },
+            ] satisfies DataTableColumn<CatalogRequest>[]
+          }
+          rowActions={(r) =>
+            isOpen(r) ? (
+              <>
+                <Button size="sm" onClick={() => setApproveTarget(r)}>
+                  <Check className="h-3.5 w-3.5" /> אשר וצור
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setMergeQuery("");
+                    setMergeTarget(r);
+                  }}
+                >
+                  <GitMerge className="h-3.5 w-3.5" /> מזג
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setNote("");
+                    setNoteTarget({ req: r, mode: "needs_info" });
+                  }}
+                >
+                  <MessageSquareText className="h-3.5 w-3.5" /> בקש השלמה
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setNote("");
+                    setNoteTarget({ req: r, mode: "reject" });
+                  }}
+                >
+                  <Ban className="h-3.5 w-3.5" /> דחה
+                </Button>
+              </>
+            ) : (
+              <span className="text-xs text-slate-400">טופל</span>
+            )
+          }
+        />
+      </CardContent>
+
+      {/* Approve → create Healson catalog item (reuses the shared item form) */}
+      <Dialog
+        open={!!approveTarget}
+        onClose={() => setApproveTarget(null)}
+        title="אישור בקשה — יצירת פריט בקטלוג הילסון"
+        description={approveTarget ? `מבוקש: ${approveTarget.requested_name}` : undefined}
+        className="max-w-2xl"
+      >
+        {approveTarget && (
+          <CatalogItemForm
+            key={approveTarget.id}
+            skillDomains={skillDomains}
+            skillSubdomains={skillSubdomains}
+            providers={providers}
+            lockCatalog="healson"
+            initial={requestToFormInitial(approveTarget, skillDomains, skillSubdomains)}
+            submitLabel="אשר וצור פריט"
+            onSubmit={(values) => {
+              approveCatalogRequestAsItem(approveTarget.id, values);
+              showToast("הפריט נוצר בקטלוג הילסון והבקשה אושרה", { variant: "success" });
+              setApproveTarget(null);
+            }}
+          />
+        )}
+      </Dialog>
+
+      {/* Merge → fold the request into an existing item */}
+      <Dialog
+        open={!!mergeTarget}
+        onClose={() => setMergeTarget(null)}
+        title="מיזוג עם פריט קיים"
+        description={mergeTarget ? `הבקשה "${mergeTarget.requested_name}" תסומן כמוזגה לפריט שתבחר` : undefined}
+      >
+        <div className="flex flex-col gap-3">
+          <Input
+            placeholder="חיפוש פריט בקטלוג הילסון (שם או קוד)..."
+            icon={<Search className="h-4 w-4" />}
+            value={mergeQuery}
+            onChange={(e) => setMergeQuery(e.target.value)}
+          />
+          <div className="max-h-72 overflow-y-auto rounded-lg border border-slate-200">
+            {mergeCandidates.length === 0 ? (
+              <p className="px-3 py-4 text-center text-sm text-slate-400">לא נמצאו פריטים</p>
+            ) : (
+              mergeCandidates.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => {
+                    if (mergeTarget) {
+                      mergeCatalogRequest(mergeTarget.id, c.id);
+                      showToast("הבקשה מוזגה לפריט הקיים", { variant: "success" });
+                      setMergeTarget(null);
+                    }
+                  }}
+                  className="flex w-full items-center justify-between gap-2 border-b border-slate-100 px-3 py-2.5 text-right text-sm last:border-b-0 hover:bg-slate-50"
+                >
+                  <span className="flex items-center gap-2">
+                    <Badge tone="slate">{c.tavar_code}</Badge>
+                    <span className="text-slate-800">{c.name_he}</span>
+                  </span>
+                  <Badge tone="slate">{SERVICE_TYPE_LABELS[c.service_type]}</Badge>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      </Dialog>
+
+      {/* Reject / request-more-info note */}
+      <Dialog
+        open={!!noteTarget}
+        onClose={() => setNoteTarget(null)}
+        title={noteTarget?.mode === "reject" ? "דחיית בקשה" : "בקשת השלמת פרטים"}
+        description={noteTarget ? `מבוקש: ${noteTarget.req.requested_name}` : undefined}
+      >
+        <div className="flex flex-col gap-3">
+          <Textarea
+            label={noteTarget?.mode === "reject" ? "סיבת הדחייה (תוצג לספק)" : "מה נדרש להשלים? (יוצג לספק)"}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            required
+          />
+          <Button
+            variant={noteTarget?.mode === "reject" ? "destructive" : "primary"}
+            disabled={note.trim().length < 3}
+            onClick={() => {
+              if (!noteTarget) return;
+              if (noteTarget.mode === "reject") {
+                rejectCatalogRequest(noteTarget.req.id, note.trim());
+                showToast("הבקשה נדחתה", { variant: "success" });
+              } else {
+                requestCatalogRequestInfo(noteTarget.req.id, note.trim());
+                showToast("נשלחה בקשת השלמה לספק", { variant: "success" });
+              }
+              setNoteTarget(null);
+            }}
+          >
+            {noteTarget?.mode === "reject" ? "דחה בקשה" : "שלח בקשת השלמה"}
+          </Button>
+        </div>
+      </Dialog>
     </Card>
   );
 }

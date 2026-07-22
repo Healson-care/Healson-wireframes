@@ -407,7 +407,7 @@ function CommissionTab() {
 
       <Card>
         <CardHeader>
-          <CardTitle>עמלה לפי סוג שירות</CardTitle>
+          <CardTitle>עמלה לפי סוג פריט</CardTitle>
           <p className="text-sm text-slate-500">
             חלה על הזמנות המקושרות לפריט קטלוג, כשלא הוגדרה עמלה מותאמת לספק
           </p>
@@ -421,7 +421,7 @@ function CommissionTab() {
                 defaultRate={defaultCommissionRate}
                 onSave={(rate) => {
                   setServiceTypeCommissionRate(type, rate);
-                  showToast("העמלה לפי סוג שירות עודכנה", { variant: "success" });
+                  showToast("העמלה לפי סוג פריט עודכנה", { variant: "success" });
                 }}
               />
             </div>

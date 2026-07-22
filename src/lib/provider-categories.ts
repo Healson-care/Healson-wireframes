@@ -44,9 +44,9 @@ export const PROVIDER_CATEGORIES: ProviderCategoryConfig[] = [
     key: "organization",
     label: "יחידה או ארגון רפואי",
     description: "גוף המפעיל מספר מחלקות, סניפים או שירותים",
-    examples: "בית חולים · מרפאות חוץ · מכון רפואי · מעבדה · מוקד · סוכנות ביטוח",
+    examples: "מרפאות חוץ · מכון רפואי · מעבדה · מוקד · סוכנות ביטוח",
     icon: Network,
-    types: ["hospital", "outpatient_clinic", "medical_institute", "lab", "medical_call_center", "insurance_agency"],
+    types: ["outpatient_clinic", "medical_institute", "lab", "medical_call_center", "insurance_agency"],
   },
   {
     key: "store",

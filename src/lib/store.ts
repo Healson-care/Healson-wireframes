@@ -5,6 +5,7 @@ import {
   Appointment,
   Branch,
   CatalogItem,
+  CatalogRequest,
   ConsentRecord,
   ConsentType,
   CONSENT_DOCUMENT_VERSION,
@@ -18,10 +19,12 @@ import {
   Order,
   OtpIssueChannel,
   OtpIssueContext,
+  OrganizationBranch,
   OtpIssueReport,
   Patient,
   PatientDocument,
   ProviderProfile,
+  ProviderType,
   Role,
   ServiceType,
   SkillDomain,
@@ -37,7 +40,9 @@ import {
   DEMO_NEW_PATIENT_USER,
   SEED_APPOINTMENTS,
   SEED_BRANCHES,
+  SEED_ORGANIZATION_BRANCHES,
   SEED_CATALOG,
+  SEED_CATALOG_REQUESTS,
   SEED_CONSENT_RECORDS,
   SEED_DOCUMENTS,
   SEED_DSR_REQUESTS,
@@ -218,7 +223,9 @@ interface EntitiesState {
   patients: Patient[];
   leads: Lead[];
   providers: ProviderProfile[];
+  organizationBranches: OrganizationBranch[];
   catalog: CatalogItem[];
+  catalogRequests: CatalogRequest[];
   skillDomains: SkillDomain[];
   skillSubdomains: SkillSubdomain[];
   appointments: Appointment[];
@@ -264,6 +271,45 @@ interface EntitiesState {
   suspendProvider: (id: string) => void;
   reinstateProvider: (id: string) => void;
   signProviderAgreement: (id: string) => void;
+
+  // --- Admin-managed organizations (ניהול ספקים) ---------------------------
+  // Healson ops creates every real organization by hand, then creates its
+  // medical units under it (each unit is a full ProviderProfile pointing back
+  // via parent_organization_id) and a login user per unit.
+  createOrganization: (data: {
+    display_name: string;
+    contact_name?: string;
+    contact_phone?: string;
+    contact_email?: string;
+    member_provider_types?: ProviderType[];
+  }) => ProviderProfile;
+  // Branches (סניפים) — the middle tier: an organization has one or more
+  // branches (sites), and each branch has one or more medical units.
+  addOrganizationBranch: (
+    organizationId: string,
+    data: { name: string; city?: string; address?: string; contact_phone?: string; contact_email?: string }
+  ) => { ok: boolean; error?: string; branch?: OrganizationBranch };
+  updateOrganizationBranch: (id: string, data: Partial<Omit<OrganizationBranch, "id" | "organization_id">>) => void;
+  // Blocked while the branch still has units — its units must be removed first.
+  deleteOrganizationBranch: (id: string) => { ok: boolean; error?: string };
+  addOrganizationUnit: (
+    organizationId: string,
+    data: {
+      display_name: string;
+      provider_type: ProviderType;
+      branch_id?: string;
+      specialty?: string;
+      license_number?: string;
+      contact_phone?: string;
+      contact_email?: string;
+    }
+  ) => { ok: boolean; error?: string; unitId?: string };
+  // Creates the unit's login user (role "provider"). Mock auth — returns a
+  // one-time temp password shown to the admin, like verifyProviderLicense.
+  createProviderUnitUser: (
+    providerId: string,
+    data: { full_name: string; email: string; phone?: string }
+  ) => { ok: boolean; error?: string; user?: User; tempPassword?: string };
 
   // --- Affiliated doctors (§PRV-07, organizations only) -------------------
   // A doctor exists once in the platform. Before creating a new record the UI
@@ -332,8 +378,35 @@ interface EntitiesState {
   updateCatalogItem: (id: string, data: Partial<CatalogItem>) => void;
   deleteCatalogItem: (id: string) => void;
   bulkAddCatalogItems: (items: Omit<CatalogItem, "id">[]) => number;
+  // Full Ministry-of-Health price-list import (קטלוג מב"ר) — an official file
+  // is re-published periodically, so rows UPSERT by code: an existing מב"ר
+  // item with the same code gets its name/prices refreshed, a new code is
+  // added. Returns how many of each.
+  importMohPriceList: (
+    rows: Array<{
+      tavar_code: string;
+      name_he: string;
+      skill_domain_id: string;
+      skill_subdomain_id: string;
+      service_type: ServiceType;
+      price_s: number;
+      price_h: number;
+      typical_duration_min?: number;
+      requires_referral: boolean;
+    }>
+  ) => { added: number; updated: number };
   bulkDeleteCatalogItems: (ids: string[]) => void;
   bulkSetCatalogItemsActive: (ids: string[], is_active: boolean) => void;
+
+  // Catalog requests (provider asks Ops to add a missing Healson item).
+  addCatalogRequest: (
+    input: Omit<CatalogRequest, "id" | "status" | "created_date" | "resolved_at" | "admin_note" | "resolved_item_id">
+  ) => CatalogRequest;
+  approveCatalogRequestAsItem: (id: string, values: Omit<CatalogItem, "id">) => CatalogItem;
+  mergeCatalogRequest: (id: string, existingItemId: string) => void;
+  rejectCatalogRequest: (id: string, note: string) => void;
+  requestCatalogRequestInfo: (id: string, note: string) => void;
+
   bulkAddProviders: (items: Omit<ProviderProfile, "id" | "created_date">[]) => number;
 
   addSkillDomain: (d: Omit<SkillDomain, "id">) => SkillDomain;
@@ -812,7 +885,9 @@ export const useStore = create<Store>()(
       patients: SEED_PATIENTS,
       leads: SEED_LEADS,
       providers: SEED_PROVIDERS,
+      organizationBranches: SEED_ORGANIZATION_BRANCHES,
       catalog: SEED_CATALOG,
+      catalogRequests: SEED_CATALOG_REQUESTS,
       skillDomains: SEED_SKILL_DOMAINS,
       skillSubdomains: SEED_SKILL_SUBDOMAINS,
       appointments: SEED_APPOINTMENTS,
@@ -1021,7 +1096,7 @@ export const useStore = create<Store>()(
           if (clash) {
             return {
               ok: false,
-              error: `מספר הרישיון ${data.license_number} כבר רשום במערכת עבור ${clash.display_name}. יש לשייך את הרופא/ה הקיים/ת במקום ליצור רשומה חדשה.`,
+              error: `מספר הרישיון ${data.license_number} כבר רשום במערכת עבור ${clash.display_name}. יש לשייך את נותן/ת השירות הקיים/ת במקום ליצור רשומה חדשה.`,
             };
           }
         }
@@ -1062,7 +1137,7 @@ export const useStore = create<Store>()(
       linkExistingDoctorToOrganization: (organizationId, doctorProviderId, data) => {
         const org = get().providers.find((p) => p.id === organizationId);
         const doctor = get().providers.find((p) => p.id === doctorProviderId);
-        if (!org || !doctor) return { ok: false, error: "לא נמצאה רשומת רופא/ה לשיוך" };
+        if (!org || !doctor) return { ok: false, error: "לא נמצאה רשומת נותן/ת שירות לשיוך" };
         if ((org.affiliated_doctors ?? []).some((a) => a.doctor_provider_id === doctorProviderId)) {
           return { ok: false, error: `${doctor.display_name} כבר משויך/ת לארגון` };
         }
@@ -1155,6 +1230,130 @@ export const useStore = create<Store>()(
         return record;
       },
 
+      createOrganization: (data) => {
+        const record: ProviderProfile = {
+          id: generateId("prov"),
+          display_name: data.display_name,
+          contact_name: data.contact_name,
+          contact_phone: data.contact_phone,
+          contact_email: data.contact_email,
+          member_provider_types: data.member_provider_types,
+          is_organization: true,
+          specialty: "ארגון בריאות",
+          // Ops-created organizations don't go through the public application
+          // pipeline — they're trusted from day one, but the org record itself
+          // is never published (its units are what patients see).
+          status: "approved",
+          is_published: false,
+          license_verified_at: new Date().toISOString(),
+          agreements: [],
+          consultation_types: [],
+          exam_types: [],
+          clinic_locations: [],
+          referral_forms: [],
+          created_date: new Date().toISOString(),
+        };
+        set((s) => ({ providers: [record, ...s.providers] }));
+        return record;
+      },
+
+      addOrganizationBranch: (organizationId, data) => {
+        const org = get().providers.find((p) => p.id === organizationId);
+        if (!org) return { ok: false, error: "הארגון לא נמצא" };
+        if (!data.name.trim()) return { ok: false, error: "יש להזין שם סניף" };
+        const branch: OrganizationBranch = {
+          id: generateId("branch"),
+          organization_id: organizationId,
+          name: data.name.trim(),
+          city: data.city?.trim() || undefined,
+          address: data.address?.trim() || undefined,
+          contact_phone: data.contact_phone?.trim() || undefined,
+          contact_email: data.contact_email?.trim() || undefined,
+          created_date: new Date().toISOString(),
+        };
+        set((s) => ({ organizationBranches: [branch, ...s.organizationBranches] }));
+        return { ok: true, branch };
+      },
+      updateOrganizationBranch: (id, data) =>
+        set((s) => ({
+          organizationBranches: s.organizationBranches.map((b) => (b.id === id ? { ...b, ...data } : b)),
+        })),
+      deleteOrganizationBranch: (id) => {
+        const hasUnits = get().providers.some((p) => p.parent_branch_id === id);
+        if (hasUnits) return { ok: false, error: "לא ניתן למחוק סניף עם יחידות — יש להעביר או למחוק את היחידות תחילה" };
+        set((s) => ({ organizationBranches: s.organizationBranches.filter((b) => b.id !== id) }));
+        return { ok: true };
+      },
+
+      addOrganizationUnit: (organizationId, data) => {
+        const org = get().providers.find((p) => p.id === organizationId);
+        if (!org) return { ok: false, error: "הארגון לא נמצא" };
+        if (!data.display_name.trim()) return { ok: false, error: "יש להזין שם יחידה" };
+        if (data.branch_id && !get().organizationBranches.some((b) => b.id === data.branch_id && b.organization_id === organizationId)) {
+          return { ok: false, error: "הסניף לא נמצא" };
+        }
+        const unit: ProviderProfile = {
+          id: generateId("prov"),
+          parent_organization_id: organizationId,
+          parent_branch_id: data.branch_id,
+          provider_type: data.provider_type,
+          display_name: data.display_name.trim(),
+          specialty: data.specialty ?? "",
+          license_number: data.license_number,
+          contact_phone: data.contact_phone,
+          contact_email: data.contact_email,
+          is_published: false,
+          // Admin-created units skip the public license-review queue — Ops is
+          // the one creating them — and land straight in onboarding so the
+          // unit's user can complete agreements/catalog/availability.
+          status: "onboarding",
+          license_verified_at: new Date().toISOString(),
+          application_submitted_at: new Date().toISOString(),
+          agreements: [],
+          consultation_types: [],
+          exam_types: [],
+          clinic_locations: [],
+          referral_forms: [],
+          created_date: new Date().toISOString(),
+        };
+        set((s) => ({ providers: [unit, ...s.providers] }));
+        if (data.provider_type && !org.member_provider_types?.includes(data.provider_type)) {
+          get().updateProviderById(organizationId, {
+            member_provider_types: [...(org.member_provider_types ?? []), data.provider_type],
+          });
+        }
+        return { ok: true, unitId: unit.id };
+      },
+
+      createProviderUnitUser: (providerId, data) => {
+        const provider = get().providers.find((p) => p.id === providerId);
+        if (!provider) return { ok: false, error: "היחידה לא נמצאה" };
+        if (provider.user_id) return { ok: false, error: "ליחידה כבר משויך משתמש כניסה" };
+        const email = data.email.trim().toLowerCase();
+        if (!email || !data.full_name.trim()) {
+          return { ok: false, error: "יש להזין שם מלא ואימייל" };
+        }
+        if (get().users.some((u) => u.email.toLowerCase() === email)) {
+          return { ok: false, error: "כבר קיים משתמש עם כתובת האימייל הזו" };
+        }
+        const user: User = {
+          id: generateId("user"),
+          email,
+          full_name: data.full_name.trim(),
+          phone: data.phone,
+          role: "provider",
+          created_date: new Date().toISOString(),
+        };
+        set((s) => ({ users: [...s.users, user] }));
+        get().updateProviderById(providerId, {
+          user_id: user.id,
+          contact_email: provider.contact_email ?? email,
+        });
+        // Mock temp credential (no real auth backend) — shown once to the admin.
+        const tempPassword = `Hls!${Math.random().toString(36).slice(2, 10)}`;
+        return { ok: true, user, tempPassword };
+      },
+
       addAppointment: (a) => {
         const record: Appointment = { ...a, id: generateId("appt") };
         set((s) => ({ appointments: [record, ...s.appointments] }));
@@ -1223,6 +1422,56 @@ export const useStore = create<Store>()(
         set((s) => ({ catalog: [...records, ...s.catalog] }));
         return records.length;
       },
+      importMohPriceList: (rows) => {
+        let added = 0;
+        let updated = 0;
+        set((s) => {
+          const catalog = [...s.catalog];
+          const byCode = new Map(
+            catalog.filter((c) => c.catalog === "mabar" && c.tavar_code).map((c) => [c.tavar_code!, c])
+          );
+          for (const row of rows) {
+            const existing = byCode.get(row.tavar_code);
+            const layer_prices = [
+              { layer: "S" as const, price: row.price_s },
+              { layer: "H" as const, price: row.price_h },
+            ];
+            if (existing) {
+              updated++;
+              const idx = catalog.findIndex((c) => c.id === existing.id);
+              catalog[idx] = {
+                ...existing,
+                name_he: row.name_he,
+                base_price: row.price_s,
+                layer_prices,
+                typical_duration_min: row.typical_duration_min ?? existing.typical_duration_min,
+                requires_referral: row.requires_referral,
+                is_active: true,
+              };
+            } else {
+              added++;
+              const record: CatalogItem = {
+                id: generateId("cat"),
+                tavar_code: row.tavar_code,
+                name_he: row.name_he,
+                catalog: "mabar",
+                skill_domain_id: row.skill_domain_id,
+                skill_subdomain_id: row.skill_subdomain_id,
+                service_type: row.service_type,
+                base_price: row.price_s,
+                layer_prices,
+                typical_duration_min: row.typical_duration_min,
+                requires_referral: row.requires_referral,
+                is_active: true,
+              };
+              catalog.unshift(record);
+              byCode.set(row.tavar_code, record);
+            }
+          }
+          return { catalog };
+        });
+        return { added, updated };
+      },
       bulkDeleteCatalogItems: (ids) => {
         const idSet = new Set(ids);
         set((s) => ({ catalog: s.catalog.filter((c) => !idSet.has(c.id)) }));
@@ -1231,6 +1480,50 @@ export const useStore = create<Store>()(
         const idSet = new Set(ids);
         set((s) => ({ catalog: s.catalog.map((c) => (idSet.has(c.id) ? { ...c, is_active } : c)) }));
       },
+
+      // ---- Catalog requests ----
+      addCatalogRequest: (input) => {
+        const record: CatalogRequest = {
+          ...input,
+          id: generateId("creq"),
+          status: "pending",
+          created_date: new Date().toISOString(),
+        };
+        set((s) => ({ catalogRequests: [record, ...s.catalogRequests] }));
+        return record;
+      },
+      approveCatalogRequestAsItem: (id, values) => {
+        const item = get().addCatalogItem(values);
+        set((s) => ({
+          catalogRequests: s.catalogRequests.map((r) =>
+            r.id === id
+              ? { ...r, status: "approved", resolved_item_id: item.id, resolved_at: new Date().toISOString() }
+              : r
+          ),
+        }));
+        return item;
+      },
+      mergeCatalogRequest: (id, existingItemId) =>
+        set((s) => ({
+          catalogRequests: s.catalogRequests.map((r) =>
+            r.id === id
+              ? { ...r, status: "merged", resolved_item_id: existingItemId, resolved_at: new Date().toISOString() }
+              : r
+          ),
+        })),
+      rejectCatalogRequest: (id, note) =>
+        set((s) => ({
+          catalogRequests: s.catalogRequests.map((r) =>
+            r.id === id ? { ...r, status: "rejected", admin_note: note, resolved_at: new Date().toISOString() } : r
+          ),
+        })),
+      requestCatalogRequestInfo: (id, note) =>
+        set((s) => ({
+          catalogRequests: s.catalogRequests.map((r) =>
+            r.id === id ? { ...r, status: "needs_info", admin_note: note } : r
+          ),
+        })),
+
       bulkAddProviders: (items) => {
         const records = items.map((p) => ({
           ...p,
@@ -1331,7 +1624,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 18,
+      version: 20,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
       // records), the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER seed
       // account, the v3 -> v4 AppointmentStatus rename ("ממתין לאישור" ->
@@ -1376,12 +1669,17 @@ export const useStore = create<Store>()(
       // ProviderProfile gained affiliated_doctors, and two organization demo
       // accounts (מכון רפואי / מרפאת חוץ) plus their doctors were seeded.
       // Persisted state from v16 has none of that, so reseed clean.
-      // v17 -> v18 adds two hand-seeded history appointments for the demo
-      // patient (SEED_PATIENTS[0]) so /client/appointments' "היסטוריית
-      // תורים" section has more than one item, from two different
-      // providers/services, to actually demo its status/provider/service
-      // filters. Persisted state from v17 predates them, so reseed clean.
-      migrate: (persistedState, version) => (version < 18 ? ({} as Store) : (persistedState as Store)),
+      // v17 -> v18 splits the reference catalog into two separate catalogs
+      // (קטלוג מב"ר / קטלוג הילסון): CatalogItem gained catalog / price_full /
+      // layer_prices, and seed codes changed (MoH codes vs HLS-…). Items
+      // persisted under v17 have no catalog assignment, so reseed clean.
+      // v18 -> v19 adds catalogRequests (providers requesting a missing Healson
+      // catalog item, triaged by Ops) with its seed rows — reseed clean so the
+      // new state slice and demo requests are present.
+      // v19 -> v20 adds the org→branch→unit hierarchy: a new organizationBranches
+      // slice, ProviderProfile.parent_branch_id on units, and a seeded demo
+      // organization with two branches — reseed clean so branches are present.
+      migrate: (persistedState, version) => (version < 20 ? ({} as Store) : (persistedState as Store)),
       // Uploaded files (photos/PDFs) are stored as base64 data URLs inside
       // this same persisted blob (no real backend — see file.ts). If a
       // single write ever still exceeds the browser's localStorage quota

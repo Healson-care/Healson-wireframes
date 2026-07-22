@@ -2,20 +2,34 @@
 
 import { ProfilePageFrame } from "@/components/provider/ProfilePageFrame";
 import { OpenDecisionNote } from "@/components/ui/Misc";
-import { ServiceCatalogSection } from "@/components/provider/ServiceCatalogSection";
+import { ResourceTarget, ServiceCatalogSection } from "@/components/provider/ServiceCatalogSection";
 import { PriceListEntry, PriceListSection } from "@/components/provider/PriceListSection";
 import { getProviderSetupConfig } from "@/lib/provider-setup";
+import { useStore } from "@/lib/store";
 
 export default function ProviderServicesPage() {
+  const allProviders = useStore((s) => s.providers);
   return (
-    <ProfilePageFrame title="שירותים ומחירים" description="ניהול הקטלוג והמחירים לכל שכבת ביטוח">
+    <ProfilePageFrame title="פריטים ומחירים" description="הזנת פריטים לפי קוד מהקטלוג והמחירים לכל שכבת ביטוח">
       {({ provider, update }) => {
         const setupConfig = getProviderSetupConfig(provider.provider_type);
+        // The unit's rooms and affiliated service providers, so an item can be
+        // assigned to its resource straight from the item dialog (§PRV-08).
+        const roomTargets: ResourceTarget[] = (provider.facilities ?? []).map((f) => ({
+          id: f.id,
+          name: f.name,
+          service_ids: f.service_ids ?? [],
+        }));
+        const providerTargets: ResourceTarget[] = (provider.affiliated_doctors ?? []).map((a) => ({
+          id: a.id,
+          name: allProviders.find((p) => p.id === a.doctor_provider_id)?.display_name ?? "נותן/ת שירות",
+          service_ids: a.service_ids ?? [],
+        }));
         return (
           <>
             <OpenDecisionNote>
-              <b>טרם הוחלט:</b> מדיניות תמחור סופית עדיין לא נקבעה ע&quot;י הנהלת Healson — כרגע אתם קובעים בעצמכם את
-              המחיר לכל שכבת ביטוח (S/K/B/H).
+              <b>טרם הוחלט:</b> מדיניות תמחור סופית עדיין לא נקבעה ע&quot;י הנהלת Healson — מחירי S ו-H נקבעים
+              תמיד לפי מחירון משרד הבריאות; תעריפי K/B (ומחיר הפריט P בקטלוג הילסון) מוזנים כרגע על ידיכם.
             </OpenDecisionNote>
             {setupConfig.useSkillTreeCatalog ? (
               <ServiceCatalogSection
@@ -23,8 +37,25 @@ export default function ProviderServicesPage() {
                 onChange={(items) => update({ consultation_types: items })}
                 providerId={provider.id}
                 itemLabel={setupConfig.catalogItemLabel}
-                providerSpecialty={provider.specialty}
                 providerType={provider.provider_type}
+                roomTargets={roomTargets}
+                providerTargets={providerTargets}
+                onAssignResources={(serviceId, sel) =>
+                  update({
+                    facilities: (provider.facilities ?? []).map((f) => ({
+                      ...f,
+                      service_ids: sel.roomIds.includes(f.id)
+                        ? [...new Set([...(f.service_ids ?? []), serviceId])]
+                        : (f.service_ids ?? []).filter((id) => id !== serviceId),
+                    })),
+                    affiliated_doctors: (provider.affiliated_doctors ?? []).map((a) => ({
+                      ...a,
+                      service_ids: sel.providerIds.includes(a.id)
+                        ? [...new Set([...(a.service_ids ?? []), serviceId])]
+                        : (a.service_ids ?? []).filter((id) => id !== serviceId),
+                    })),
+                  })
+                }
               />
             ) : (
               <PriceListSection

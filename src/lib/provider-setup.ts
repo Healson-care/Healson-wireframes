@@ -8,15 +8,15 @@ import { hasAnyAvailability } from "./schedule";
 import { getUnitResources, isUnitProvider } from "./unit-resources";
 
 export interface ProviderTypeSetupConfig {
-  catalogLabel: string; // tab title, plural: "ייעוצים" / "מוצרים" / "בדיקות"
-  catalogItemLabel: string; // singular, used by PriceListSection's dialogs: "ייעוץ" / "מוצר" / "בדיקה"
+  catalogLabel: string; // tab title, plural: "פריטים" / "מוצרים"
+  catalogItemLabel: string; // singular, used by PriceListSection's dialogs: "פריט" / "מוצר"
   catalogExtraFieldKey: string;
   catalogExtraFieldLabel: string;
   catalogExtraFieldType: "text" | "number";
-  // Medical-service types pick their catalog items from the admin-managed
-  // Skill Tree (ServiceCatalogSection); product/policy types (store,
-  // pharmacy, lab, insurance) aren't part of that taxonomy and keep the
-  // free-text PriceListSection editor.
+  // Medical types enter items by code/free-text search against their
+  // reference catalog — קטלוג מב"ר or קטלוג הילסון, resolved by
+  // catalogKindForProviderType (ServiceCatalogSection). Non-medical types
+  // (store, insurance) keep the free-text PriceListSection editor.
   useSkillTreeCatalog: boolean;
   showExamsCatalog: boolean;
   showAgreements: boolean;
@@ -24,16 +24,17 @@ export interface ProviderTypeSetupConfig {
   locationLabelSingular: string;
   locationLabelPlural: string;
   showAvailability: boolean;
-  // Organization types whose consultation-based services are delivered by
-  // doctors — they get a "רופאים" section for managing the doctors affiliated
-  // with them and which services each one delivers (§PRV-07).
+  // Organization types whose consultation-based items are delivered by
+  // individual service providers — they get a "נותני שירות" section for
+  // managing the providers affiliated with them and which items each one
+  // delivers (§PRV-07).
   showAffiliatedDoctors?: boolean;
   // Medical units (§PRV-08): the unit IS the site — it has exactly one address
   // record and never sub-branches, so the locations screen becomes a single
   // "פרטי היחידה" form rather than a list you can add to.
   singleLocation?: boolean;
-  // Medical units: machines/rooms (MRI 1, CT 1, חדר פעולות) that hold their own
-  // queue and week, and that services are linked to.
+  // Medical units: rooms/machines (MRI 1, CT 1, חדר פעולות) that hold their own
+  // queue and week, and that items are linked to.
   showFacilities?: boolean;
 }
 
@@ -46,8 +47,8 @@ const DURATION_FIELD = {
 export const PROVIDER_SETUP_CONFIG: Record<ProviderType, ProviderTypeSetupConfig> = {
   doctor: {
     ...DURATION_FIELD,
-    catalogLabel: "שירותים",
-    catalogItemLabel: "שירות",
+    catalogLabel: "פריטים",
+    catalogItemLabel: "פריט",
     useSkillTreeCatalog: true,
     showExamsCatalog: false,
     showAgreements: true,
@@ -58,8 +59,8 @@ export const PROVIDER_SETUP_CONFIG: Record<ProviderType, ProviderTypeSetupConfig
   },
   caregiver: {
     ...DURATION_FIELD,
-    catalogLabel: "טיפולים",
-    catalogItemLabel: "טיפול",
+    catalogLabel: "פריטים",
+    catalogItemLabel: "פריט",
     useSkillTreeCatalog: true,
     showExamsCatalog: false,
     showAgreements: true,
@@ -69,12 +70,12 @@ export const PROVIDER_SETUP_CONFIG: Record<ProviderType, ProviderTypeSetupConfig
     showAvailability: true,
   },
   lab: {
-    catalogLabel: "בדיקות",
-    catalogItemLabel: "בדיקה",
+    catalogLabel: "פריטים",
+    catalogItemLabel: "פריט",
     catalogExtraFieldKey: "lab_code",
     catalogExtraFieldLabel: "קוד מעבדה",
     catalogExtraFieldType: "text",
-    useSkillTreeCatalog: false,
+    useSkillTreeCatalog: true,
     showExamsCatalog: false,
     showAgreements: true,
     locationTypes: ["clinic", "home_visit"], // home visit = home sample collection
@@ -84,8 +85,8 @@ export const PROVIDER_SETUP_CONFIG: Record<ProviderType, ProviderTypeSetupConfig
   },
   outpatient_clinic: {
     ...DURATION_FIELD,
-    catalogLabel: "שירותים",
-    catalogItemLabel: "שירות",
+    catalogLabel: "פריטים",
+    catalogItemLabel: "פריט",
     useSkillTreeCatalog: true,
     showExamsCatalog: false,
     showAgreements: true,
@@ -99,8 +100,8 @@ export const PROVIDER_SETUP_CONFIG: Record<ProviderType, ProviderTypeSetupConfig
   },
   medical_institute: {
     ...DURATION_FIELD,
-    catalogLabel: "שירותים",
-    catalogItemLabel: "שירות",
+    catalogLabel: "פריטים",
+    catalogItemLabel: "פריט",
     useSkillTreeCatalog: true,
     showExamsCatalog: false,
     showAgreements: true,
@@ -114,8 +115,8 @@ export const PROVIDER_SETUP_CONFIG: Record<ProviderType, ProviderTypeSetupConfig
   },
   hospital: {
     ...DURATION_FIELD,
-    catalogLabel: "מחלקות ושירותים",
-    catalogItemLabel: "שירות",
+    catalogLabel: "פריטים",
+    catalogItemLabel: "פריט",
     useSkillTreeCatalog: true,
     showExamsCatalog: false,
     showAgreements: true,
@@ -139,12 +140,12 @@ export const PROVIDER_SETUP_CONFIG: Record<ProviderType, ProviderTypeSetupConfig
     showAvailability: false,
   },
   pharmacy: {
-    catalogLabel: "מוצרים ושירותים",
-    catalogItemLabel: "מוצר",
+    catalogLabel: "פריטים",
+    catalogItemLabel: "פריט",
     catalogExtraFieldKey: "sku",
     catalogExtraFieldLabel: 'מק"ט',
     catalogExtraFieldType: "text",
-    useSkillTreeCatalog: false,
+    useSkillTreeCatalog: true,
     showExamsCatalog: false,
     showAgreements: true,
     locationTypes: ["store"],
@@ -154,8 +155,8 @@ export const PROVIDER_SETUP_CONFIG: Record<ProviderType, ProviderTypeSetupConfig
   },
   medical_call_center: {
     ...DURATION_FIELD,
-    catalogLabel: "שירותים",
-    catalogItemLabel: "שירות",
+    catalogLabel: "פריטים",
+    catalogItemLabel: "פריט",
     useSkillTreeCatalog: true,
     showExamsCatalog: false,
     showAgreements: false,
@@ -251,7 +252,7 @@ export function getNextProviderAction(provider: ProviderProfile): string | null 
   if (provider.status === "onboarding") {
     if (!provider.agreement_signed_at) return "יש לחתום על ההסכם עם Healson כדי להמשיך.";
     if (config.showAgreements && (provider.agreements?.length ?? 0) === 0) {
-      return "הגדירו הסדרי ביטוח (S/K/B/H) לפני שתוכלו לפרסם שירותים.";
+      return "הגדירו הסדרי ביטוח (S/K/B/H) לפני שתוכלו לפרסם פריטים.";
     }
     if (!isCatalogComplete(provider)) {
       return `נשאר לך להוסיף ${config.catalogItemLabel} ראשון כדי להתחיל לקבל הזמנות.`;
@@ -262,15 +263,15 @@ export function getNextProviderAction(provider: ProviderProfile): string | null 
         : `נשאר לך להוסיף ${config.locationLabelSingular} ראשון/ה כדי להתחיל לקבל הזמנות.`;
     }
     if (config.showFacilities && !isFacilitiesComplete(provider)) {
-      return "הוסיפו את המתקנים של היחידה (MRI, CT, חדר פעולות…) — הזמינות והשירותים מוגדרים ברמת המתקן.";
+      return "הוסיפו את החדרים של היחידה (MRI, CT, חדר פעולות…) — הזמינות והפריטים מוגדרים ברמת החדר.";
     }
     if (config.showAvailability && !isAvailabilityComplete(provider)) {
       return config.showFacilities
-        ? "חסרה זמינות — הגדירו לוח זמנים לכל מתקן ולכל רופא/ה ביחידה."
+        ? "חסרה זמינות — הגדירו לוח זמנים לכל חדר ולכל נותן/ת שירות ביחידה."
         : `חסרה זמינות פעילה עבור אחד ה${config.locationLabelPlural} שלך.`;
     }
     if (config.showAffiliatedDoctors && !isAffiliatedDoctorsComplete(provider)) {
-      return "הוסיפו את הרופאים המשויכים ושייכו אותם לשירותי הייעוץ שלכם.";
+      return "הוסיפו את נותני השירות המשויכים ושייכו אותם לפריטי הייעוץ שלכם.";
     }
     if (provider.go_live_requested_at) {
       return "ביקשת פרסום — ממתינים לאישור Go-Live סופי של צוות Healson.";

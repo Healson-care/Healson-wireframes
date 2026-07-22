@@ -162,7 +162,7 @@ export function ClinicsSection({
         <p className="mb-3 flex items-start gap-1.5 rounded-lg border border-info-border bg-info-bg px-3 py-2 text-xs text-info-text">
           <MapPinned className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           ליחידה רפואית אין סניפים — היחידה עצמה היא הסניף. כאן מגדירים את כתובת היחידה ופרטי ההתקשרות שלה; חלוקת
-          העבודה בתוך היחידה נעשית דרך המתקנים והרופאים.
+          העבודה בתוך היחידה נעשית דרך החדרים ונותני השירות.
         </p>
       )}
       {!hideAdd && (
@@ -204,11 +204,11 @@ export function ClinicsSection({
                     <div className={singleLocation ? "hidden" : "mt-1.5"}>
                       {linked.length > 0 ? (
                         <span className="flex items-center gap-1 text-[11px] text-slate-500">
-                          <Stethoscope className="h-3 w-3" /> {linked.length} שירותים מוצעים כאן
+                          <Stethoscope className="h-3 w-3" /> {linked.length} פריטים מוצעים כאן
                         </span>
                       ) : (
                         <span className="flex items-center gap-1 text-[11px] text-warning-text font-medium">
-                          <TriangleAlert className="h-3 w-3" /> לא שויכו שירותים למיקום זה
+                          <TriangleAlert className="h-3 w-3" /> לא שויכו פריטים למיקום זה
                         </span>
                       )}
                     </div>
@@ -300,10 +300,10 @@ export function ClinicsSection({
               A single-site unit skips it — every service is delivered at the
               unit, and the resource that delivers it is picked elsewhere. */}
           <div className={singleLocation ? "hidden" : undefined}>
-            <p className="text-sm font-medium text-slate-700 mb-2">שירותים המוצעים במיקום זה</p>
+            <p className="text-sm font-medium text-slate-700 mb-2">פריטים המוצעים במיקום זה</p>
             {services.length === 0 ? (
               <p className="flex items-center gap-1.5 rounded-lg bg-warning-bg border border-warning-border px-3 py-2 text-xs text-warning-text">
-                <TriangleAlert className="h-3.5 w-3.5 shrink-0" /> יש להוסיף שירותים תחילה בלשונית &quot;שירותים&quot;, ואז ניתן לשייך אותם למיקום זה.
+                <TriangleAlert className="h-3.5 w-3.5 shrink-0" /> יש להוסיף פריטים תחילה בלשונית &quot;פריטים&quot;, ואז ניתן לשייך אותם למיקום זה.
               </p>
             ) : (
               <div className="flex flex-col gap-1.5">
@@ -324,7 +324,7 @@ export function ClinicsSection({
 
           <p className="text-xs text-slate-500">
             {singleLocation
-              ? 'את שעות הפעילות של היחידה — ואת לוחות הזמנים של כל מתקן ורופא/ה — מגדירים בלשונית "זמינות".'
+              ? 'את שעות הפעילות של היחידה — ואת לוחות הזמנים של כל חדר ונותן/ת שירות — מגדירים בלשונית "זמינות".'
               : 'את שעות הפעילות אפשר להגדיר בשלב הבא, בלשונית "זמינות".'}
           </p>
           <Button onClick={handleSave}>שמור {singleLocation ? "פרטי היחידה" : locationLabelSingular}</Button>
@@ -340,7 +340,7 @@ export function ClinicsSection({
           const affected = servicesAtClinic(deleteId);
           if (affected.length === 0) return "פעולה זו אינה ניתנת לביטול.";
           const names = affected.slice(0, 3).map((s) => s.name).join(", ");
-          return `שימו לב: ${affected.length} שירותים מוצעים במיקום זה (${names}${
+          return `שימו לב: ${affected.length} פריטים מוצעים במיקום זה (${names}${
             affected.length > 3 ? " ועוד" : ""
           }). לאחר המחיקה הם לא יופיעו בחיפוש עד שישויכו למיקום אחר. פעולה זו אינה ניתנת לביטול.`;
         })()}

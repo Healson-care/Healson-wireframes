@@ -546,6 +546,10 @@ export interface ConsultationType {
   name: string;
   duration_minutes: number;
   prices: PriceByLayer[];
+  // מחיר פריט מלא (P) — Healson-catalog items only. The full list price the
+  // S/K/B/H layer prices sit on top of; S and H always mirror the Ministry of
+  // Health price list and are not editable by the provider.
+  price_full?: number;
   catalog_item_id?: string; // links back to a CatalogItem chosen from the Skill Tree
   service_type?: ProviderServiceType;
   // Provider-type-specific category (see PROVIDER_TYPE_SERVICE_CATEGORIES) —
@@ -876,6 +880,12 @@ export interface ProviderProfile {
   sub_specialties?: string[];
   location_count?: number;
   member_provider_types?: ProviderType[]; // organization only — which provider types operate under it (set by Healson ops, not self-declared)
+  // Admin-managed organizations (ניהול ספקים): Healson ops creates each real
+  // organization by hand, then creates its medical units (each unit is a full
+  // ProviderProfile pointing back here) and a login user per unit.
+  is_organization?: boolean;
+  parent_organization_id?: string; // set on a medical unit created under an organization
+  parent_branch_id?: string; // set on a medical unit — which branch (site) of the org it belongs to
   // Organization only (outpatient_clinic / medical_institute) — doctors
   // working under this organization and the services each one delivers.
   affiliated_doctors?: AffiliatedDoctor[];
@@ -914,21 +924,140 @@ export interface ProviderProfile {
 }
 
 // ---------------------------------------------------------------------------
-// Service catalog (§5.3) — items belong to a skill domain/sub-domain and hold
-// the Ministry of Health tariff (תב"ר) base price.
+// Organization branches (סניפים) — the middle tier of the org hierarchy:
+//   Organization (רשת) → Branch (סניף, a physical site) → Medical unit (יחידה).
+// A branch is a lightweight grouping/site record (NOT a ProviderProfile — it's
+// not a bookable provider), so it never appears in the providers table. Each
+// medical unit (a ProviderProfile) points at both its org (parent_organization_id)
+// and its branch (parent_branch_id).
 // ---------------------------------------------------------------------------
+export interface OrganizationBranch {
+  id: string;
+  organization_id: string; // the ProviderProfile (is_organization) this branch belongs to
+  name: string;
+  city?: string;
+  address?: string;
+  contact_phone?: string;
+  contact_email?: string;
+  created_date: string;
+}
+
+// ---------------------------------------------------------------------------
+// Item catalogs (§5.3) — the platform holds two SEPARATE reference catalogs,
+// and every provider is exposed to exactly one of them, by provider type:
+//
+//   • קטלוג מב"ר ("mabar") — Ministry of Health item codes with the official
+//     MoH price list in layers S and H. Used exclusively by medical units of
+//     type מכון רפואי (medical_institute), חדרי ניתוח (hospital) and בתי
+//     מרקחת (pharmacy).
+//   • קטלוג הילסון ("healson") — Healson's own item codes, negotiated with
+//     individual providers and with medical units that are NOT one of the
+//     three MABAR types (מרפאות חוץ, שירותים עד הבית, מעבדות, מוקדים…).
+//     Each item carries a full item price P plus Healson tariffs K and B;
+//     S and H always mirror the MoH price list.
+// ---------------------------------------------------------------------------
+export type CatalogKind = "mabar" | "healson";
+
+export const CATALOG_KINDS: CatalogKind[] = ["mabar", "healson"];
+
+export const CATALOG_KIND_LABELS: Record<CatalogKind, string> = {
+  mabar: 'קטלוג מב"ר (משרד הבריאות)',
+  healson: "קטלוג הילסון",
+};
+
+export const CATALOG_CODE_LABELS: Record<CatalogKind, string> = {
+  mabar: 'קוד מב"ר',
+  healson: "קוד הילסון",
+};
+
+// Provider types locked to the MABAR catalog; every other type sees the
+// Healson catalog. store/insurance_agency keep their free-text price lists
+// (they are not medical and don't draw from either catalog).
+export const MABAR_PROVIDER_TYPES: ProviderType[] = [
+  "medical_institute",
+  "hospital",
+  "pharmacy",
+];
+
+export function catalogKindForProviderType(type?: ProviderType): CatalogKind {
+  return type && MABAR_PROVIDER_TYPES.includes(type) ? "mabar" : "healson";
+}
+
 export interface CatalogItem {
   id: string;
+  // The item's code inside its catalog — a MoH מב"ר code for "mabar" items,
+  // a Healson code (HLS-…) for "healson" items. Item entry in the provider
+  // portal searches by this code or by free text on name_he.
   tavar_code?: string;
   name_he: string;
+  // Which of the two reference catalogs this item belongs to. Older persisted
+  // data may miss it — the store normalizes undefined to "healson" on hydration.
+  catalog: CatalogKind;
   skill_domain_id: string;
   skill_subdomain_id: string;
   service_type: ServiceType;
+  // Headline price: for "mabar" items the MoH S-layer price, for "healson"
+  // items the full item price P.
   base_price: number;
+  // מחיר פריט מלא (P) — "healson" items only.
+  price_full?: number;
+  // Per-layer list prices. "mabar": S + H (both from the MoH price list).
+  // "healson": K + B are Healson tariffs; S + H always mirror the MoH list.
+  layer_prices?: PriceByLayer[];
   typical_duration_min?: number;
   requires_referral: boolean;
   provider_id?: string;
   is_active: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Catalog requests — when a provider searches the Healson catalog and the
+// item they need isn't there, they submit a short request instead of hitting
+// a dead end. Ops triages it from the /catalog "בקשות קטלוג" tab: approve →
+// create a catalog item, merge into an existing item, ask for more info, or
+// reject. Requests only originate from the Healson catalog (never מב"ר/תבר).
+// ---------------------------------------------------------------------------
+export type CatalogRequestStatus =
+  | "pending"
+  | "needs_info"
+  | "approved"
+  | "rejected"
+  | "merged";
+
+export const CATALOG_REQUEST_STATUSES: CatalogRequestStatus[] = [
+  "pending",
+  "needs_info",
+  "approved",
+  "rejected",
+  "merged",
+];
+
+export const CATALOG_REQUEST_STATUS_LABELS: Record<CatalogRequestStatus, string> = {
+  pending: "ממתין לבדיקה",
+  needs_info: "נדרשת השלמה",
+  approved: "אושר ונוצר",
+  rejected: "נדחה",
+  merged: "מוזג לפריט קיים",
+};
+
+export interface CatalogRequest {
+  id: string;
+  provider_id: string;
+  // The name the provider typed into the catalog search that returned nothing.
+  requested_name: string;
+  // The provider's best guess at the item type (optional — Ops decides finally).
+  service_type?: ProviderServiceType;
+  // Short justification / clinical details the provider added.
+  description?: string;
+  // Always "healson" in the current flow (מב"ר items are never provider-requested).
+  catalog_kind: CatalogKind;
+  status: CatalogRequestStatus;
+  created_date: string;
+  resolved_at?: string;
+  // Ops note surfaced back to the provider on reject / needs_info.
+  admin_note?: string;
+  // The catalog item this request produced (approved) or was folded into (merged).
+  resolved_item_id?: string;
 }
 
 export interface UploadedFile {

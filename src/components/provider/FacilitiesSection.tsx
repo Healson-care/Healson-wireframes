@@ -97,15 +97,15 @@ export function FacilitiesSection({
         <div className="flex items-center gap-2">
           <MonitorCog className="h-4 w-4 text-slate-400" />
           <div>
-            <p className="text-sm font-medium text-slate-900">מתקני היחידה</p>
+            <p className="text-sm font-medium text-slate-900">חדרי היחידה</p>
             <p className="text-xs text-slate-500">
-              {facilities.length} מתקנים · {facilities.filter((f) => hasAnyAvailability(f)).length} עם לוח זמנים
+              {facilities.length} חדרים · {facilities.filter((f) => hasAnyAvailability(f)).length} עם לוח זמנים
               פעיל
             </p>
           </div>
         </div>
         <Button size="sm" onClick={openCreate}>
-          <Plus className="h-4 w-4" /> הוספת מתקן
+          <Plus className="h-4 w-4" /> הוספת חדר
         </Button>
       </Card>
 
@@ -113,13 +113,13 @@ export function FacilitiesSection({
         <div className="flex items-start gap-2 rounded-lg border border-warning-border bg-warning-bg px-3 py-2 text-sm text-warning-text">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
-            {unlinkedServices.length} שירותים אינם מקושרים לאף מתקן:{" "}
+            {unlinkedServices.length} פריטים אינם מקושרים לאף חדר:{" "}
             {unlinkedServices
               .slice(0, 4)
               .map((s) => s.name)
               .join(", ")}
-            {unlinkedServices.length > 4 ? " ועוד" : ""}. שירות שמבוצע על ידי רופא/ה בלבד — שייכו אותו בלשונית
-            &quot;רופאים&quot;.
+            {unlinkedServices.length > 4 ? " ועוד" : ""}. פריט שמבוצע על ידי נותן/ת שירות בלבד — שייכו אותו בלשונית
+            &quot;נותני שירות&quot;.
           </span>
         </div>
       )}
@@ -127,8 +127,8 @@ export function FacilitiesSection({
       {facilities.length === 0 ? (
         <EmptyState
           icon={<MonitorCog className="h-10 w-10" />}
-          title="לא הוגדרו מתקנים"
-          description="ביחידה רפואית הזמינות היא ברמת המתקן והרופא/ה, לא ברמת היחידה. הוסיפו את המכשירים והחדרים (MRI 1, CT 1, חדר פעולות) ושייכו לכל אחד את השירותים המבוצעים עליו."
+          title="לא הוגדרו חדרים"
+          description="ביחידה רפואית הזמינות היא ברמת החדר ונותן/ת השירות, לא ברמת היחידה. הוסיפו את המכשירים והחדרים (MRI 1, CT 1, חדר פעולות) ושייכו לכל אחד את הפריטים המבוצעים בו."
         />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
@@ -160,14 +160,14 @@ export function FacilitiesSection({
                     <button
                       onClick={() => openEdit(facility)}
                       className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"
-                      aria-label="עריכת מתקן"
+                      aria-label="עריכת חדר"
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
                     <button
                       onClick={() => setDeleteId(facility.id)}
                       className="rounded-md p-1.5 text-red-500 hover:bg-red-50"
-                      aria-label="מחיקת מתקן"
+                      aria-label="מחיקת חדר"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -176,10 +176,10 @@ export function FacilitiesSection({
 
                 <div className="mt-3">
                   <p className="mb-1 flex items-center gap-1 text-[11px] font-medium text-slate-500">
-                    <Stethoscope className="h-3 w-3" /> שירותים המבוצעים על המתקן
+                    <Stethoscope className="h-3 w-3" /> פריטים המבוצעים בחדר
                   </p>
                   {linked.length === 0 ? (
-                    <p className="text-xs text-warning-text">לא שויכו שירותים — המתקן לא יופיע בהזמנת תורים</p>
+                    <p className="text-xs text-warning-text">לא שויכו פריטים — החדר לא יופיע בהזמנת תורים</p>
                   ) : (
                     <div className="flex flex-wrap gap-1">
                       {linked.map((s) => (
@@ -199,21 +199,21 @@ export function FacilitiesSection({
       <Dialog
         open={open}
         onClose={() => setOpen(false)}
-        title={editingId ? "עריכת מתקן" : "מתקן חדש"}
+        title={editingId ? "עריכת חדר" : "חדר חדש"}
         description="מכשיר או חדר שמחזיק תור משלו — MRI 1, CT 1, חדר פעולות 2"
         className="max-w-xl"
       >
         <div className="flex flex-col gap-3">
           <div className="grid gap-3 sm:grid-cols-2">
             <Input
-              label="שם המתקן"
+              label="שם החדר"
               placeholder="MRI 1"
               value={name}
               onChange={(e) => setName(e.target.value)}
               hint="השם שיופיע ביומן ובשיבוץ"
               required
             />
-            <Select label="סוג המתקן" value={kind} onChange={(e) => setKind(e.target.value as FacilityKind)}>
+            <Select label="סוג החדר" value={kind} onChange={(e) => setKind(e.target.value as FacilityKind)}>
               {FACILITY_KINDS.map((k) => (
                 <option key={k} value={k}>
                   {FACILITY_KIND_LABELS[k]}
@@ -241,13 +241,13 @@ export function FacilitiesSection({
               onChange={(e) => setIsActive(e.target.checked)}
               className="h-4 w-4 rounded border-slate-300 accent-primary"
             />
-            מתקן פעיל (מתקן לא פעיל אינו מייצר תורים — למשל בזמן תחזוקה ממושכת)
+            חדר פעיל (חדר לא פעיל אינו מייצר תורים — למשל בזמן תחזוקה ממושכת)
           </label>
 
           <div className="rounded-lg border border-slate-200 p-3">
             <div className="mb-2 flex items-center justify-between">
               <span className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
-                <Stethoscope className="h-3.5 w-3.5 text-slate-400" /> שירותים המבוצעים על מתקן זה
+                <Stethoscope className="h-3.5 w-3.5 text-slate-400" /> פריטים המבוצעים בחדר זה
               </span>
               {services.length > 0 && (
                 <button
@@ -261,7 +261,7 @@ export function FacilitiesSection({
             </div>
             {services.length === 0 ? (
               <p className="text-xs text-slate-400">
-                אין עדיין שירותים בקטלוג — הוסיפו שירותים בלשונית &quot;שירותים&quot; ואז שייכו אותם למתקן.
+                אין עדיין פריטים בקטלוג — הוסיפו פריטים בלשונית &quot;פריטים&quot; ואז שייכו אותם לחדר.
               </p>
             ) : (
               <div className="flex flex-wrap gap-1.5">
@@ -291,12 +291,12 @@ export function FacilitiesSection({
 
           <p className="flex items-start gap-1.5 rounded-lg bg-info-bg px-3 py-2 text-xs text-info-text">
             <CalendarClock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            את שעות הפעילות של המתקן מגדירים בלשונית &quot;זמינות&quot; ← &quot;מתקנים&quot;. לכל מתקן לוח זמנים
-            נפרד, ושני מתקנים יכולים לקבל מטופלים באותה שעה.
+            את שעות הפעילות של החדר מגדירים בלשונית &quot;זמינות&quot; ← &quot;חדרים&quot;. לכל חדר לוח זמנים
+            נפרד, ושני חדרים יכולים לקבל מטופלים באותה שעה.
           </p>
 
           <Button onClick={handleSave} disabled={!name.trim()}>
-            שמור מתקן
+            שמור חדר
           </Button>
         </div>
       </Dialog>
@@ -304,14 +304,14 @@ export function FacilitiesSection({
       <ConfirmDialog
         open={!!deleteId}
         onClose={() => setDeleteId(null)}
-        title="מחיקת מתקן"
+        title="מחיקת חדר"
         description={(() => {
           if (!deleteId) return undefined;
           const facility = facilities.find((f) => f.id === deleteId);
           const count = facility?.service_ids.length ?? 0;
           return count === 0
-            ? "לוח הזמנים של המתקן יימחק. פעולה זו אינה הפיכה."
-            : `${count} שירותים מבוצעים על מתקן זה ולא יהיו ניתנים להזמנה עד שישויכו למתקן אחר. פעולה זו אינה הפיכה.`;
+            ? "לוח הזמנים של החדר יימחק. פעולה זו אינה הפיכה."
+            : `${count} פריטים מבוצעים בחדר זה ולא יהיו ניתנים להזמנה עד שישויכו לחדר אחר. פעולה זו אינה הפיכה.`;
         })()}
         destructive
         confirmLabel="מחק"

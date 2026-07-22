@@ -5,9 +5,9 @@
 // queue: what it sells is delivered by a *resource*, and each resource has its
 // own week and its own queue:
 //
-//   מתקן  (ProviderFacility) — "MRI 1" hosts MRI ראש / MRI בטן / MRI ברך,
-//                              "CT 1" hosts the CT services, and so on.
-//   רופא  (AffiliatedDoctor) — consultations and doctor-delivered procedures.
+//   חדר        (ProviderFacility) — "MRI 1" hosts MRI ראש / MRI בטן / MRI ברך,
+//                                   "CT 1" hosts the CT items, and so on.
+//   נותן שירות (AffiliatedDoctor) — consultations and provider-delivered procedures.
 //
 // Consequences, all implemented here:
 //   • Availability is read per resource, never from the unit as a whole.
@@ -60,13 +60,13 @@ export interface UnitResource extends ScheduleHolder {
 }
 
 export const UNIT_RESOURCE_KIND_LABELS: Record<UnitResourceKind, string> = {
-  facility: "מתקן",
-  doctor: "רופא/ה",
+  facility: "חדר",
+  doctor: "נותן/ת שירות",
 };
 
 export const UNIT_RESOURCE_KIND_LABELS_PLURAL: Record<UnitResourceKind, string> = {
-  facility: "מתקנים",
-  doctor: "רופאים",
+  facility: "חדרים",
+  doctor: "נותני שירות",
 };
 
 export function isUnitProvider(provider: ProviderProfile): boolean {
@@ -116,7 +116,7 @@ export function getUnitResources(
   );
   const doctors = (provider.affiliated_doctors ?? []).map((a) => {
     const info = doctorNames?.get(a.doctor_provider_id);
-    return doctorToResource(a, info?.name ?? "רופא/ה", info?.specialty);
+    return doctorToResource(a, info?.name ?? "נותן/ת שירות", info?.specialty);
   });
   return [...facilities, ...doctors];
 }
