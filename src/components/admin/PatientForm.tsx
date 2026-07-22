@@ -5,7 +5,7 @@ import { Dialog } from "@/components/ui/Dialog";
 import { Input, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { InsuranceProfileForm, InsuranceProfileValue } from "@/components/patient/InsuranceProfileForm";
-import { GENDERS, Gender, KLevel, PATIENT_STATUSES, Patient } from "@/types";
+import { GENDERS, Gender, KLevel, Kupah, PATIENT_STATUSES, Patient } from "@/types";
 
 export interface PatientFormValues {
   full_name: string;
@@ -16,7 +16,7 @@ export interface PatientFormValues {
   date_of_birth: string;
   gender: Gender | "";
   parent_name: string;
-  kupah: Patient["kupah"];
+  kupah: Kupah | "";
   k_level: KLevel | "";
   has_b_insurance: boolean;
   b_insurance_company: string;
@@ -90,7 +90,18 @@ export function PatientForm({
           <Select
             label="סוג מסמך מזהה"
             value={form.id_document_type}
-            onChange={(e) => setForm({ ...form, id_document_type: e.target.value as "id" | "passport" })}
+            onChange={(e) => {
+              const next = e.target.value as "id" | "passport";
+              // Switching back to ת"ז after "אין לי קופת חולים" was already
+              // picked would otherwise leave a required Select stuck on a
+              // now-invalid "" value, since that option only renders for
+              // passport holders.
+              setForm((f) => ({
+                ...f,
+                id_document_type: next,
+                kupah: next === "id" && f.kupah === "" ? "כללית" : f.kupah,
+              }));
+            }}
           >
             <option value="id">תעודת זהות</option>
             <option value="passport">דרכון</option>
@@ -126,7 +137,11 @@ export function PatientForm({
         </div>
         <Input label="שם הורה (קטין)" value={form.parent_name} onChange={(e) => setForm({ ...form, parent_name: e.target.value })} />
 
-        <InsuranceProfileForm value={insuranceValue} onChange={(v) => setForm({ ...form, ...v })} />
+        <InsuranceProfileForm
+          value={insuranceValue}
+          onChange={(v) => setForm({ ...form, ...v })}
+          allowNoKupah={form.id_document_type === "passport"}
+        />
 
         <Select label="סטטוס" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as Patient["status"] })}>
           {PATIENT_STATUSES.map((s) => (

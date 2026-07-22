@@ -365,7 +365,7 @@ export default function AdminDashboardHome() {
                 >
                   <div>
                     <p className="font-medium text-slate-800">{p.full_name}</p>
-                    <p className="text-xs text-slate-500">{p.kupah}</p>
+                    <p className="text-xs text-slate-500">{p.kupah ?? "תייר"}</p>
                   </div>
                   <StatusBadge status={p.status} kind="patient" />
                 </Link>

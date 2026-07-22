@@ -6,9 +6,13 @@ import { InsuranceLayer, Patient, PriceByLayer, ProviderAgreement } from "@/type
 
 const LAYER_PRIORITY: InsuranceLayer[] = ["S", "K", "B", "H"];
 
-/** Which SKBH layers a patient holds. S + H are always available (S = kupah basket, H = fallback). */
+/** Which SKBH layers a patient holds. H is always available (fallback/full
+ * private price); S only applies if the patient actually has a kupah on
+ * file — a patient with none (tourist / no institutional coverage) holds
+ * at most B (if privately insured) plus H, never S or K. */
 export function getPatientLayers(patient?: Patient | null): InsuranceLayer[] {
-  const layers: InsuranceLayer[] = ["S"];
+  const layers: InsuranceLayer[] = [];
+  if (patient?.kupah) layers.push("S");
   if (patient?.k_level) layers.push("K");
   if (patient?.has_b_insurance) layers.push("B");
   layers.push("H");
@@ -40,7 +44,13 @@ export function resolveProviderPrice(
     if (!agreement) continue;
 
     if (layer === "S" || layer === "K") {
-      if (agreement.kupah_list && agreement.kupah_list.length > 0 && !agreement.kupah_list.includes(patient.kupah)) {
+      // patient.kupah is guaranteed set here — "S"/"K" only ever land in
+      // heldLayers (above) when it is.
+      if (
+        agreement.kupah_list &&
+        agreement.kupah_list.length > 0 &&
+        (!patient.kupah || !agreement.kupah_list.includes(patient.kupah))
+      ) {
         continue;
       }
     }

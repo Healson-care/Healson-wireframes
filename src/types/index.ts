@@ -370,7 +370,11 @@ export interface Patient {
   gender?: Gender;
   address?: string;
   parent_name?: string;
-  kupah: Kupah;
+  // Undefined = no Israeli kupah on file (tourist / no institutional
+  // coverage) — pricing falls to layer H (full private) for these patients,
+  // see getPatientLayers in lib/pricing.ts. A missing kupah also means no
+  // k_level (שב"ן) is possible, since that's sold per-kupah.
+  kupah?: Kupah;
   k_level?: KLevel;
   has_b_insurance?: boolean;
   b_insurance_company?: string;

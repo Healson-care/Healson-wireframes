@@ -156,7 +156,7 @@ export default function RegisterPage() {
         phone,
         id_number: idNumber.trim(),
         date_of_birth: dateOfBirth,
-        kupah: insurance.kupah,
+        kupah: insurance.kupah || undefined,
         k_level: insurance.k_level || undefined,
         has_b_insurance: insurance.has_b_insurance,
         b_insurance_company: insurance.has_b_insurance ? insurance.b_insurance_company : undefined,

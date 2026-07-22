@@ -269,7 +269,7 @@ export default function ClientProfilePage() {
         notification_channel: patient.notification_channel ?? "email",
       });
       setInsurance({
-        kupah: patient.kupah,
+        kupah: patient.kupah ?? "",
         k_level: patient.k_level ?? "",
         has_b_insurance: !!patient.has_b_insurance,
         b_insurance_company: patient.b_insurance_company ?? "",
@@ -306,7 +306,7 @@ export default function ClientProfilePage() {
       gender: form.gender || undefined,
       communication_language: preferences.communication_language,
       notification_channel: preferences.notification_channel,
-      kupah: insurance.kupah,
+      kupah: insurance.kupah || undefined,
       k_level: insurance.k_level || undefined,
       has_b_insurance: insurance.has_b_insurance,
       b_insurance_company: insurance.has_b_insurance ? insurance.b_insurance_company : undefined,
@@ -505,7 +505,12 @@ export default function ClientProfilePage() {
                 <CardTitle>פרופיל ביטוחי</CardTitle>
               </CardHeader>
               <CardContent>
-                <InsuranceProfileForm value={insurance} onChange={setInsurance} showAddress={false} />
+                <InsuranceProfileForm
+                  value={insurance}
+                  onChange={setInsurance}
+                  showAddress={false}
+                  allowNoKupah={patient?.id_document_type === "passport"}
+                />
               </CardContent>
             </Card>
           </TabsContent>

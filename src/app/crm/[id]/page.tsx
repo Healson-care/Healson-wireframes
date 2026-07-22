@@ -376,7 +376,7 @@ function AdminPatientChartPageContent() {
                 href={patient.email ? `mailto:${patient.email}` : undefined}
                 icon={patient.email ? <Mail className="h-3.5 w-3.5" /> : undefined}
               />
-              <InfoRow label="קופת חולים" value={patient.kupah} />
+              <InfoRow label="קופת חולים" value={patient.kupah ?? "ללא קופה (תייר)"} />
               {patient.k_level && <InfoRow label="מסלול השב״ן" value={patient.k_level} />}
               <InfoRow label="ביטוח פרטי (שכבה B)" value={patient.has_b_insurance ? patient.b_insurance_company || "כן" : "אין"} />
               <InfoRow label="כתובת" value={patient.address || "—"} />
@@ -684,7 +684,7 @@ function AdminPatientChartPageContent() {
           date_of_birth: patient.date_of_birth ?? "",
           gender: patient.gender ?? "",
           parent_name: patient.parent_name ?? "",
-          kupah: patient.kupah,
+          kupah: patient.kupah ?? "",
           k_level: patient.k_level ?? "",
           has_b_insurance: patient.has_b_insurance ?? false,
           b_insurance_company: patient.b_insurance_company ?? "",
@@ -699,7 +699,7 @@ function AdminPatientChartPageContent() {
         onClose={() => setBookOpen(false)}
         onSubmit={handleBookAppointment}
         providers={providers}
-        patientKupah={patient.kupah}
+        patientKupah={patient.kupah ?? "ללא קופה (תייר)"}
         appointments={appointments}
       />
 
