@@ -1436,7 +1436,7 @@ const APPOINTMENT_PROVIDERS = [
 ];
 
 export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
-  (_, i) => {
+  (_, i): Appointment => {
     const dayOffset = Math.floor(i / 3) - 4; // spread -4..+3 days
     const provider = APPOINTMENT_PROVIDERS[i % APPOINTMENT_PROVIDERS.length];
     const patient = SEED_PATIENTS[i % SEED_PATIENTS.length];
