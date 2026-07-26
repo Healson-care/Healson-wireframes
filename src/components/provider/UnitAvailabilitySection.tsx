@@ -10,25 +10,24 @@ import { useStore } from "@/lib/store";
 import { ScheduleEditor } from "@/components/provider/AvailabilitySection";
 import { DAY_LABELS } from "@/lib/medical-tree";
 import { DAY_KEYS, formatShift, getWeeklySchedule, hasAnyAvailability } from "@/lib/schedule";
+import { UnitResource, buildUnitOverview, getUnitResources } from "@/lib/unit-resources";
+import { AffiliatedDoctor, ConsultationType, ProviderFacility, ProviderProfile } from "@/types";
 import {
-  UnitResource,
-  buildUnitOverview,
-  getUnitResources,
-} from "@/lib/unit-resources";
-import { AffiliatedDoctor, ProviderFacility, ProviderProfile } from "@/types";
-import { AlertCircle, CalendarClock, Layers, MonitorCog, Stethoscope } from "lucide-react";
+  AlertCircle,
+  CalendarClock,
+  ChevronDown,
+  ChevronLeft,
+  Layers,
+  MonitorCog,
+  Stethoscope,
+} from "lucide-react";
 
-/** Availability for a medical unit (§PRV-08).
+/** Availability for a medical unit (§PRV-08) — the unified מערכים → לוזים view.
  *
- * A unit doesn't have one calendar — it has one per resource. So the week is
- * edited per מתקן and per רופא/ה, and the unit-level tab ("זמינות כללית") is
- * the combined picture: the unit's opening hours plus every resource's week
- * side by side.
- *
- * NOTE (open product decision): the general hours are DISPLAY + FALLBACK. They
- * do not clip a resource's hours, and a service linked to no resource still
- * falls back to them. If Healson later decides the unit's hours should bound
- * everything, the change is one intersection in src/lib/unit-resources.ts. */
+ * A unit doesn't have one calendar. Its bookable resources — מכשירים and נותני
+ * שירות — are its לוזים, each with its own week (a "לוז" IS a schedule). Here
+ * they're grouped by מערך (service line), and each לוז expands to edit its week.
+ * The "תמונת מצב" tab is the combined read-only picture across the whole unit. */
 export function UnitAvailabilitySection({
   provider,
   onChange,
@@ -53,88 +52,200 @@ export function UnitAvailabilitySection({
   const affiliations = provider.affiliated_doctors ?? [];
   const services = provider.consultation_types;
 
-  function updateFacility(next: ProviderFacility) {
-    onChange({ facilities: facilities.map((f) => (f.id === next.id ? next : f)) });
-  }
-
-  function updateAffiliation(next: AffiliatedDoctor) {
-    onChange({ affiliated_doctors: affiliations.map((a) => (a.id === next.id ? next : a)) });
-  }
-
   return (
-    <Tabs defaultValue="general" className="flex flex-col gap-4">
+    <Tabs defaultValue="arrays" className="flex flex-col gap-4">
       <TabsList>
-        <TabsTrigger value="general" icon={<Layers className="h-4 w-4" />}>
-          זמינות כללית
+        <TabsTrigger value="arrays" icon={<Layers className="h-4 w-4" />}>
+          מערכים ולוזים
         </TabsTrigger>
-        <TabsTrigger value="facilities" icon={<MonitorCog className="h-4 w-4" />}>
-          חדרים ({facilities.length})
-        </TabsTrigger>
-        <TabsTrigger value="doctors" icon={<Stethoscope className="h-4 w-4" />}>
-          נותני שירות ({affiliations.length})
+        <TabsTrigger value="general" icon={<CalendarClock className="h-4 w-4" />}>
+          תמונת מצב
         </TabsTrigger>
       </TabsList>
 
+      <TabsContent value="arrays">
+        <ArraysView
+          resources={resources}
+          facilities={facilities}
+          affiliations={affiliations}
+          services={services}
+          doctorInfo={doctorInfo}
+          onChange={onChange}
+        />
+      </TabsContent>
+
       <TabsContent value="general">
         <GeneralAvailability provider={provider} overview={overview} onChange={onChange} />
-      </TabsContent>
-
-      <TabsContent value="facilities">
-        <ResourcePicker
-          emptyTitle="לא הוגדרו חדרים"
-          emptyDescription='הוסיפו חדרים בלשונית "חדרים" — לכל מכשיר או חדר לוח זמנים משלו, והפריטים המבוצעים בו מקושרים אליו.'
-          items={facilities.map((f) => ({
-            id: f.id,
-            label: f.name,
-            hasAvailability: hasAnyAvailability(f),
-            render: () => (
-              <ScheduleEditor
-                key={f.id}
-                holder={f}
-                title={f.name}
-                subtitle={resources.find((r) => r.id === f.id)?.subtitle}
-                emptyLabel="לחדר אין עדיין לוח זמנים"
-                serviceScopeLabel="כל הפריטים של החדר"
-                services={services.filter((s) => f.service_ids.includes(s.id))}
-                onChange={updateFacility}
-              />
-            ),
-          }))}
-        />
-      </TabsContent>
-
-      <TabsContent value="doctors">
-        <ResourcePicker
-          emptyTitle="לא שויכו נותני שירות"
-          emptyDescription='הוסיפו נותני שירות בלשונית "נותני שירות" — לכל נותן/ת שירות לוח זמנים משלו/ה ביחידה, והפריטים שהוא/היא מבצע/ת מקושרים אליו/ה.'
-          items={affiliations.map((a) => {
-            const info = doctorInfo.get(a.doctor_provider_id);
-            return {
-              id: a.id,
-              label: info?.name ?? "נותן/ת שירות",
-              hasAvailability: hasAnyAvailability(a),
-              render: () => (
-                <ScheduleEditor
-                  key={a.id}
-                  holder={a}
-                  title={info?.name ?? "נותן/ת שירות"}
-                  subtitle={[a.role, info?.specialty].filter(Boolean).join(" · ") || undefined}
-                  emptyLabel="לנותן/ת השירות אין עדיין לוח זמנים ביחידה"
-                  serviceScopeLabel="כל הפריטים של נותן/ת השירות"
-                  services={services.filter((s) => a.service_ids.includes(s.id))}
-                  onChange={updateAffiliation}
-                />
-              ),
-            };
-          })}
-        />
       </TabsContent>
     </Tabs>
   );
 }
 
 // ---------------------------------------------------------------------------
-// "זמינות כללית" — the whole unit at a glance
+// מערכים → לוזים — the merged, expandable view
+// ---------------------------------------------------------------------------
+
+interface LozItem {
+  id: string;
+  resource?: UnitResource;
+  kind: "facility" | "doctor";
+  capacity: number;
+  editor: () => ReactNode;
+}
+
+function ArraysView({
+  resources,
+  facilities,
+  affiliations,
+  services,
+  doctorInfo,
+  onChange,
+}: {
+  resources: UnitResource[];
+  facilities: ProviderFacility[];
+  affiliations: AffiliatedDoctor[];
+  services: ConsultationType[];
+  doctorInfo: Map<string, { name: string; specialty?: string }>;
+  onChange: (data: Partial<ProviderProfile>) => void;
+}) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggle = (id: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const items: LozItem[] = [
+    ...facilities.map((f) => ({
+      id: f.id,
+      resource: resources.find((r) => r.id === f.id),
+      kind: "facility" as const,
+      capacity: Math.max(1, f.capacity ?? 1),
+      editor: () => (
+        <ScheduleEditor
+          holder={f}
+          title={f.name}
+          subtitle={resources.find((r) => r.id === f.id)?.subtitle}
+          emptyLabel="ללוז אין עדיין לוח זמנים"
+          serviceScopeLabel="כל הפריטים של הלוז"
+          services={services.filter((s) => f.service_ids.includes(s.id))}
+          onChange={(next) => onChange({ facilities: facilities.map((x) => (x.id === next.id ? next : x)) })}
+        />
+      ),
+    })),
+    ...affiliations.map((a) => {
+      const info = doctorInfo.get(a.doctor_provider_id);
+      return {
+        id: a.id,
+        resource: resources.find((r) => r.id === a.id),
+        kind: "doctor" as const,
+        capacity: 1,
+        editor: () => (
+          <ScheduleEditor
+            holder={a}
+            title={info?.name ?? "נותן/ת שירות"}
+            subtitle={[a.role, info?.specialty].filter(Boolean).join(" · ") || undefined}
+            emptyLabel="אין עדיין לוח זמנים"
+            serviceScopeLabel="כל הפריטים של נותן/ת השירות"
+            services={services.filter((s) => a.service_ids.includes(s.id))}
+            onChange={(next) =>
+              onChange({ affiliated_doctors: affiliations.map((x) => (x.id === next.id ? next : x)) })
+            }
+          />
+        ),
+      };
+    }),
+  ];
+
+  // Group the לוזים by מערך (service line).
+  const groups: [string, LozItem[]][] = [];
+  items.forEach((it) => {
+    const key = it.resource?.service_array?.trim() || "ללא מערך";
+    const bucket = groups.find(([name]) => name === key);
+    if (bucket) bucket[1].push(it);
+    else groups.push([key, [it]]);
+  });
+
+  if (items.length === 0) {
+    return (
+      <EmptyState
+        icon={<Layers className="h-10 w-10" />}
+        title="לא הוגדרו לוזים"
+        description="הגדירו מכשירים ונותני שירות — ולכל אחד לו״ז משלו. הם יופיעו כאן מקובצים למערכים (קווי שירות)."
+      />
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* In-app explainer of the מערך → לוז model */}
+      <div className="flex items-start gap-2 rounded-lg border border-info-border bg-info-bg px-3 py-2.5 text-xs leading-relaxed text-info-text">
+        <Layers className="mt-0.5 h-4 w-4 shrink-0" />
+        <span>
+          <b>מערך</b> = קטגוריית שירות (MRI, ייעוצים, בדיקות). בכל מערך יש <b>לוזים</b> — כל לוז הוא עמדה עם לו״ז
+          משלה: מכשיר או נותן שירות יחיד. לוז אחד יכול לייצג כמה מכשירים זהים. לחצו על לוז כדי לערוך את הלו״ז שלו.
+        </span>
+      </div>
+
+      {groups.map(([arrayName, its]) => {
+        const machines = its.reduce((sum, it) => sum + it.capacity, 0);
+        return (
+          <div key={arrayName} className="overflow-hidden rounded-xl border border-slate-200">
+            <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+              <Layers className="h-4 w-4 text-primary" />
+              <p className="text-sm font-semibold text-slate-900">{arrayName}</p>
+              <Badge tone="purple">{its.length} לוזים</Badge>
+              {machines > its.length && (
+                <span className="text-xs text-slate-400">· {machines} מכשירים בפועל</span>
+              )}
+            </div>
+            <div className="divide-y divide-slate-100">
+              {its.map((it) => {
+                const res = it.resource;
+                const open = expanded.has(it.id);
+                const avail = res ? hasAnyAvailability(res) : false;
+                return (
+                  <div key={it.id} className="px-3 py-2.5">
+                    <button
+                      type="button"
+                      onClick={() => toggle(it.id)}
+                      className="flex w-full items-center justify-between gap-2 text-right"
+                    >
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        {it.kind === "facility" ? (
+                          <MonitorCog className="h-4 w-4 shrink-0 text-slate-400" />
+                        ) : (
+                          <Stethoscope className="h-4 w-4 shrink-0 text-info-text" />
+                        )}
+                        <span className="font-medium text-slate-900">{res?.name}</span>
+                        <Badge tone={it.kind === "doctor" ? "blue" : "slate"}>
+                          {it.kind === "doctor" ? "נותן שירות" : "מכשיר"}
+                        </Badge>
+                        {it.capacity > 1 && <Badge tone="green">מייצג {it.capacity} מכשירים</Badge>}
+                        {!avail && <Badge tone="warning">ללא לו״ז</Badge>}
+                      </span>
+                      {open ? (
+                        <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                      ) : (
+                        <ChevronLeft className="h-4 w-4 shrink-0 text-slate-400" />
+                      )}
+                    </button>
+                    {open && <div className="mt-3">{it.editor()}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// "תמונת מצב" — the whole unit at a glance
 // ---------------------------------------------------------------------------
 
 function GeneralAvailability({
@@ -159,12 +270,12 @@ function GeneralAvailability({
             <div>
               <p className="text-sm font-medium text-slate-900">תמונת מצב — כל היחידה</p>
               <p className="text-xs text-slate-500">
-                {overview.facilities.length} חדרים · {overview.doctors.length} נותני שירות ·{" "}
+                {overview.facilities.length} מכשירים · {overview.doctors.length} נותני שירות ·{" "}
                 {overview.activeDays} ימי פעילות בשבוע · {overview.totalWeeklyHours.toFixed(1)} שעות משאב נטו
               </p>
             </div>
           </div>
-          {allResources.length === 0 && <Badge tone="warning">לא הוגדרו משאבים</Badge>}
+          {allResources.length === 0 && <Badge tone="warning">לא הוגדרו לוזים</Badge>}
         </div>
 
         {/* How many resources are open on each weekday. */}
@@ -189,38 +300,38 @@ function GeneralAvailability({
             );
           })}
         </div>
-        <p className="mt-2 text-[11px] text-slate-400">מספר המשאבים (חדרים + נותני שירות) הפעילים בכל יום.</p>
+        <p className="mt-2 text-[11px] text-slate-400">מספר הלוזים (מכשירים + נותני שירות) הפעילים בכל יום.</p>
       </Card>
 
       {/* Warnings — the two ways a unit's schedule ends up not bookable. */}
       {overview.resourcesWithoutAvailability.length > 0 && (
         <WarningRow>
-          {overview.resourcesWithoutAvailability.length} משאבים ללא לוח זמנים:{" "}
+          {overview.resourcesWithoutAvailability.length} לוזים ללא לוח זמנים:{" "}
           {overview.resourcesWithoutAvailability.map((r) => r.name).join(", ")}. עד שיוגדר להם לוח זמנים לא ייווצרו
           תורים.
         </WarningRow>
       )}
       {overview.servicesWithoutResource.length > 0 && (
         <WarningRow>
-          {overview.servicesWithoutResource.length} פריטים אינם מקושרים לחדר או לנותן/ת שירות:{" "}
+          {overview.servicesWithoutResource.length} פריטים אינם מקושרים ללוז:{" "}
           {overview.servicesWithoutResource
             .slice(0, 4)
             .map((s) => s.name)
             .join(", ")}
           {overview.servicesWithoutResource.length > 4 ? " ועוד" : ""}. הם ייבנו לפי שעות הפעילות הכלליות של
-          היחידה עד שישויכו למשאב.
+          היחידה עד שישויכו ללוז.
         </WarningRow>
       )}
 
-      {/* Every resource's week, read-only — editing happens in its own tab. */}
+      {/* Every resource's week, read-only — editing happens in the מערכים tab. */}
       {allResources.length > 0 && (
         <Card className="p-4">
-          <p className="mb-3 text-sm font-medium text-slate-800">השבוע של כל משאב</p>
+          <p className="mb-3 text-sm font-medium text-slate-800">השבוע של כל לוז</p>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[46rem] border-collapse text-xs">
               <thead>
                 <tr className="text-slate-500">
-                  <th className="p-2 text-right font-medium">משאב</th>
+                  <th className="p-2 text-right font-medium">לוז</th>
                   {DAY_KEYS.map((d) => (
                     <th key={d} className="p-2 text-center font-medium">
                       {DAY_LABELS[d]}
@@ -244,8 +355,8 @@ function GeneralAvailability({
           <CalendarClock className="h-4 w-4 text-slate-400" /> שעות הפעילות של היחידה
         </p>
         <p className="mb-3 text-xs text-slate-500">
-          שעות הפתיחה של היחידה כולה — מוצגות למטופלים, ומשמשות כברירת מחדל לפריטים שעדיין לא שויכו לחדר או
-          לנותן/ת שירות. הן אינן מגבילות את לוחות הזמנים של המשאבים.
+          שעות הפתיחה של היחידה כולה — מוצגות למטופלים, ומשמשות כברירת מחדל לפריטים שעדיין לא שויכו ללוז. הן
+          אינן מגבילות את לוחות הזמנים של הלוזים.
         </p>
         {unit ? (
           <ScheduleEditor
@@ -275,7 +386,8 @@ function ResourceWeekRow({ resource }: { resource: UnitResource }) {
       <td className="p-2 align-top">
         <p className="font-medium text-slate-800">{resource.name}</p>
         <p className="text-[10px] text-slate-400">
-          {resource.kind === "facility" ? "חדר" : "נותן/ת שירות"}
+          {resource.kind === "facility" ? "מכשיר" : "נותן/ת שירות"}
+          {resource.service_array ? ` · ${resource.service_array}` : ""}
           {resource.service_ids.length > 0 ? ` · ${resource.service_ids.length} פריטים` : ""}
         </p>
       </td>
@@ -310,54 +422,6 @@ function WarningRow({ children }: { children: ReactNode }) {
     <div className="flex items-start gap-2 rounded-lg border border-warning-border bg-warning-bg px-3 py-2 text-sm text-warning-text">
       <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
       <span>{children}</span>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Resource switcher — pills over one schedule editor
-// ---------------------------------------------------------------------------
-
-function ResourcePicker({
-  items,
-  emptyTitle,
-  emptyDescription,
-}: {
-  items: { id: string; label: string; hasAvailability: boolean; render: () => ReactNode }[];
-  emptyTitle: string;
-  emptyDescription: string;
-}) {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const selected = items.find((i) => i.id === selectedId) ?? items[0];
-
-  if (items.length === 0) {
-    return <EmptyState icon={<CalendarClock className="h-10 w-10" />} title={emptyTitle} description={emptyDescription} />;
-  }
-
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap gap-1.5">
-        {items.map((item) => {
-          const isActive = item.id === selected?.id;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => setSelectedId(item.id)}
-              className={cn(
-                "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-                isActive
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-slate-200 text-slate-600 hover:border-slate-300"
-              )}
-            >
-              {item.label}
-              {!item.hasAvailability && <span className="h-1.5 w-1.5 rounded-full bg-warning-border" />}
-            </button>
-          );
-        })}
-      </div>
-      {selected?.render()}
     </div>
   );
 }

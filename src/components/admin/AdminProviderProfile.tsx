@@ -659,10 +659,10 @@ function UnitRow({ unit }: { unit: ProviderProfile }) {
 }
 
 /** Organization hierarchy manager (ניהול ספקים / מסך הארגונים): Healson ops
- * builds the org's tree here — the org has one or more branches (סניפים), and
- * each branch has one or more medical units (each unit a full ProviderProfile
- * pointing back via parent_organization_id + parent_branch_id) with a login
- * user. Reused by both the provider card's tab and /organizations. */
+ * builds the org's tree here — ארגון → יחידה רפואית → סניף. The org has one or
+ * more medical units (each a full ProviderProfile via parent_organization_id),
+ * and each unit has one or more branches (סניפים / physical sites). Reused by
+ * both the provider card's tab and /organizations. */
 export function OrganizationUnitsTab({ organization }: { organization: ProviderProfile }) {
   const providers = useStore((s) => s.providers);
   const organizationBranches = useStore((s) => s.organizationBranches);
@@ -672,22 +672,12 @@ export function OrganizationUnitsTab({ organization }: { organization: ProviderP
   const addOrganizationUnit = useStore((s) => s.addOrganizationUnit);
   const showToast = useStore((s) => s.showToast);
 
-  const branches = organizationBranches.filter((b) => b.organization_id === organization.id);
   const orgUnits = providers.filter((p) => p.parent_organization_id === organization.id);
-  const orphanUnits = orgUnits.filter((u) => !u.parent_branch_id);
+  const branchesOfUnit = (unitId: string) => organizationBranches.filter((b) => b.unit_id === unitId);
+  const totalBranches = organizationBranches.filter((b) => orgUnits.some((u) => u.id === b.unit_id)).length;
 
-  // Branch add/edit dialog
-  const [branchEditing, setBranchEditing] = useState<OrganizationBranch | null>(null);
-  const [branchOpen, setBranchOpen] = useState(false);
-  const [brName, setBrName] = useState("");
-  const [brCity, setBrCity] = useState("");
-  const [brAddress, setBrAddress] = useState("");
-  const [brPhone, setBrPhone] = useState("");
-  const [brEmail, setBrEmail] = useState("");
-  const [deleteBranchId, setDeleteBranchId] = useState<string | null>(null);
-
-  // Unit add dialog (scoped to a branch)
-  const [unitBranchId, setUnitBranchId] = useState<string | null>(null);
+  // Add-unit dialog (unit → org)
+  const [unitOpen, setUnitOpen] = useState(false);
   const [unitName, setUnitName] = useState("");
   const [unitType, setUnitType] = useState<ProviderType>("medical_institute");
   const [unitSpecialty, setUnitSpecialty] = useState("");
@@ -695,14 +685,50 @@ export function OrganizationUnitsTab({ organization }: { organization: ProviderP
   const [unitPhone, setUnitPhone] = useState("");
   const [unitEmail, setUnitEmail] = useState("");
 
-  function openAddBranch() {
+  // Add/edit-branch dialog (branch → unit)
+  const [branchUnitId, setBranchUnitId] = useState<string | null>(null);
+  const [branchEditing, setBranchEditing] = useState<OrganizationBranch | null>(null);
+  const [brName, setBrName] = useState("");
+  const [brCity, setBrCity] = useState("");
+  const [brAddress, setBrAddress] = useState("");
+  const [brPhone, setBrPhone] = useState("");
+  const [brEmail, setBrEmail] = useState("");
+  const [deleteBranchId, setDeleteBranchId] = useState<string | null>(null);
+
+  function openAddUnit() {
+    setUnitName("");
+    setUnitType("medical_institute");
+    setUnitSpecialty("");
+    setUnitLicense("");
+    setUnitPhone("");
+    setUnitEmail("");
+    setUnitOpen(true);
+  }
+  function saveUnit() {
+    const result = addOrganizationUnit(organization.id, {
+      display_name: unitName,
+      provider_type: unitType,
+      specialty: unitSpecialty || undefined,
+      license_number: unitLicense || undefined,
+      contact_phone: unitPhone || undefined,
+      contact_email: unitEmail || undefined,
+    });
+    if (!result.ok) {
+      showToast(result.error ?? "הוספת היחידה נכשלה", { variant: "destructive" });
+      return;
+    }
+    showToast("היחידה הרפואית נוספה לארגון", { variant: "success" });
+    setUnitOpen(false);
+  }
+
+  function openAddBranch(unitId: string) {
     setBranchEditing(null);
     setBrName("");
     setBrCity("");
     setBrAddress("");
     setBrPhone("");
     setBrEmail("");
-    setBranchOpen(true);
+    setBranchUnitId(unitId);
   }
   function openEditBranch(b: OrganizationBranch) {
     setBranchEditing(b);
@@ -711,9 +737,10 @@ export function OrganizationUnitsTab({ organization }: { organization: ProviderP
     setBrAddress(b.address ?? "");
     setBrPhone(b.contact_phone ?? "");
     setBrEmail(b.contact_email ?? "");
-    setBranchOpen(true);
+    setBranchUnitId(b.unit_id);
   }
   function saveBranch() {
+    if (!branchUnitId) return;
     const data = {
       name: brName,
       city: brCity || undefined,
@@ -725,165 +752,106 @@ export function OrganizationUnitsTab({ organization }: { organization: ProviderP
       updateOrganizationBranch(branchEditing.id, data);
       showToast("פרטי הסניף עודכנו", { variant: "success" });
     } else {
-      const result = addOrganizationBranch(organization.id, data);
+      const result = addOrganizationBranch(branchUnitId, data);
       if (!result.ok) {
         showToast(result.error ?? "הוספת הסניף נכשלה", { variant: "destructive" });
         return;
       }
-      showToast("הסניף נוסף לארגון", { variant: "success" });
+      showToast("הסניף נוסף ליחידה", { variant: "success" });
     }
-    setBranchOpen(false);
+    setBranchUnitId(null);
+    setBranchEditing(null);
   }
-
-  function openAddUnit(branchId: string) {
-    setUnitBranchId(branchId);
-    setUnitName("");
-    setUnitType("medical_institute");
-    setUnitSpecialty("");
-    setUnitLicense("");
-    setUnitPhone("");
-    setUnitEmail("");
-  }
-  function saveUnit() {
-    if (!unitBranchId) return;
-    const result = addOrganizationUnit(organization.id, {
-      display_name: unitName,
-      provider_type: unitType,
-      branch_id: unitBranchId,
-      specialty: unitSpecialty || undefined,
-      license_number: unitLicense || undefined,
-      contact_phone: unitPhone || undefined,
-      contact_email: unitEmail || undefined,
-    });
-    if (!result.ok) {
-      showToast(result.error ?? "הוספת היחידה נכשלה", { variant: "destructive" });
-      return;
-    }
-    showToast("היחידה הרפואית נוספה לסניף", { variant: "success" });
-    setUnitBranchId(null);
-  }
-
-  const unitBranch = branches.find((b) => b.id === unitBranchId);
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <p className="text-sm text-slate-600">
-          {branches.length === 0
-            ? "לארגון אין עדיין סניפים"
-            : `${branches.length} סניפים · ${orgUnits.length} יחידות רפואיות`}
+          {orgUnits.length === 0
+            ? "לארגון אין עדיין יחידות רפואיות"
+            : `${orgUnits.length} יחידות רפואיות · ${totalBranches} סניפים`}
         </p>
-        <Button size="sm" onClick={openAddBranch}>
-          <Plus className="h-4 w-4" /> הוספת סניף
+        <Button size="sm" onClick={openAddUnit}>
+          <Plus className="h-4 w-4" /> הוספת יחידה
         </Button>
       </div>
 
-      {branches.length === 0 && orphanUnits.length === 0 ? (
+      {orgUnits.length === 0 ? (
         <EmptyState
           icon={<Network className="h-9 w-9" />}
-          title="אין עדיין סניפים בארגון"
-          description="הוסיפו סניף (אתר פיזי) — ואז בכל סניף מוסיפים יחידות רפואיות וצרו לכל יחידה משתמש כניסה"
+          title="אין עדיין יחידות בארגון"
+          description="הוסיפו יחידה רפואית (מכון, מרפאת חוץ, מעבדה…) — ואז לכל יחידה מוסיפים סניפים (אתרים פיזיים) וצרו לה משתמש כניסה"
         />
       ) : (
         <div className="flex flex-col gap-3">
-          {branches.map((branch) => {
-            const units = orgUnits.filter((u) => u.parent_branch_id === branch.id);
+          {orgUnits.map((unit) => {
+            const branches = branchesOfUnit(unit.id);
             return (
-              <div key={branch.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <MapPinned className="h-4 w-4 text-primary" />
-                      <p className="font-semibold text-slate-900">{branch.name}</p>
-                      <Badge tone="slate">{units.length} יחידות</Badge>
-                    </div>
-                    {(branch.city || branch.address) && (
-                      <p className="mt-0.5 pr-6 text-xs text-slate-500">
-                        {[branch.city, branch.address].filter(Boolean).join(" · ")}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Button size="sm" variant="outline" onClick={() => openAddUnit(branch.id)}>
-                      <Plus className="h-3.5 w-3.5" /> יחידה
-                    </Button>
-                    <button
-                      onClick={() => openEditBranch(branch)}
-                      className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-                      title="עריכת סניף"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      onClick={() => setDeleteBranchId(branch.id)}
-                      className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-500"
-                      title="מחיקת סניף"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
+              <div key={unit.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <UnitRow unit={unit} />
+
+                <div className="mt-2.5 flex items-center justify-between">
+                  <p className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
+                    <MapPinned className="h-3.5 w-3.5 text-primary" /> סניפים ({branches.length})
+                  </p>
+                  <Button size="sm" variant="outline" onClick={() => openAddBranch(unit.id)}>
+                    <Plus className="h-3.5 w-3.5" /> סניף
+                  </Button>
                 </div>
 
-                {units.length === 0 ? (
-                  <p className="mt-2.5 rounded-lg border border-dashed border-slate-200 bg-white px-3 py-2.5 text-xs text-slate-400">
-                    אין עדיין יחידות בסניף זה — הוסיפו יחידה רפואית
+                {branches.length === 0 ? (
+                  <p className="mt-2 rounded-lg border border-dashed border-slate-200 bg-white px-3 py-2.5 text-xs text-slate-400">
+                    אין עדיין סניפים ליחידה זו — הוסיפו אתר פיזי
                   </p>
                 ) : (
-                  <div className="mt-2.5 flex flex-col gap-2">
-                    {units.map((unit) => (
-                      <UnitRow key={unit.id} unit={unit} />
+                  <div className="mt-2 flex flex-col gap-2">
+                    {branches.map((branch) => (
+                      <div
+                        key={branch.id}
+                        className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5"
+                      >
+                        <div className="min-w-0">
+                          <p className="flex items-center gap-1.5 font-medium text-slate-900">
+                            <MapPinned className="h-3.5 w-3.5 text-slate-400" /> {branch.name}
+                          </p>
+                          {(branch.city || branch.address) && (
+                            <p className="mt-0.5 pr-5 text-xs text-slate-500">
+                              {[branch.city, branch.address].filter(Boolean).join(" · ")}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => openEditBranch(branch)}
+                            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                            title="עריכת סניף"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setDeleteBranchId(branch.id)}
+                            className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-500"
+                            title="מחיקת סניף"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
                     ))}
                   </div>
                 )}
               </div>
             );
           })}
-
-          {/* Units created before branches existed (defensive — reseeds clean) */}
-          {orphanUnits.length > 0 && (
-            <div className="rounded-xl border border-warning-border bg-warning-bg p-3">
-              <p className="mb-2 text-xs font-medium text-warning-text">יחידות ללא שיוך לסניף</p>
-              <div className="flex flex-col gap-2">
-                {orphanUnits.map((unit) => (
-                  <UnitRow key={unit.id} unit={unit} />
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       )}
 
-      {/* Add / edit branch */}
+      {/* Add unit (to org) */}
       <Dialog
-        open={branchOpen}
-        onClose={() => setBranchOpen(false)}
-        title={branchEditing ? "עריכת סניף" : "סניף חדש בארגון"}
-        description={branchEditing ? undefined : "סניף הוא אתר פיזי של הארגון. לאחר יצירתו מוסיפים לו יחידות רפואיות."}
-      >
-        <div className="flex flex-col gap-3">
-          <Input label="שם הסניף" placeholder="לדוגמה: סניף תל אביב" value={brName} onChange={(e) => setBrName(e.target.value)} required />
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="עיר (לא חובה)" value={brCity} onChange={(e) => setBrCity(e.target.value)} />
-            <Input label="כתובת (לא חובה)" value={brAddress} onChange={(e) => setBrAddress(e.target.value)} />
-          </div>
-          <Input label="טלפון (לא חובה)" value={brPhone} onChange={(e) => setBrPhone(e.target.value)} />
-          <Input label="אימייל (לא חובה)" type="email" value={brEmail} onChange={(e) => setBrEmail(e.target.value)} />
-          <Button onClick={saveBranch} disabled={!brName.trim()}>
-            {branchEditing ? "שמור" : "הוסף סניף"}
-          </Button>
-        </div>
-      </Dialog>
-
-      {/* Add unit (scoped to a branch) */}
-      <Dialog
-        open={!!unitBranchId}
-        onClose={() => setUnitBranchId(null)}
-        title="יחידה רפואית חדשה"
-        description={
-          unitBranch
-            ? `נוספת לסניף "${unitBranch.name}". היחידה נוצרת במצב הצטרפות — משתמש היחידה משלים הסכמים, קטלוג וזמינות בפורטל.`
-            : undefined
-        }
+        open={unitOpen}
+        onClose={() => setUnitOpen(false)}
+        title="יחידה רפואית חדשה בארגון"
+        description="היחידה נוצרת במצב הצטרפות — משתמש היחידה משלים הסכמים, קטלוג וזמינות בפורטל. לאחר מכן מוסיפים לה סניפים."
       >
         <div className="flex flex-col gap-3">
           <Input label="שם היחידה" value={unitName} onChange={(e) => setUnitName(e.target.value)} required />
@@ -904,11 +872,35 @@ export function OrganizationUnitsTab({ organization }: { organization: ProviderP
         </div>
       </Dialog>
 
+      {/* Add / edit branch (to a unit) */}
+      <Dialog
+        open={!!branchUnitId}
+        onClose={() => {
+          setBranchUnitId(null);
+          setBranchEditing(null);
+        }}
+        title={branchEditing ? "עריכת סניף" : "סניף חדש ליחידה"}
+        description={branchEditing ? undefined : "סניף הוא אתר פיזי של היחידה הרפואית."}
+      >
+        <div className="flex flex-col gap-3">
+          <Input label="שם הסניף" placeholder="לדוגמה: סניף תל אביב" value={brName} onChange={(e) => setBrName(e.target.value)} required />
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="עיר (לא חובה)" value={brCity} onChange={(e) => setBrCity(e.target.value)} />
+            <Input label="כתובת (לא חובה)" value={brAddress} onChange={(e) => setBrAddress(e.target.value)} />
+          </div>
+          <Input label="טלפון (לא חובה)" value={brPhone} onChange={(e) => setBrPhone(e.target.value)} />
+          <Input label="אימייל (לא חובה)" type="email" value={brEmail} onChange={(e) => setBrEmail(e.target.value)} />
+          <Button onClick={saveBranch} disabled={!brName.trim()}>
+            {branchEditing ? "שמור" : "הוסף סניף"}
+          </Button>
+        </div>
+      </Dialog>
+
       <ConfirmDialog
         open={!!deleteBranchId}
         onClose={() => setDeleteBranchId(null)}
         title="מחיקת סניף"
-        description="הסניף יימחק. ניתן למחוק רק סניף ללא יחידות."
+        description="הסניף יימחק."
         destructive
         confirmLabel="מחק סניף"
         onConfirm={() => {

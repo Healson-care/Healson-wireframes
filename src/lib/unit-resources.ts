@@ -55,6 +55,13 @@ export interface UnitResource extends ScheduleHolder {
   subtitle?: string;
   service_ids: string[];
   is_active: boolean;
+  /** Which branch (site) this לוז runs in. */
+  branch_id?: string;
+  /** The מערך (service line) this לוז belongs to — "מערך MRI" / "מערך ייעוצים". */
+  service_array?: string;
+  /** How many identical stations this one לוז represents (concurrent capacity
+   * per slot). A doctor is always 1; a facility can stand for several machines. */
+  capacity: number;
   schedule?: WeeklySchedule;
   schedule_exceptions?: ScheduleException[];
 }
@@ -81,6 +88,9 @@ export function facilityToResource(facility: ProviderFacility, kindLabel: string
     subtitle: [kindLabel, facility.model, facility.room].filter(Boolean).join(" · "),
     service_ids: facility.service_ids ?? [],
     is_active: facility.is_active !== false,
+    branch_id: facility.branch_id,
+    service_array: facility.service_array,
+    capacity: Math.max(1, facility.capacity ?? 1),
     schedule: facility.schedule,
     schedule_exceptions: facility.schedule_exceptions,
   };
@@ -98,6 +108,9 @@ export function doctorToResource(
     subtitle: [affiliation.role, subtitle].filter(Boolean).join(" · ") || undefined,
     service_ids: affiliation.service_ids ?? [],
     is_active: true,
+    branch_id: affiliation.branch_id,
+    service_array: affiliation.service_array,
+    capacity: 1,
     schedule: affiliation.schedule,
     schedule_exceptions: affiliation.schedule_exceptions,
   };
@@ -162,23 +175,36 @@ export function unitSlotTimesForDate(
   date: string,
   opts: { serviceId?: string; durationMinutes?: number } = {}
 ): ResourceSlot[] {
-  const byTime = new Map<string, string[]>();
+  // Which distinct resources are open at each time (deduped across a resource's
+  // own overlapping shifts).
+  const openByTime = new Map<string, Set<string>>();
+  const capacityById = new Map<string, number>();
   resources
     .filter((r) => r.is_active)
     .filter((r) => !opts.serviceId || r.service_ids.includes(opts.serviceId))
     .forEach((resource) => {
+      capacityById.set(resource.id, Math.max(1, resource.capacity ?? 1));
       shiftsForDate(resource, date)
         .filter((s) => shiftOffersService(s, opts.serviceId))
         .forEach((s) =>
           slotTimesForShift(s, opts.durationMinutes).forEach((time) => {
-            const list = byTime.get(time) ?? [];
-            if (!list.includes(resource.id)) list.push(resource.id);
-            byTime.set(time, list);
+            const set = openByTime.get(time) ?? new Set<string>();
+            set.add(resource.id);
+            openByTime.set(time, set);
           })
         );
     });
-  return [...byTime.entries()]
-    .map(([time, resourceIds]) => ({ time, resourceIds }))
+  // Each open resource contributes `capacity` concurrent openings (a לוז that
+  // stands for N stations → its id appears N times).
+  return [...openByTime.entries()]
+    .map(([time, ids]) => {
+      const resourceIds: string[] = [];
+      ids.forEach((id) => {
+        const c = capacityById.get(id) ?? 1;
+        for (let i = 0; i < c; i++) resourceIds.push(id);
+      });
+      return { time, resourceIds };
+    })
     .sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
 }
 
@@ -191,12 +217,23 @@ export function freeResourceIds(
   appointments: Appointment[],
   date: string
 ): string[] {
-  const taken = new Set(
-    appointments
-      .filter((a) => a.status !== "בוטל" && a.date === date && a.time === slot.time && a.resource_id)
-      .map((a) => a.resource_id!)
-  );
-  return slot.resourceIds.filter((id) => !taken.has(id));
+  // How many bookings each resource id already holds at this time. A לוז with
+  // capacity N appears N times in slot.resourceIds, and can absorb N bookings
+  // on the same id before it's full.
+  const takenCount = new Map<string, number>();
+  appointments
+    .filter((a) => a.status !== "בוטל" && a.date === date && a.time === slot.time && a.resource_id)
+    .forEach((a) => takenCount.set(a.resource_id!, (takenCount.get(a.resource_id!) ?? 0) + 1));
+
+  const remaining = new Map(takenCount);
+  return slot.resourceIds.filter((id) => {
+    const left = remaining.get(id);
+    if (left && left > 0) {
+      remaining.set(id, left - 1); // this opening is consumed by an existing booking
+      return false;
+    }
+    return true;
+  });
 }
 
 // ---------------------------------------------------------------------------

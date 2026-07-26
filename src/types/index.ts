@@ -51,7 +51,7 @@ export const LAYER_LABELS: Record<InsuranceLayer, string> = {
   S: "סל קופה",
   K: 'ביטוח קופה (שב"ן)',
   B: "ביטוח בריאות פרטי",
-  H: "פרטי מלא",
+  H: "מחיר מלא לתייר",
 };
 
 // Supplemental HMO insurance (שב"ן) plan names are branded per-kupah, not a
@@ -735,6 +735,10 @@ export interface AffiliatedDoctor {
   role?: string; // "רופא בכיר", "מנהל יחידה"… free text
   service_ids: string[]; // ConsultationType ids of the organization's catalog
   clinic_ids?: string[]; // organization locations the doctor works at
+  // Which branch (site) this doctor's לוז runs in, and its מערך (usually
+  // "מערך ייעוצים"). A doctor לוז is one station — capacity is implicitly 1.
+  branch_id?: string;
+  service_array?: string;
   // The doctor's own week inside the unit (§PRV-08). In a medical unit
   // availability is owned by the *resource* that delivers the service, not by
   // the unit as a whole — a doctor with no schedule of their own simply has no
@@ -822,6 +826,13 @@ export interface ProviderFacility {
   model?: string; // "Siemens Magnetom Vida 3T"
   room?: string; // "חדר 4, קומה -1"
   is_active: boolean;
+  // Which branch (site) of the unit this לוז physically sits in.
+  branch_id?: string;
+  // The מערך (service line) this לוז belongs to — "מערך MRI", "מערך ייעוצים".
+  service_array?: string;
+  // How many identical stations/machines this one לוז represents (a לוז of
+  // "ראשון 08–17, קיבולת 4" = 4 concurrent slots per time). Default 1.
+  capacity?: number;
   // ConsultationType ids performed on this facility ("MRI ראש", "MRI בטן"…).
   // Empty means the facility exists but nothing is bookable on it yet.
   service_ids: string[];
@@ -889,7 +900,6 @@ export interface ProviderProfile {
   // ProviderProfile pointing back here) and a login user per unit.
   is_organization?: boolean;
   parent_organization_id?: string; // set on a medical unit created under an organization
-  parent_branch_id?: string; // set on a medical unit — which branch (site) of the org it belongs to
   // Organization only (outpatient_clinic / medical_institute) — doctors
   // working under this organization and the services each one delivers.
   affiliated_doctors?: AffiliatedDoctor[];
@@ -928,16 +938,16 @@ export interface ProviderProfile {
 }
 
 // ---------------------------------------------------------------------------
-// Organization branches (סניפים) — the middle tier of the org hierarchy:
-//   Organization (רשת) → Branch (סניף, a physical site) → Medical unit (יחידה).
-// A branch is a lightweight grouping/site record (NOT a ProviderProfile — it's
-// not a bookable provider), so it never appears in the providers table. Each
-// medical unit (a ProviderProfile) points at both its org (parent_organization_id)
-// and its branch (parent_branch_id).
+// Organization hierarchy: ארגון (רשת) → יחידה רפואית → סניף (site) → …
+// A branch (סניף) is a physical site of a MEDICAL UNIT — the unit is the
+// contracting/licensed entity, a branch is one of its addresses. It's a
+// lightweight record (NOT a ProviderProfile — not a bookable provider), so it
+// never appears in the providers table. Each branch points at its unit via
+// unit_id (a ProviderProfile that has parent_organization_id set).
 // ---------------------------------------------------------------------------
 export interface OrganizationBranch {
   id: string;
-  organization_id: string; // the ProviderProfile (is_organization) this branch belongs to
+  unit_id: string; // the medical-unit ProviderProfile this branch (site) belongs to
   name: string;
   city?: string;
   address?: string;

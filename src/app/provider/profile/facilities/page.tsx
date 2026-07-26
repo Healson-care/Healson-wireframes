@@ -9,8 +9,8 @@ import { MonitorCog } from "lucide-react";
 export default function ProviderFacilitiesPage() {
   return (
     <ProfilePageFrame
-      title="חדרים"
-      description="המכשירים והחדרים של היחידה — לכל אחד תור, לוח זמנים ופריטים משלו"
+      title="מכשירים"
+      description="המכשירים של היחידה, מקובצים לפי מערך (קו שירות). כאן מגדירים כל מכשיר ולאיזה מערך הוא שייך; את לוח הזמנים (הלו״ז) של כל אחד מגדירים בלשונית ‚זמינות‘ ← מערכים ולוזים."
     >
       {({ provider, update }) => {
         const setupConfig = getProviderSetupConfig(provider.provider_type);

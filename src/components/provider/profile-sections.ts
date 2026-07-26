@@ -67,7 +67,7 @@ export function getProfileSections(setupConfig: ProviderTypeSetupConfig): Profil
           {
             key: "facilities",
             href: "/provider/profile/facilities",
-            label: "חדרים",
+            label: "מכשירים",
             icon: MonitorCog,
             description: "MRI, CT, חדרי פעולות — והפריטים המבוצעים בכל אחד",
           },
