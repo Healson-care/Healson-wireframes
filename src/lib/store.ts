@@ -283,21 +283,19 @@ interface EntitiesState {
     contact_email?: string;
     member_provider_types?: ProviderType[];
   }) => ProviderProfile;
-  // Branches (סניפים) — the middle tier: an organization has one or more
-  // branches (sites), and each branch has one or more medical units.
+  // Branches (סניפים) — a physical site of a MEDICAL UNIT (ארגון → יחידה →
+  // סניף). Each branch belongs to one unit (unit_id).
   addOrganizationBranch: (
-    organizationId: string,
+    unitId: string,
     data: { name: string; city?: string; address?: string; contact_phone?: string; contact_email?: string }
   ) => { ok: boolean; error?: string; branch?: OrganizationBranch };
-  updateOrganizationBranch: (id: string, data: Partial<Omit<OrganizationBranch, "id" | "organization_id">>) => void;
-  // Blocked while the branch still has units — its units must be removed first.
+  updateOrganizationBranch: (id: string, data: Partial<Omit<OrganizationBranch, "id" | "unit_id">>) => void;
   deleteOrganizationBranch: (id: string) => { ok: boolean; error?: string };
   addOrganizationUnit: (
     organizationId: string,
     data: {
       display_name: string;
       provider_type: ProviderType;
-      branch_id?: string;
       specialty?: string;
       license_number?: string;
       contact_phone?: string;
@@ -1258,13 +1256,13 @@ export const useStore = create<Store>()(
         return record;
       },
 
-      addOrganizationBranch: (organizationId, data) => {
-        const org = get().providers.find((p) => p.id === organizationId);
-        if (!org) return { ok: false, error: "הארגון לא נמצא" };
+      addOrganizationBranch: (unitId, data) => {
+        const unit = get().providers.find((p) => p.id === unitId);
+        if (!unit) return { ok: false, error: "היחידה לא נמצאה" };
         if (!data.name.trim()) return { ok: false, error: "יש להזין שם סניף" };
         const branch: OrganizationBranch = {
           id: generateId("branch"),
-          organization_id: organizationId,
+          unit_id: unitId,
           name: data.name.trim(),
           city: data.city?.trim() || undefined,
           address: data.address?.trim() || undefined,
@@ -1280,8 +1278,6 @@ export const useStore = create<Store>()(
           organizationBranches: s.organizationBranches.map((b) => (b.id === id ? { ...b, ...data } : b)),
         })),
       deleteOrganizationBranch: (id) => {
-        const hasUnits = get().providers.some((p) => p.parent_branch_id === id);
-        if (hasUnits) return { ok: false, error: "לא ניתן למחוק סניף עם יחידות — יש להעביר או למחוק את היחידות תחילה" };
         set((s) => ({ organizationBranches: s.organizationBranches.filter((b) => b.id !== id) }));
         return { ok: true };
       },
@@ -1290,13 +1286,9 @@ export const useStore = create<Store>()(
         const org = get().providers.find((p) => p.id === organizationId);
         if (!org) return { ok: false, error: "הארגון לא נמצא" };
         if (!data.display_name.trim()) return { ok: false, error: "יש להזין שם יחידה" };
-        if (data.branch_id && !get().organizationBranches.some((b) => b.id === data.branch_id && b.organization_id === organizationId)) {
-          return { ok: false, error: "הסניף לא נמצא" };
-        }
         const unit: ProviderProfile = {
           id: generateId("prov"),
           parent_organization_id: organizationId,
-          parent_branch_id: data.branch_id,
           provider_type: data.provider_type,
           display_name: data.display_name.trim(),
           specialty: data.specialty ?? "",
@@ -1626,7 +1618,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 20,
+      version: 23,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
       // records), the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER seed
       // account, the v3 -> v4 AppointmentStatus rename ("ממתין לאישור" ->
@@ -1681,7 +1673,15 @@ export const useStore = create<Store>()(
       // v19 -> v20 adds the org→branch→unit hierarchy: a new organizationBranches
       // slice, ProviderProfile.parent_branch_id on units, and a seeded demo
       // organization with two branches — reseed clean so branches are present.
-      migrate: (persistedState, version) => (version < 20 ? ({} as Store) : (persistedState as Store)),
+      // v20 -> v21 REVERSES the hierarchy to ארגון → יחידה → סניף: a branch now
+      // belongs to a unit (OrganizationBranch.unit_id), parent_branch_id was
+      // dropped from units, and the demo org reseeds as units-with-branches.
+      // v21 -> v22 adds מערך (service_array) + capacity to unit לוזים
+      // (ProviderFacility/AffiliatedDoctor) and tags the demo units' resources —
+      // reseed clean so the מערך grouping + capacity show on the demo accounts.
+      // v22 -> v23 tags the demo institute's affiliated doctors with a מערך
+      // (service_array) so the merged מערכים→לוזים availability view groups them.
+      migrate: (persistedState, version) => (version < 23 ? ({} as Store) : (persistedState as Store)),
       // Uploaded files (photos/PDFs) are stored as base64 data URLs inside
       // this same persisted blob (no real backend — see file.ts). If a
       // single write ever still exceeds the browser's localStorage quota

@@ -812,6 +812,8 @@ const providerInstitute: ProviderProfile = {
       kind: "mri",
       model: "Siemens Magnetom Vida 3T",
       room: "חדר 4, קומה -1",
+      service_array: "מערך MRI",
+      capacity: 2,
       is_active: true,
       service_ids: [instituteServiceIds.mriSpine, instituteServiceIds.mriHead],
       created_at: isoDateDaysFromNow(-255),
@@ -844,6 +846,7 @@ const providerInstitute: ProviderProfile = {
       kind: "ct",
       model: "GE Revolution CT",
       room: "חדר 6, קומה -1",
+      service_array: "מערך CT",
       is_active: true,
       service_ids: [instituteServiceIds.ctAbdomen, instituteServiceIds.ctChest],
       created_at: isoDateDaysFromNow(-255),
@@ -869,6 +872,7 @@ const providerInstitute: ProviderProfile = {
       name: "חדר פעולות 1",
       kind: "procedure_room",
       room: "קומה 1",
+      service_array: "מערך פעולות",
       is_active: true,
       service_ids: [instituteServiceIds.colono],
       created_at: isoDateDaysFromNow(-250),
@@ -885,6 +889,7 @@ const providerInstitute: ProviderProfile = {
       id: "affdoc_inst_1",
       doctor_provider_id: instituteDoctor1.id,
       role: "מנהל היחידה להדמיה",
+      service_array: "מערך ייעוצים",
       // Consultation-type services are delivered by the doctor, so they hang
       // off the doctor's own calendar rather than off a machine.
       service_ids: [instituteServiceIds.secondOpinion],
@@ -900,6 +905,7 @@ const providerInstitute: ProviderProfile = {
       id: "affdoc_inst_2",
       doctor_provider_id: instituteDoctor2.id,
       role: "מנתח בכיר",
+      service_array: "מערך פעולות",
       service_ids: [instituteServiceIds.colono, instituteServiceIds.surgeonPick],
       clinic_ids: [instituteClinicId],
       added_at: isoDateDaysFromNow(-230),
@@ -1175,12 +1181,15 @@ const providerOutpatient: ProviderProfile = {
 
 // ---------------------------------------------------------------------------
 // Demo organization hierarchy: רשת (organization) → סניפים (branches) →
-// יחידות רפואיות (units). Seeds the org→branch→unit tree so /organizations and
-// the provider card's "יחידות ומשתמשים" tab aren't empty on first load.
+// יחידות רפואיות (units) → סניפים (branches). Seeds the org→unit→branch tree so
+// /organizations and the provider card aren't empty on first load.
 // ---------------------------------------------------------------------------
 const demoOrgId = "prov_org_demo";
+const demoUnitInstituteId = "prov_org_unit_1";
+const demoUnitClinicId = "prov_org_unit_2";
 const demoBranchTlvId = "branch_demo_tlv";
 const demoBranchHaifaId = "branch_demo_haifa";
+const demoBranchClinicId = "branch_demo_clinic";
 
 const demoOrg: ProviderProfile = {
   id: demoOrgId,
@@ -1202,13 +1211,9 @@ const demoOrg: ProviderProfile = {
   created_date: isoDateDaysFromNow(-90),
 };
 
-function demoUnit(over: {
-  id: string;
-  display_name: string;
-  provider_type: ProviderType;
-  parent_branch_id: string;
-  specialty?: string;
-}): ProviderProfile {
+function demoUnit(
+  over: Partial<ProviderProfile> & { id: string; display_name: string; provider_type: ProviderType }
+): ProviderProfile {
   return {
     specialty: "",
     is_published: true,
@@ -1226,32 +1231,62 @@ function demoUnit(over: {
   };
 }
 
-const demoUnitTlvInstitute = demoUnit({
-  id: "prov_org_unit_1",
-  display_name: "מכון הדמיה — תל אביב",
+// Two medical units under the org; the מכון operates in two branches (ת"א +
+// חיפה), the מרפאת חוץ in one (ת"א). The מכון's לוזים (מתקנים) are grouped by
+// מערך (service line) and carry capacity — e.g. "מערך MRI · MRI 1 · 3 עמדות".
+const demoUnitInstitute = demoUnit({
+  id: demoUnitInstituteId,
+  display_name: "מכון הדמיה המאוחדת",
   provider_type: "medical_institute",
-  parent_branch_id: demoBranchTlvId,
   specialty: "הדמיה ואבחון",
+  facilities: [
+    {
+      id: "fac_mri_tlv",
+      name: "MRI 1",
+      kind: "mri",
+      model: "Siemens Magnetom Vida 3T",
+      branch_id: demoBranchTlvId,
+      service_array: "מערך MRI",
+      capacity: 3,
+      is_active: true,
+      service_ids: [],
+      created_at: isoDateDaysFromNow(-75),
+    },
+    {
+      id: "fac_ct_tlv",
+      name: "CT 1",
+      kind: "ct",
+      branch_id: demoBranchTlvId,
+      service_array: "מערך CT",
+      capacity: 1,
+      is_active: true,
+      service_ids: [],
+      created_at: isoDateDaysFromNow(-75),
+    },
+    {
+      id: "fac_mri_haifa",
+      name: "MRI 1",
+      kind: "mri",
+      branch_id: demoBranchHaifaId,
+      service_array: "מערך MRI",
+      capacity: 2,
+      is_active: true,
+      service_ids: [],
+      created_at: isoDateDaysFromNow(-65),
+    },
+  ],
 });
-const demoUnitTlvClinic = demoUnit({
-  id: "prov_org_unit_2",
-  display_name: "מרפאות חוץ — תל אביב",
+const demoUnitClinic = demoUnit({
+  id: demoUnitClinicId,
+  display_name: "מרפאות חוץ המאוחדת",
   provider_type: "outpatient_clinic",
-  parent_branch_id: demoBranchTlvId,
   specialty: "רב-תחומי",
-});
-const demoUnitHaifaInstitute = demoUnit({
-  id: "prov_org_unit_3",
-  display_name: "מכון הדמיה — חיפה",
-  provider_type: "medical_institute",
-  parent_branch_id: demoBranchHaifaId,
-  specialty: "הדמיה ואבחון",
 });
 
 export const SEED_ORGANIZATION_BRANCHES: OrganizationBranch[] = [
   {
     id: demoBranchTlvId,
-    organization_id: demoOrgId,
+    unit_id: demoUnitInstituteId,
     name: "סניף תל אביב",
     city: "תל אביב",
     address: "דרך מנחם בגין 132",
@@ -1260,12 +1295,21 @@ export const SEED_ORGANIZATION_BRANCHES: OrganizationBranch[] = [
   },
   {
     id: demoBranchHaifaId,
-    organization_id: demoOrgId,
+    unit_id: demoUnitInstituteId,
     name: "סניף חיפה",
     city: "חיפה",
     address: "שדרות המגינים 50",
     contact_phone: "04-7000002",
     created_date: isoDateDaysFromNow(-70),
+  },
+  {
+    id: demoBranchClinicId,
+    unit_id: demoUnitClinicId,
+    name: "סניף תל אביב",
+    city: "תל אביב",
+    address: "יגאל אלון 94",
+    contact_phone: "03-7000003",
+    created_date: isoDateDaysFromNow(-60),
   },
 ];
 
@@ -1282,9 +1326,8 @@ export const SEED_PROVIDERS: ProviderProfile[] = [
   providerOutpatient,
   outpatientDoctor1,
   demoOrg,
-  demoUnitTlvInstitute,
-  demoUnitTlvClinic,
-  demoUnitHaifaInstitute,
+  demoUnitInstitute,
+  demoUnitClinic,
 ];
 
 // ---------------------------------------------------------------------------

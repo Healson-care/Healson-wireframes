@@ -52,7 +52,12 @@ export default function OrganizationsPage() {
   const organizations = useMemo(() => providers.filter((p) => p.is_organization), [providers]);
   const allUnits = useMemo(() => providers.filter((p) => p.parent_organization_id), [providers]);
   const unitsOf = (orgId: string) => allUnits.filter((u) => u.parent_organization_id === orgId);
-  const branchesOf = (orgId: string) => organizationBranches.filter((b) => b.organization_id === orgId);
+  // Branches belong to units now (ארגון → יחידה → סניף), so an org's branches
+  // are the branches of all its units.
+  const branchesOf = (orgId: string) => {
+    const unitIds = new Set(unitsOf(orgId).map((u) => u.id));
+    return organizationBranches.filter((b) => unitIds.has(b.unit_id));
+  };
   const manageOrg = manageId ? providers.find((p) => p.id === manageId) : undefined;
 
   const kpis = useMemo(() => {

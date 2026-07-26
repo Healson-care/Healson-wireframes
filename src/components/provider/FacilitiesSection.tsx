@@ -16,7 +16,7 @@ import {
   ProviderFacility,
 } from "@/types";
 import { hasAnyAvailability, totalWeeklyHours } from "@/lib/schedule";
-import { AlertCircle, CalendarClock, MonitorCog, Pencil, Plus, Stethoscope, Trash2 } from "lucide-react";
+import { AlertCircle, CalendarClock, Layers, MonitorCog, Pencil, Plus, Stethoscope, Trash2 } from "lucide-react";
 
 /** The unit's מתקנים (§PRV-08) — the machines and rooms a medical unit books
  * against: "MRI 1", "CT 1", "חדר פעולות 2".
@@ -42,6 +42,11 @@ export function FacilitiesSection({
   const [kind, setKind] = useState<FacilityKind>("mri");
   const [model, setModel] = useState("");
   const [room, setRoom] = useState("");
+  const [serviceArray, setServiceArray] = useState("");
+  // Omer's shortcut: one לוז can stand for several identical machines instead
+  // of creating a separate לוז per machine.
+  const [multiMachine, setMultiMachine] = useState(false);
+  const [capacity, setCapacity] = useState("2");
   const [isActive, setIsActive] = useState(true);
   const [serviceIds, setServiceIds] = useState<string[]>([]);
 
@@ -50,12 +55,25 @@ export function FacilitiesSection({
   // too since this is where the link is made.
   const unlinkedServices = services.filter((s) => !facilities.some((f) => f.service_ids.includes(s.id)));
 
+  // Group the לוזים by מערך (service line) so the structure מערך → לוזים is
+  // visible, exactly as the hierarchy models it.
+  const groups: [string, ProviderFacility[]][] = [];
+  facilities.forEach((f) => {
+    const key = f.service_array?.trim() || "ללא מערך";
+    const bucket = groups.find(([name]) => name === key);
+    if (bucket) bucket[1].push(f);
+    else groups.push([key, [f]]);
+  });
+
   function openCreate() {
     setEditingId(null);
     setName("");
     setKind("mri");
     setModel("");
     setRoom("");
+    setServiceArray("");
+    setMultiMachine(false);
+    setCapacity("2");
     setIsActive(true);
     setServiceIds([]);
     setOpen(true);
@@ -67,6 +85,9 @@ export function FacilitiesSection({
     setKind(facility.kind);
     setModel(facility.model ?? "");
     setRoom(facility.room ?? "");
+    setServiceArray(facility.service_array ?? "");
+    setMultiMachine((facility.capacity ?? 1) > 1);
+    setCapacity(String(Math.max(2, facility.capacity ?? 2)));
     setIsActive(facility.is_active !== false);
     setServiceIds(facility.service_ids ?? []);
     setOpen(true);
@@ -83,6 +104,8 @@ export function FacilitiesSection({
       kind,
       model: model.trim() || undefined,
       room: room.trim() || undefined,
+      service_array: serviceArray.trim() || undefined,
+      capacity: multiMachine ? Math.max(2, Number(capacity) || 2) : 1,
       is_active: isActive,
       service_ids: serviceIds,
       created_at: existing?.created_at ?? new Date().toISOString(),
@@ -97,23 +120,33 @@ export function FacilitiesSection({
         <div className="flex items-center gap-2">
           <MonitorCog className="h-4 w-4 text-slate-400" />
           <div>
-            <p className="text-sm font-medium text-slate-900">חדרי היחידה</p>
+            <p className="text-sm font-medium text-slate-900">מכשירי היחידה</p>
             <p className="text-xs text-slate-500">
-              {facilities.length} חדרים · {facilities.filter((f) => hasAnyAvailability(f)).length} עם לוח זמנים
-              פעיל
+              {groups.length} מערכים · {facilities.length} מכשירים ·{" "}
+              {facilities.filter((f) => hasAnyAvailability(f)).length} עם לוח זמנים פעיל
             </p>
           </div>
         </div>
         <Button size="sm" onClick={openCreate}>
-          <Plus className="h-4 w-4" /> הוספת חדר
+          <Plus className="h-4 w-4" /> הוספת מכשיר
         </Button>
       </Card>
+
+      {/* In-app explainer of מערך → מכשיר; scheduling (הלו״ז) lives in זמינות */}
+      <div className="flex items-start gap-2 rounded-lg border border-info-border bg-info-bg px-3 py-2.5 text-xs leading-relaxed text-info-text">
+        <Layers className="mt-0.5 h-4 w-4 shrink-0" />
+        <span>
+          <b>מערך</b> = קטגוריית שירות של היחידה (מערך MRI, מערך CT…). כאן מגדירים את <b>המכשירים</b> ולאיזה מערך
+          כל אחד שייך. מכשיר אחד יכול לייצג כמה יחידות זהות. את לוח הזמנים (<b>הלו״ז</b>) של כל מכשיר מגדירים
+          בלשונית ‚זמינות‘ ← מערכים ולוזים.
+        </span>
+      </div>
 
       {facilities.length > 0 && unlinkedServices.length > 0 && (
         <div className="flex items-start gap-2 rounded-lg border border-warning-border bg-warning-bg px-3 py-2 text-sm text-warning-text">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
-            {unlinkedServices.length} פריטים אינם מקושרים לאף חדר:{" "}
+            {unlinkedServices.length} פריטים אינם מקושרים לאף מכשיר:{" "}
             {unlinkedServices
               .slice(0, 4)
               .map((s) => s.name)
@@ -127,12 +160,25 @@ export function FacilitiesSection({
       {facilities.length === 0 ? (
         <EmptyState
           icon={<MonitorCog className="h-10 w-10" />}
-          title="לא הוגדרו חדרים"
-          description="ביחידה רפואית הזמינות היא ברמת החדר ונותן/ת השירות, לא ברמת היחידה. הוסיפו את המכשירים והחדרים (MRI 1, CT 1, חדר פעולות) ושייכו לכל אחד את הפריטים המבוצעים בו."
+          title="לא הוגדרו מכשירים"
+          description="הוסיפו את מכשירי היחידה (MRI 1, CT 1…), שייכו כל אחד למערך, ושייכו לו את הפריטים המבוצעים עליו. את לוח הזמנים של כל מכשיר מגדירים בלשונית ‚זמינות‘."
         />
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {facilities.map((facility) => {
+        <div className="flex flex-col gap-4">
+          {groups.map(([arrayName, facs]) => {
+            const totalStations = facs.reduce((sum, f) => sum + Math.max(1, f.capacity ?? 1), 0);
+            return (
+            <div key={arrayName} className="overflow-hidden rounded-xl border border-slate-200">
+              <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+                <Layers className="h-4 w-4 text-primary" />
+                <p className="text-sm font-semibold text-slate-900">{arrayName}</p>
+                <Badge tone="purple">{facs.length} מכשירים</Badge>
+                {totalStations > facs.length && (
+                  <span className="text-xs text-slate-400">· {totalStations} יחידות פיזיות</span>
+                )}
+              </div>
+              <div className="grid gap-3 p-3 sm:grid-cols-2">
+                {facs.map((facility) => {
             const linked = services.filter((s) => facility.service_ids.includes(s.id));
             const weekly = totalWeeklyHours(facility);
             return (
@@ -142,6 +188,8 @@ export function FacilitiesSection({
                     <div className="flex flex-wrap items-center gap-1.5">
                       <p className="font-medium text-slate-900">{facility.name}</p>
                       <Badge tone="blue">{FACILITY_KIND_LABELS[facility.kind]}</Badge>
+                      {facility.service_array && <Badge tone="purple">{facility.service_array}</Badge>}
+                      {(facility.capacity ?? 1) > 1 && <Badge tone="green">מייצג {facility.capacity} מכשירים</Badge>}
                       {facility.is_active === false && <Badge tone="slate">לא פעיל</Badge>}
                     </div>
                     {(facility.model || facility.room) && (
@@ -160,14 +208,14 @@ export function FacilitiesSection({
                     <button
                       onClick={() => openEdit(facility)}
                       className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"
-                      aria-label="עריכת חדר"
+                      aria-label="עריכת מכשיר"
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
                     <button
                       onClick={() => setDeleteId(facility.id)}
                       className="rounded-md p-1.5 text-red-500 hover:bg-red-50"
-                      aria-label="מחיקת חדר"
+                      aria-label="מחיקת מכשיר"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -176,10 +224,10 @@ export function FacilitiesSection({
 
                 <div className="mt-3">
                   <p className="mb-1 flex items-center gap-1 text-[11px] font-medium text-slate-500">
-                    <Stethoscope className="h-3 w-3" /> פריטים המבוצעים בחדר
+                    <Stethoscope className="h-3 w-3" /> פריטים המבוצעים במכשיר
                   </p>
                   {linked.length === 0 ? (
-                    <p className="text-xs text-warning-text">לא שויכו פריטים — החדר לא יופיע בהזמנת תורים</p>
+                    <p className="text-xs text-warning-text">לא שויכו פריטים — המכשיר לא יופיע בהזמנת תורים</p>
                   ) : (
                     <div className="flex flex-wrap gap-1">
                       {linked.map((s) => (
@@ -192,6 +240,10 @@ export function FacilitiesSection({
                 </div>
               </Card>
             );
+                })}
+              </div>
+            </div>
+            );
           })}
         </div>
       )}
@@ -199,21 +251,21 @@ export function FacilitiesSection({
       <Dialog
         open={open}
         onClose={() => setOpen(false)}
-        title={editingId ? "עריכת חדר" : "חדר חדש"}
-        description="מכשיר או חדר שמחזיק תור משלו — MRI 1, CT 1, חדר פעולות 2"
+        title={editingId ? "עריכת מכשיר" : "מכשיר חדש"}
+        description="מכשיר/עמדה של היחידה — MRI 1, CT 1. משייכים אותו למערך. את לוח הזמנים שלו מגדירים בלשונית ‚זמינות‘."
         className="max-w-xl"
       >
         <div className="flex flex-col gap-3">
           <div className="grid gap-3 sm:grid-cols-2">
             <Input
-              label="שם החדר"
+              label="שם המכשיר"
               placeholder="MRI 1"
               value={name}
               onChange={(e) => setName(e.target.value)}
               hint="השם שיופיע ביומן ובשיבוץ"
               required
             />
-            <Select label="סוג החדר" value={kind} onChange={(e) => setKind(e.target.value as FacilityKind)}>
+            <Select label="סוג המכשיר" value={kind} onChange={(e) => setKind(e.target.value as FacilityKind)}>
               {FACILITY_KINDS.map((k) => (
                 <option key={k} value={k}>
                   {FACILITY_KIND_LABELS[k]}
@@ -232,6 +284,41 @@ export function FacilitiesSection({
               value={room}
               onChange={(e) => setRoom(e.target.value)}
             />
+            <Input
+              label="מערך (קו שירות)"
+              placeholder="מערך MRI"
+              value={serviceArray}
+              onChange={(e) => setServiceArray(e.target.value)}
+              hint="קטגוריית השירות שהמכשיר שייך אליה"
+            />
+          </div>
+
+          {/* Omer's shortcut — one record can represent several identical machines */}
+          <div className="rounded-lg border border-slate-200 p-3">
+            <label className="flex cursor-pointer items-start gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={multiMachine}
+                onChange={(e) => setMultiMachine(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-slate-300 accent-primary"
+              />
+              <span>
+                רשומה זו מייצגת כמה מכשירים זהים
+                <span className="block text-xs font-normal text-slate-500">
+                  במקום ליצור רשומה לכל מכשיר. אותו לו״ז יחול על כולם — כל שעה תיפתח למספר המכשירים במקביל.
+                </span>
+              </span>
+            </label>
+            {multiMachine && (
+              <Input
+                label="מספר המכשירים הזהים"
+                type="number"
+                min={2}
+                value={capacity}
+                onChange={(e) => setCapacity(e.target.value)}
+                className="mt-2 max-w-[180px]"
+              />
+            )}
           </div>
 
           <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
@@ -241,13 +328,13 @@ export function FacilitiesSection({
               onChange={(e) => setIsActive(e.target.checked)}
               className="h-4 w-4 rounded border-slate-300 accent-primary"
             />
-            חדר פעיל (חדר לא פעיל אינו מייצר תורים — למשל בזמן תחזוקה ממושכת)
+            מכשיר פעיל (מכשיר לא פעיל אינו מייצר תורים — למשל בזמן תחזוקה ממושכת)
           </label>
 
           <div className="rounded-lg border border-slate-200 p-3">
             <div className="mb-2 flex items-center justify-between">
               <span className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
-                <Stethoscope className="h-3.5 w-3.5 text-slate-400" /> פריטים המבוצעים בחדר זה
+                <Stethoscope className="h-3.5 w-3.5 text-slate-400" /> פריטים המבוצעים במכשיר זה
               </span>
               {services.length > 0 && (
                 <button
@@ -261,7 +348,7 @@ export function FacilitiesSection({
             </div>
             {services.length === 0 ? (
               <p className="text-xs text-slate-400">
-                אין עדיין פריטים בקטלוג — הוסיפו פריטים בלשונית &quot;פריטים&quot; ואז שייכו אותם לחדר.
+                אין עדיין פריטים בקטלוג — הוסיפו פריטים בלשונית &quot;פריטים&quot; ואז שייכו אותם למכשיר.
               </p>
             ) : (
               <div className="flex flex-wrap gap-1.5">
@@ -291,12 +378,12 @@ export function FacilitiesSection({
 
           <p className="flex items-start gap-1.5 rounded-lg bg-info-bg px-3 py-2 text-xs text-info-text">
             <CalendarClock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            את שעות הפעילות של החדר מגדירים בלשונית &quot;זמינות&quot; ← &quot;חדרים&quot;. לכל חדר לוח זמנים
-            נפרד, ושני חדרים יכולים לקבל מטופלים באותה שעה.
+            את לוח הזמנים (הלו״ז) של המכשיר מגדירים בלשונית &quot;זמינות&quot; ← מערכים ולוזים. מכשיר שמייצג N יחידות
+            = N תורים במקביל בכל שעה.
           </p>
 
           <Button onClick={handleSave} disabled={!name.trim()}>
-            שמור חדר
+            שמור מכשיר
           </Button>
         </div>
       </Dialog>
@@ -304,14 +391,14 @@ export function FacilitiesSection({
       <ConfirmDialog
         open={!!deleteId}
         onClose={() => setDeleteId(null)}
-        title="מחיקת חדר"
+        title="מחיקת מכשיר"
         description={(() => {
           if (!deleteId) return undefined;
           const facility = facilities.find((f) => f.id === deleteId);
           const count = facility?.service_ids.length ?? 0;
           return count === 0
-            ? "לוח הזמנים של החדר יימחק. פעולה זו אינה הפיכה."
-            : `${count} פריטים מבוצעים בחדר זה ולא יהיו ניתנים להזמנה עד שישויכו לחדר אחר. פעולה זו אינה הפיכה.`;
+            ? "לוח הזמנים של המכשיר יימחק. פעולה זו אינה הפיכה."
+            : `${count} פריטים מבוצעים במכשיר זה ולא יהיו ניתנים להזמנה עד שישויכו למכשיר אחר. פעולה זו אינה הפיכה.`;
         })()}
         destructive
         confirmLabel="מחק"

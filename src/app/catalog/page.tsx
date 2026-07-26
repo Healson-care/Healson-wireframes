@@ -503,7 +503,7 @@ function CatalogItemForm({
             </>
           )}
           <Input
-            label="מחיר H — משרד הבריאות (₪)"
+            label="מחיר H — מלא לתייר (₪)"
             type="number"
             value={form.price_h}
             onChange={(e) => setForm({ ...form, price_h: e.target.value })}
