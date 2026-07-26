@@ -11,6 +11,7 @@ import { Dialog, ConfirmDialog } from "@/components/ui/Dialog";
 import { ProgressBar } from "@/components/ui/Progress";
 import { ProviderJourneyStepper } from "@/components/provider/ProviderJourneyStepper";
 import { MonthlyReportSection } from "@/components/provider/MonthlyReportSection";
+import { BranchArraysManager } from "@/components/units/BranchArraysManager";
 import { formatDateHe } from "@/lib/utils";
 import {
   DOCTOR_SUBTYPE_LABELS,
@@ -808,34 +809,37 @@ export function OrganizationUnitsTab({ organization }: { organization: ProviderP
                     {branches.map((branch) => (
                       <div
                         key={branch.id}
-                        className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5"
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-2.5"
                       >
-                        <div className="min-w-0">
-                          <p className="flex items-center gap-1.5 font-medium text-slate-900">
-                            <MapPinned className="h-3.5 w-3.5 text-slate-400" /> {branch.name}
-                          </p>
-                          {(branch.city || branch.address) && (
-                            <p className="mt-0.5 pr-5 text-xs text-slate-500">
-                              {[branch.city, branch.address].filter(Boolean).join(" · ")}
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="flex items-center gap-1.5 font-medium text-slate-900">
+                              <MapPinned className="h-3.5 w-3.5 text-slate-400" /> {branch.name}
                             </p>
-                          )}
+                            {(branch.city || branch.address) && (
+                              <p className="mt-0.5 pr-5 text-xs text-slate-500">
+                                {[branch.city, branch.address].filter(Boolean).join(" · ")}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => openEditBranch(branch)}
+                              className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                              title="עריכת סניף"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setDeleteBranchId(branch.id)}
+                              className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-500"
+                              title="מחיקת סניף"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => openEditBranch(branch)}
-                            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-                            title="עריכת סניף"
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            onClick={() => setDeleteBranchId(branch.id)}
-                            className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-500"
-                            title="מחיקת סניף"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
+                        <BranchArraysManager branch={branch} />
                       </div>
                     ))}
                   </div>
@@ -900,7 +904,7 @@ export function OrganizationUnitsTab({ organization }: { organization: ProviderP
         open={!!deleteBranchId}
         onClose={() => setDeleteBranchId(null)}
         title="מחיקת סניף"
-        description="הסניף יימחק."
+        description="הסניף יימחק, ואיתו המערכים שהוגדרו בו."
         destructive
         confirmLabel="מחק סניף"
         onConfirm={() => {
@@ -917,3 +921,4 @@ export function OrganizationUnitsTab({ organization }: { organization: ProviderP
     </div>
   );
 }
+

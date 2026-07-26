@@ -12,6 +12,7 @@ import {
   CreditCard,
   FileBarChart,
   MonitorCog,
+  Network,
   Settings,
   type LucideIcon,
 } from "lucide-react";
@@ -61,6 +62,18 @@ export function getProfileSections(setupConfig: ProviderTypeSetupConfig): Profil
         ? "כתובת היחידה, פרטי התקשרות ופריטים — היחידה עצמה היא הסניף"
         : `ניהול ה${setupConfig.locationLabelPlural} והפריטים המקושרים אליהם`,
     },
+    // Medical units (§PRV-08) — the unit's structure: סניפים → מערכים.
+    ...(setupConfig.showFacilities
+      ? [
+          {
+            key: "structure",
+            href: "/provider/profile/structure",
+            label: "סניפים ומערכים",
+            icon: Network,
+            description: "הסניפים של היחידה, והמערכים (קווי שירות) שבכל סניף",
+          },
+        ]
+      : []),
     // Medical units (§PRV-08) — machines/rooms that hold their own queue.
     ...(setupConfig.showFacilities
       ? [

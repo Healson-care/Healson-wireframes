@@ -3,10 +3,13 @@
 import { ProfilePageFrame } from "@/components/provider/ProfilePageFrame";
 import { FacilitiesSection } from "@/components/provider/FacilitiesSection";
 import { getProviderSetupConfig } from "@/lib/provider-setup";
+import { useStore } from "@/lib/store";
 import { EmptyState } from "@/components/ui/Misc";
 import { MonitorCog } from "lucide-react";
 
 export default function ProviderFacilitiesPage() {
+  const organizationBranches = useStore((s) => s.organizationBranches);
+  const serviceArrays = useStore((s) => s.serviceArrays);
   return (
     <ProfilePageFrame
       title="מכשירים"
@@ -25,10 +28,15 @@ export default function ProviderFacilitiesPage() {
             />
           );
         }
+        const unitBranches = organizationBranches.filter((b) => b.unit_id === provider.id);
+        const branchIds = new Set(unitBranches.map((b) => b.id));
+        const unitArrays = serviceArrays.filter((a) => branchIds.has(a.branch_id));
         return (
           <FacilitiesSection
             facilities={provider.facilities ?? []}
             services={provider.consultation_types}
+            serviceArrays={unitArrays}
+            branches={unitBranches}
             onChange={(facilities) => update({ facilities })}
           />
         );

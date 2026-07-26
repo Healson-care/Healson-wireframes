@@ -14,7 +14,9 @@ import {
   AffiliatedDoctor,
   Clinic,
   ConsultationType,
+  OrganizationBranch,
   ProviderProfile,
+  ServiceArray,
   UploadedFile,
   isUnitProviderType,
 } from "@/types";
@@ -23,8 +25,10 @@ import {
   AlertCircle,
   BadgeCheck,
   CalendarClock,
+  Layers,
   Link2,
   MapPin,
+  MapPinned,
   Pencil,
   Plus,
   Search,
@@ -58,6 +62,8 @@ function requiresDoctor(service: ConsultationType): boolean {
 
 export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfile }) {
   const providers = useStore((s) => s.providers);
+  const organizationBranches = useStore((s) => s.organizationBranches);
+  const serviceArrays = useStore((s) => s.serviceArrays);
   const findMatchingDoctors = useStore((s) => s.findMatchingDoctors);
   const addAffiliatedDoctor = useStore((s) => s.addAffiliatedDoctor);
   const linkExistingDoctorToOrganization = useStore((s) => s.linkExistingDoctorToOrganization);
@@ -72,6 +78,20 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
   const affiliations = provider.affiliated_doctors ?? [];
   const doctorById = useMemo(() => new Map(providers.map((p) => [p.id, p])), [providers]);
   const services = provider.consultation_types;
+
+  // This unit's branches + מערכים, and a resolver for a doctor's מערך → name/branch.
+  const unitBranches = organizationBranches.filter((b) => b.unit_id === provider.id);
+  const unitArrays = serviceArrays.filter((a) => unitBranches.some((b) => b.id === a.branch_id));
+  const arrayById = new Map(unitArrays.map((a) => [a.id, a]));
+  const resolveArray = (a: AffiliatedDoctor) => {
+    const arr = a.service_array_id ? arrayById.get(a.service_array_id) : undefined;
+    return {
+      key: arr?.id ?? "__none__",
+      name: arr?.name ?? "ללא מערך",
+      branchId: arr?.branch_id ?? a.branch_id ?? "__none__",
+      branchName: unitBranches.find((b) => b.id === (arr?.branch_id ?? a.branch_id))?.name ?? "ללא סניף",
+    };
+  };
   // A medical unit is a single site, so there is no location to pick between —
   // what matters there is the doctor's own schedule, set in "זמינות" (§PRV-08).
   const clinics = isUnitProviderType(provider.provider_type) ? [] : provider.clinic_locations;
@@ -122,8 +142,41 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
           description="כל פריט המבוסס על ייעוץ מתבצע בפועל על ידי נותן/ת שירות. הוסיפו את נותני השירות הפועלים אצלכם ושייכו אותם לפריטים הרלוונטיים."
         />
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {affiliations.map((affiliation) => {
+        <div className="flex flex-col gap-4">
+          {(() => {
+            type Grp = {
+              branchId: string;
+              branchName: string;
+              arrays: { key: string; name: string; items: AffiliatedDoctor[] }[];
+            };
+            const groups: Grp[] = [];
+            affiliations.forEach((aff) => {
+              const r = resolveArray(aff);
+              let bg = groups.find((g) => g.branchId === r.branchId);
+              if (!bg) {
+                bg = { branchId: r.branchId, branchName: r.branchName, arrays: [] };
+                groups.push(bg);
+              }
+              let ag = bg.arrays.find((a) => a.key === r.key);
+              if (!ag) {
+                ag = { key: r.key, name: r.name, items: [] };
+                bg.arrays.push(ag);
+              }
+              ag.items.push(aff);
+            });
+            return groups.map((bg) => (
+              <div key={bg.branchId} className="flex flex-col gap-2.5">
+                <div className="flex items-center gap-2 px-0.5">
+                  <MapPinned className="h-4 w-4 text-primary" />
+                  <p className="text-sm font-bold text-slate-900">{bg.branchName}</p>
+                </div>
+                {bg.arrays.map((ag) => (
+                  <div key={ag.key} className="mr-2">
+                    <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-slate-600">
+                      <Layers className="h-3.5 w-3.5 text-primary" /> {ag.name} · {ag.items.length} נותני שירות
+                    </p>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {ag.items.map((affiliation) => {
             const doctor = doctorById.get(affiliation.doctor_provider_id);
             if (!doctor) return null;
             const linkedServices = services.filter((s) => affiliation.service_ids.includes(s.id));
@@ -211,7 +264,13 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
                 )}
               </Card>
             );
-          })}
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ));
+          })()}
         </div>
       )}
 
@@ -252,6 +311,8 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
         doctor={editing ? doctorById.get(editing.doctor_provider_id) : undefined}
         services={services}
         clinics={clinics}
+        serviceArrays={unitArrays}
+        branches={unitBranches}
         onClose={() => setEditing(null)}
         onSave={(data) => {
           if (editing) {
@@ -730,11 +791,17 @@ function SearchExistingDoctor({
   );
 }
 
+type AffiliationEdit = Partial<
+  Pick<AffiliatedDoctor, "role" | "service_ids" | "clinic_ids" | "service_array_id" | "branch_id">
+>;
+
 function EditAffiliationDialog({
   affiliation,
   doctor,
   services,
   clinics,
+  serviceArrays,
+  branches,
   onClose,
   onSave,
 }: {
@@ -742,15 +809,17 @@ function EditAffiliationDialog({
   doctor?: ProviderProfile;
   services: ConsultationType[];
   clinics: Clinic[];
+  serviceArrays: ServiceArray[];
+  branches: OrganizationBranch[];
   onClose: () => void;
-  onSave: (data: Partial<Pick<AffiliatedDoctor, "role" | "service_ids" | "clinic_ids">>) => void;
+  onSave: (data: AffiliationEdit) => void;
 }) {
   return (
     <Dialog
       open={!!affiliation}
       onClose={onClose}
       title={doctor ? `${doctor.title} ${doctor.display_name}` : "עריכת שיוך"}
-      description="תפקיד בארגון, פריטים ומיקומים"
+      description="מערך, תפקיד בארגון, פריטים ומיקומים"
       className="max-w-lg"
     >
       {affiliation && (
@@ -759,6 +828,8 @@ function EditAffiliationDialog({
           affiliation={affiliation}
           services={services}
           clinics={clinics}
+          serviceArrays={serviceArrays}
+          branches={branches}
           onSave={onSave}
         />
       )}
@@ -770,24 +841,63 @@ function EditAffiliationForm({
   affiliation,
   services,
   clinics,
+  serviceArrays,
+  branches,
   onSave,
 }: {
   affiliation: AffiliatedDoctor;
   services: ConsultationType[];
   clinics: Clinic[];
-  onSave: (data: Partial<Pick<AffiliatedDoctor, "role" | "service_ids" | "clinic_ids">>) => void;
+  serviceArrays: ServiceArray[];
+  branches: OrganizationBranch[];
+  onSave: (data: AffiliationEdit) => void;
 }) {
   const [role, setRole] = useState(affiliation.role ?? "");
   const [serviceIds, setServiceIds] = useState<string[]>(affiliation.service_ids);
   const [clinicIds, setClinicIds] = useState<string[]>(affiliation.clinic_ids ?? []);
+  const [serviceArrayId, setServiceArrayId] = useState(affiliation.service_array_id ?? "");
 
   return (
     <div className="flex flex-col gap-3">
+      <Select
+        label="מערך (קו שירות)"
+        value={serviceArrayId}
+        onChange={(e) => setServiceArrayId(e.target.value)}
+        hint={
+          serviceArrays.length === 0
+            ? 'הגדירו סניפים ומערכים בלשונית "סניפים ומערכים"'
+            : "הסניף נקבע לפי המערך שנבחר"
+        }
+      >
+        <option value="">ללא מערך</option>
+        {branches.map((b) => {
+          const bArrays = serviceArrays.filter((a) => a.branch_id === b.id);
+          if (bArrays.length === 0) return null;
+          return (
+            <optgroup key={b.id} label={b.name}>
+              {bArrays.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </optgroup>
+          );
+        })}
+      </Select>
       <Input label="תפקיד בארגון" value={role} onChange={(e) => setRole(e.target.value)} />
       <ServicePicker services={services} value={serviceIds} onChange={setServiceIds} />
       <ClinicPicker clinics={clinics} value={clinicIds} onChange={setClinicIds} />
       <Button
-        onClick={() => onSave({ role: role.trim() || undefined, service_ids: serviceIds, clinic_ids: clinicIds })}
+        onClick={() => {
+          const chosen = serviceArrayId ? serviceArrays.find((a) => a.id === serviceArrayId) : undefined;
+          onSave({
+            role: role.trim() || undefined,
+            service_ids: serviceIds,
+            clinic_ids: clinicIds,
+            service_array_id: serviceArrayId || undefined,
+            branch_id: chosen?.branch_id ?? affiliation.branch_id,
+          });
+        }}
       >
         שמור שיוך
       </Button>

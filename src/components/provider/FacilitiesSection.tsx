@@ -13,10 +13,12 @@ import {
   FACILITY_KIND_LABELS,
   FACILITY_KINDS,
   FacilityKind,
+  OrganizationBranch,
   ProviderFacility,
+  ServiceArray,
 } from "@/types";
 import { hasAnyAvailability, totalWeeklyHours } from "@/lib/schedule";
-import { AlertCircle, CalendarClock, Layers, MonitorCog, Pencil, Plus, Stethoscope, Trash2 } from "lucide-react";
+import { AlertCircle, CalendarClock, Layers, MapPinned, MonitorCog, Pencil, Plus, Stethoscope, Trash2 } from "lucide-react";
 
 /** The unit's מתקנים (§PRV-08) — the machines and rooms a medical unit books
  * against: "MRI 1", "CT 1", "חדר פעולות 2".
@@ -28,10 +30,14 @@ import { AlertCircle, CalendarClock, Layers, MonitorCog, Pencil, Plus, Stethosco
 export function FacilitiesSection({
   facilities,
   services,
+  serviceArrays,
+  branches,
   onChange,
 }: {
   facilities: ProviderFacility[];
   services: ConsultationType[];
+  serviceArrays: ServiceArray[];
+  branches: OrganizationBranch[];
   onChange: (facilities: ProviderFacility[]) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -42,7 +48,19 @@ export function FacilitiesSection({
   const [kind, setKind] = useState<FacilityKind>("mri");
   const [model, setModel] = useState("");
   const [room, setRoom] = useState("");
-  const [serviceArray, setServiceArray] = useState("");
+  const [serviceArrayId, setServiceArrayId] = useState("");
+
+  // Resolve a facility's מערך (first-class) → its name + branch, falling back to
+  // the legacy free-text `service_array` string.
+  const arrayById = new Map(serviceArrays.map((a) => [a.id, a]));
+  const resolveArray = (f: ProviderFacility) => {
+    const arr = f.service_array_id ? arrayById.get(f.service_array_id) : undefined;
+    return {
+      key: f.service_array_id || (f.service_array?.trim() ? `txt:${f.service_array.trim()}` : "__none__"),
+      name: arr?.name ?? f.service_array?.trim() ?? "ללא מערך",
+      branchId: arr?.branch_id ?? f.branch_id ?? "__none__",
+    };
+  };
   // Omer's shortcut: one לוז can stand for several identical machines instead
   // of creating a separate לוז per machine.
   const [multiMachine, setMultiMachine] = useState(false);
@@ -55,15 +73,26 @@ export function FacilitiesSection({
   // too since this is where the link is made.
   const unlinkedServices = services.filter((s) => !facilities.some((f) => f.service_ids.includes(s.id)));
 
-  // Group the לוזים by מערך (service line) so the structure מערך → לוזים is
-  // visible, exactly as the hierarchy models it.
-  const groups: [string, ProviderFacility[]][] = [];
+  // Nest the מכשירים by the unit's structure: סניף → מערך → מכשירים.
+  type ArrGroup = { key: string; name: string; facs: ProviderFacility[] };
+  type BranchGroup = { branchId: string; branchName: string; arrays: ArrGroup[] };
+  const branchGroups: BranchGroup[] = [];
+  const branchName = (id: string) => branches.find((b) => b.id === id)?.name ?? "ללא סניף";
   facilities.forEach((f) => {
-    const key = f.service_array?.trim() || "ללא מערך";
-    const bucket = groups.find(([name]) => name === key);
-    if (bucket) bucket[1].push(f);
-    else groups.push([key, [f]]);
+    const r = resolveArray(f);
+    let bg = branchGroups.find((g) => g.branchId === r.branchId);
+    if (!bg) {
+      bg = { branchId: r.branchId, branchName: branchName(r.branchId), arrays: [] };
+      branchGroups.push(bg);
+    }
+    let ag = bg.arrays.find((a) => a.key === r.key);
+    if (!ag) {
+      ag = { key: r.key, name: r.name, facs: [] };
+      bg.arrays.push(ag);
+    }
+    ag.facs.push(f);
   });
+  const arrayCount = new Set(facilities.map((f) => resolveArray(f).key)).size;
 
   function openCreate() {
     setEditingId(null);
@@ -71,7 +100,7 @@ export function FacilitiesSection({
     setKind("mri");
     setModel("");
     setRoom("");
-    setServiceArray("");
+    setServiceArrayId("");
     setMultiMachine(false);
     setCapacity("2");
     setIsActive(true);
@@ -85,7 +114,7 @@ export function FacilitiesSection({
     setKind(facility.kind);
     setModel(facility.model ?? "");
     setRoom(facility.room ?? "");
-    setServiceArray(facility.service_array ?? "");
+    setServiceArrayId(facility.service_array_id ?? "");
     setMultiMachine((facility.capacity ?? 1) > 1);
     setCapacity(String(Math.max(2, facility.capacity ?? 2)));
     setIsActive(facility.is_active !== false);
@@ -95,6 +124,7 @@ export function FacilitiesSection({
 
   function handleSave() {
     const existing = editingId ? facilities.find((f) => f.id === editingId) : undefined;
+    const chosen = serviceArrayId ? arrayById.get(serviceArrayId) : undefined;
     const next: ProviderFacility = {
       // Spread first so the week owned by the availability screen survives an
       // edit here — this dialog owns the facility's identity and its services.
@@ -104,7 +134,10 @@ export function FacilitiesSection({
       kind,
       model: model.trim() || undefined,
       room: room.trim() || undefined,
-      service_array: serviceArray.trim() || undefined,
+      service_array_id: serviceArrayId || undefined,
+      // Keep branch_id + the display-name mirror in sync with the chosen מערך.
+      branch_id: chosen?.branch_id ?? existing?.branch_id,
+      service_array: chosen?.name ?? existing?.service_array,
       capacity: multiMachine ? Math.max(2, Number(capacity) || 2) : 1,
       is_active: isActive,
       service_ids: serviceIds,
@@ -122,7 +155,7 @@ export function FacilitiesSection({
           <div>
             <p className="text-sm font-medium text-slate-900">מכשירי היחידה</p>
             <p className="text-xs text-slate-500">
-              {groups.length} מערכים · {facilities.length} מכשירים ·{" "}
+              {arrayCount} מערכים · {facilities.length} מכשירים ·{" "}
               {facilities.filter((f) => hasAnyAvailability(f)).length} עם לוח זמנים פעיל
             </p>
           </div>
@@ -165,19 +198,27 @@ export function FacilitiesSection({
         />
       ) : (
         <div className="flex flex-col gap-4">
-          {groups.map(([arrayName, facs]) => {
-            const totalStations = facs.reduce((sum, f) => sum + Math.max(1, f.capacity ?? 1), 0);
-            return (
-            <div key={arrayName} className="overflow-hidden rounded-xl border border-slate-200">
-              <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
-                <Layers className="h-4 w-4 text-primary" />
-                <p className="text-sm font-semibold text-slate-900">{arrayName}</p>
-                <Badge tone="purple">{facs.length} מכשירים</Badge>
-                {totalStations > facs.length && (
-                  <span className="text-xs text-slate-400">· {totalStations} יחידות פיזיות</span>
-                )}
+          {branchGroups.map((bg) => (
+            <div key={bg.branchId} className="flex flex-col gap-2.5">
+              <div className="flex items-center gap-2 px-0.5">
+                <MapPinned className="h-4 w-4 text-primary" />
+                <p className="text-sm font-bold text-slate-900">{bg.branchName}</p>
+                <span className="text-xs text-slate-400">· {bg.arrays.length} מערכים</span>
               </div>
-              <div className="grid gap-3 p-3 sm:grid-cols-2">
+              {bg.arrays.map((ag) => {
+                const facs = ag.facs;
+                const totalStations = facs.reduce((sum, f) => sum + Math.max(1, f.capacity ?? 1), 0);
+                return (
+                <div key={ag.key} className="mr-2 overflow-hidden rounded-xl border border-slate-200">
+                  <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+                    <Layers className="h-4 w-4 text-primary" />
+                    <p className="text-sm font-semibold text-slate-900">{ag.name}</p>
+                    <Badge tone="purple">{facs.length} מכשירים</Badge>
+                    {totalStations > facs.length && (
+                      <span className="text-xs text-slate-400">· {totalStations} יחידות פיזיות</span>
+                    )}
+                  </div>
+                  <div className="grid gap-3 p-3 sm:grid-cols-2">
                 {facs.map((facility) => {
             const linked = services.filter((s) => facility.service_ids.includes(s.id));
             const weekly = totalWeeklyHours(facility);
@@ -188,7 +229,10 @@ export function FacilitiesSection({
                     <div className="flex flex-wrap items-center gap-1.5">
                       <p className="font-medium text-slate-900">{facility.name}</p>
                       <Badge tone="blue">{FACILITY_KIND_LABELS[facility.kind]}</Badge>
-                      {facility.service_array && <Badge tone="purple">{facility.service_array}</Badge>}
+                      {(() => {
+                        const r = resolveArray(facility);
+                        return r.key !== "__none__" ? <Badge tone="purple">{r.name}</Badge> : null;
+                      })()}
                       {(facility.capacity ?? 1) > 1 && <Badge tone="green">מייצג {facility.capacity} מכשירים</Badge>}
                       {facility.is_active === false && <Badge tone="slate">לא פעיל</Badge>}
                     </div>
@@ -241,10 +285,12 @@ export function FacilitiesSection({
               </Card>
             );
                 })}
-              </div>
+                  </div>
+                </div>
+                );
+              })}
             </div>
-            );
-          })}
+          ))}
         </div>
       )}
 
@@ -284,13 +330,31 @@ export function FacilitiesSection({
               value={room}
               onChange={(e) => setRoom(e.target.value)}
             />
-            <Input
+            <Select
               label="מערך (קו שירות)"
-              placeholder="מערך MRI"
-              value={serviceArray}
-              onChange={(e) => setServiceArray(e.target.value)}
-              hint="קטגוריית השירות שהמכשיר שייך אליה"
-            />
+              value={serviceArrayId}
+              onChange={(e) => setServiceArrayId(e.target.value)}
+              hint={
+                serviceArrays.length === 0
+                  ? 'הגדירו סניפים ומערכים בלשונית "סניפים ומערכים"'
+                  : "הסניף נקבע לפי המערך שנבחר"
+              }
+            >
+              <option value="">ללא מערך</option>
+              {branches.map((b) => {
+                const bArrays = serviceArrays.filter((a) => a.branch_id === b.id);
+                if (bArrays.length === 0) return null;
+                return (
+                  <optgroup key={b.id} label={b.name}>
+                    {bArrays.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                );
+              })}
+            </Select>
           </div>
 
           {/* Omer's shortcut — one record can represent several identical machines */}
