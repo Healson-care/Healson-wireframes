@@ -33,7 +33,7 @@ import {
 } from "@/types";
 import { cn, formatDateHe, isValidEmail, isValidIsraeliId, isValidIsraeliPhone } from "@/lib/utils";
 import { CITIES, STREETS_BY_CITY, DEFAULT_STREETS } from "@/lib/constants";
-import { ShieldOff, FileDown, Lock, UserRound, SlidersHorizontal, ShieldCheck, ShieldPlus } from "lucide-react";
+import { ShieldOff, FileDown, Lock, Pencil, UserRound, SlidersHorizontal, ShieldCheck, ShieldPlus } from "lucide-react";
 
 const OPEN_DSR_STATUSES = ["ממתין", "בטיפול"];
 
@@ -106,46 +106,35 @@ function LockedField({ label, value }: { label: string; value: string }) {
   );
 }
 
-// Fixed demo codes — same convention used across the app's other OTP flows
-// (registration/login/password-reset all use "123456"/"654321" too).
-const DEMO_SMS_CODE = "123456";
-const DEMO_EMAIL_CODE = "654321";
-const RESEND_COOLDOWN_SECONDS = 30;
+type ContactField = "email" | "phone";
+const CONTACT_FIELD_LABELS: Record<ContactField, string> = { email: "אימייל", phone: "טלפון" };
 
-// Gates an email/phone change behind an OTP-style confirmation before it's
-// saved — mirrors the SMS+email double verification already used at
-// registration/login, just scoped to whichever contact field actually changed.
-function ContactVerificationDialog({
+// Step-up re-auth before a contact-detail change takes effect — password,
+// then one OTP (see PendingReauth in store.ts) sent to the *new* value
+// specifically, so saving also proves the patient actually controls the
+// new email/phone, not just that they're still signed in.
+function ContactFieldVerifyDialog({
   open,
   onClose,
-  needsSms,
-  needsEmail,
-  newPhone,
-  newEmail,
+  field,
+  newValue,
   onVerified,
 }: {
   open: boolean;
   onClose: () => void;
-  needsSms: boolean;
-  needsEmail: boolean;
-  newPhone: string;
-  newEmail: string;
+  field: ContactField;
+  newValue: string;
   onVerified: () => void;
 }) {
+  const beginReauth = useStore((s) => s.beginReauth);
+  const verifyReauthOtp = useStore((s) => s.verifyReauthOtp);
+  const resendReauthOtp = useStore((s) => s.resendReauthOtp);
   const showToast = useStore((s) => s.showToast);
-  const [phase, setPhase] = useState<"sms" | "email">("sms");
+
+  const [phase, setPhase] = useState<"password" | "otp">("password");
+  const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
-  const [resendUnlockAt, setResendUnlockAt] = useState<number | null>(null);
-  const [secondsLeft, setSecondsLeft] = useState(0);
-
-  function sendCode(target: "sms" | "email") {
-    showToast(target === "sms" ? "קוד אימות נשלח ב-SMS למספר החדש" : "קוד אימות נשלח לכתובת המייל החדשה", {
-      description: `קוד הדגמה: ${target === "sms" ? DEMO_SMS_CODE : DEMO_EMAIL_CODE}`,
-      variant: "success",
-    });
-    setResendUnlockAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
-  }
 
   // Reset the wizard when the dialog opens — done during render (React's
   // documented "adjust state when props change" pattern) rather than in an
@@ -154,95 +143,315 @@ function ContactVerificationDialog({
   if (open !== prevOpen) {
     setPrevOpen(open);
     if (open) {
-      setPhase(needsSms ? "sms" : "email");
+      setPhase("password");
+      setPassword("");
       setCode("");
       setError("");
     }
   }
 
-  // Sending the code is a real side effect (toast + cooldown), so it stays in
-  // an effect — deferred to a timeout callback so its state updates don't run
-  // synchronously in the effect body (and so StrictMode's double-mount, whose
-  // cleanup clears the pending timeout, fires it only once).
-  useEffect(() => {
-    if (!open) return;
-    const t = setTimeout(() => sendCode(needsSms ? "sms" : "email"), 0);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, needsSms, needsEmail]);
-
-  useEffect(() => {
-    // resendUnlockAt starts null and is only ever set forward, so there is
-    // nothing to reset here — secondsLeft already starts (and counts down to) 0.
-    if (!resendUnlockAt) return;
-    const tick = () => setSecondsLeft(Math.max(0, Math.ceil((resendUnlockAt - Date.now()) / 1000)));
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [resendUnlockAt]);
-
-  function handleResend() {
-    if (secondsLeft > 0) return;
-    sendCode(phase);
-  }
-
-  function handleVerify(e: React.FormEvent) {
+  function handlePasswordSubmit(e: React.FormEvent) {
     e.preventDefault();
+    // This dialog is portaled out of the DOM, but React bubbles synthetic
+    // events along the component tree — this form is still a React
+    // descendant of the page's own <form>, so without stopPropagation()
+    // submitting here would also trigger the page-level save.
+    e.stopPropagation();
     setError("");
-    const expected = phase === "sms" ? DEMO_SMS_CODE : DEMO_EMAIL_CODE;
-    if (code !== expected) {
-      setError("קוד שגוי, נסו שנית");
+    if (!password) {
+      setError("יש להזין סיסמה");
       return;
     }
-    if (phase === "sms" && needsEmail) {
-      setPhase("email");
-      setCode("");
-      sendCode("email");
+    const otp = beginReauth();
+    showToast(field === "email" ? "קוד אימות נשלח לכתובת המייל החדשה" : "קוד אימות נשלח ב-SMS למספר החדש", {
+      description: `קוד הדגמה: ${otp}`,
+      variant: "success",
+    });
+    setPhase("otp");
+  }
+
+  function handleOtpSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setError("");
+    const result = verifyReauthOtp(code);
+    if (!result.ok) {
+      setError(result.error ?? "שגיאה באימות");
       return;
     }
     onVerified();
     onClose();
   }
 
+  function handleResend() {
+    const otp = resendReauthOtp();
+    if (otp) showToast("קוד חדש נשלח", { description: `קוד הדגמה: ${otp}` });
+  }
+
   return (
     <Dialog
       open={open}
       onClose={onClose}
-      title="אימות פרטי קשר חדשים"
-      description={phase === "sms" ? `שלחנו קוד אימות ב-SMS למספר ${newPhone}` : `שלחנו קוד אימות למייל ${newEmail}`}
+      title={`אימות שינוי ${CONTACT_FIELD_LABELS[field]}`}
+      description={
+        phase === "password"
+          ? "לאימות זהותכם לפני השמירה, הזינו את הסיסמה שלכם"
+          : field === "email"
+          ? `שלחנו קוד אימות לכתובת ${newValue}`
+          : `שלחנו קוד אימות ב-SMS למספר ${newValue}`
+      }
     >
-      <form onSubmit={handleVerify} className="flex flex-col gap-3">
-        {error && (
-          <div className="rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
-            {error}
-          </div>
-        )}
-        <Input
-          label="קוד אימות"
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-          inputMode="numeric"
-          maxLength={6}
-          required
-        />
-        <button
-          type="button"
-          onClick={handleResend}
-          disabled={secondsLeft > 0}
-          className={cn(
-            "self-start text-sm font-medium",
-            secondsLeft > 0 ? "text-slate-400 cursor-not-allowed" : "text-primary hover:underline"
-          )}
-        >
-          {secondsLeft > 0 ? `שליחה חוזרת בעוד 0:${String(secondsLeft).padStart(2, "0")}` : "שלח קוד מחדש"}
-        </button>
-        <div className="flex justify-end gap-2 mt-2">
-          <Button type="button" variant="outline" onClick={onClose}>
-            ביטול
-          </Button>
-          <Button type="submit">{phase === "sms" && needsEmail ? "המשך" : "אמת"}</Button>
+      {error && (
+        <div className="mb-3 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
+          {error}
         </div>
-      </form>
+      )}
+      {phase === "password" ? (
+        <form onSubmit={handlePasswordSubmit} className="flex flex-col gap-3">
+          <Input type="password" label="סיסמה" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          <div className="flex justify-end gap-2 mt-2">
+            <Button type="button" variant="outline" onClick={onClose}>
+              ביטול
+            </Button>
+            <Button type="submit">המשך</Button>
+          </div>
+        </form>
+      ) : (
+        <form onSubmit={handleOtpSubmit} className="flex flex-col gap-3">
+          <Input
+            label="קוד אימות"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            inputMode="numeric"
+            maxLength={6}
+            className="text-center tracking-[0.4em] text-lg"
+            required
+          />
+          <button type="button" onClick={handleResend} className="self-start text-sm font-medium text-primary hover:underline">
+            שלח קוד מחדש
+          </button>
+          <div className="flex justify-end gap-2 mt-2">
+            <Button type="button" variant="outline" onClick={onClose}>
+              ביטול
+            </Button>
+            <Button type="submit">אשר שינוי</Button>
+          </div>
+        </form>
+      )}
+    </Dialog>
+  );
+}
+
+// One row = one field, edited and saved independently (pencil to edit,
+// own "שמור" that gates on ContactFieldVerifyDialog) — not batched with the
+// rest of the profile form the way the old combined email+phone form was.
+function EditableContactRow({ patient, field }: { patient: Patient; field: ContactField }) {
+  const updatePatient = useStore((s) => s.updatePatient);
+  const showToast = useStore((s) => s.showToast);
+  const currentValue = patient[field] ?? "";
+  const label = CONTACT_FIELD_LABELS[field];
+
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(currentValue);
+  const [verifyOpen, setVerifyOpen] = useState(false);
+  const [pendingValue, setPendingValue] = useState("");
+
+  const draftError =
+    editing && draft
+      ? field === "email"
+        ? !isValidEmail(draft)
+          ? "כתובת אימייל לא תקינה"
+          : undefined
+        : !isValidIsraeliPhone(draft)
+        ? "מספר טלפון לא תקין"
+        : undefined
+      : undefined;
+
+  function startEdit() {
+    setDraft(currentValue);
+    setEditing(true);
+  }
+
+  function handleSaveClick() {
+    const trimmed = draft.trim();
+    if (!trimmed || draftError || trimmed === currentValue) {
+      setEditing(false);
+      return;
+    }
+    setPendingValue(trimmed);
+    setVerifyOpen(true);
+  }
+
+  function handleVerified() {
+    if (field === "email") updatePatient(patient.id, { email: pendingValue });
+    else updatePatient(patient.id, { phone: pendingValue });
+    showToast(`ה${label} עודכן בהצלחה`, { variant: "success" });
+    setEditing(false);
+  }
+
+  return (
+    <>
+      {editing ? (
+        <div className="flex flex-col gap-1.5">
+          <Input
+            label={label}
+            type={field === "email" ? "email" : "text"}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            error={draftError}
+            autoFocus
+          />
+          <div className="flex justify-end gap-3">
+            <button type="button" onClick={() => setEditing(false)} className="text-xs font-medium text-slate-500 hover:underline">
+              ביטול
+            </button>
+            <button type="button" onClick={handleSaveClick} className="text-xs font-medium text-primary hover:underline">
+              שמור
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2.5">
+          <div className="min-w-0">
+            <p className="text-xs text-slate-500">{label}</p>
+            <p className="truncate text-sm font-medium text-slate-700">{currentValue || "—"}</p>
+          </div>
+          <button
+            type="button"
+            onClick={startEdit}
+            aria-label={`ערוך ${label}`}
+            className="shrink-0 rounded-md p-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+      <ContactFieldVerifyDialog
+        open={verifyOpen}
+        onClose={() => setVerifyOpen(false)}
+        field={field}
+        newValue={pendingValue}
+        onVerified={handleVerified}
+      />
+    </>
+  );
+}
+
+// Same step-up procedure as login: password, then a single OTP sent to both
+// SMS and email at once (not scoped to one changed field, unlike
+// ContactFieldVerifyDialog — insurance changes don't change a channel).
+function InsuranceVerifyDialog({
+  open,
+  onClose,
+  onVerified,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onVerified: () => void;
+}) {
+  const beginReauth = useStore((s) => s.beginReauth);
+  const verifyReauthOtp = useStore((s) => s.verifyReauthOtp);
+  const resendReauthOtp = useStore((s) => s.resendReauthOtp);
+  const showToast = useStore((s) => s.showToast);
+
+  const [phase, setPhase] = useState<"password" | "otp">("password");
+  const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+
+  const [prevOpen, setPrevOpen] = useState(false);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setPhase("password");
+      setPassword("");
+      setCode("");
+      setError("");
+    }
+  }
+
+  function handlePasswordSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setError("");
+    if (!password) {
+      setError("יש להזין סיסמה");
+      return;
+    }
+    const otp = beginReauth();
+    showToast("קוד אימות נשלח ב-SMS ובמייל", {
+      description: `קוד הדגמה: ${otp}`,
+      variant: "success",
+    });
+    setPhase("otp");
+  }
+
+  function handleOtpSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setError("");
+    const result = verifyReauthOtp(code);
+    if (!result.ok) {
+      setError(result.error ?? "שגיאה באימות");
+      return;
+    }
+    onVerified();
+    onClose();
+  }
+
+  function handleResend() {
+    const otp = resendReauthOtp();
+    if (otp) showToast("קוד חדש נשלח", { description: `קוד הדגמה: ${otp}` });
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="אימות שמירת שינויים"
+      description={
+        phase === "password"
+          ? "לאימות זהותכם לפני השמירה, הזינו את הסיסמה שלכם"
+          : "שלחנו קוד אימות גם ב-SMS וגם למייל שלכם — הקוד זהה בשני הערוצים"
+      }
+    >
+      {error && (
+        <div className="mb-3 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
+          {error}
+        </div>
+      )}
+      {phase === "password" ? (
+        <form onSubmit={handlePasswordSubmit} className="flex flex-col gap-3">
+          <Input type="password" label="סיסמה" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          <div className="flex justify-end gap-2 mt-2">
+            <Button type="button" variant="outline" onClick={onClose}>
+              ביטול
+            </Button>
+            <Button type="submit">המשך</Button>
+          </div>
+        </form>
+      ) : (
+        <form onSubmit={handleOtpSubmit} className="flex flex-col gap-3">
+          <Input
+            label="קוד אימות"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            inputMode="numeric"
+            maxLength={6}
+            className="text-center tracking-[0.4em] text-lg"
+            required
+          />
+          <button type="button" onClick={handleResend} className="self-start text-sm font-medium text-primary hover:underline">
+            שלח קוד מחדש
+          </button>
+          <div className="flex justify-end gap-2 mt-2">
+            <Button type="button" variant="outline" onClick={onClose}>
+              ביטול
+            </Button>
+            <Button type="submit">אשר שינוי</Button>
+          </div>
+        </form>
+      )}
     </Dialog>
   );
 }
@@ -254,11 +463,9 @@ export default function ClientProfilePage() {
   const dsrRequests = useStore((s) => s.dsrRequests);
   const patient = useCurrentPatient();
 
-  const [form, setForm] = useState<{ email: string; phone: string; gender: Gender | "" }>({
-    email: "",
-    phone: "",
-    gender: "",
-  });
+  // Email/phone are no longer part of this batch form — each is edited and
+  // saved independently by its own EditableContactRow (see above).
+  const [form, setForm] = useState<{ gender: Gender | "" }>({ gender: "" });
   const [preferences, setPreferences] = useState<{
     communication_language: CommunicationLanguage;
     notification_channel: NotificationChannel;
@@ -268,6 +475,7 @@ export default function ClientProfilePage() {
   const [addressStreet, setAddressStreet] = useState("");
   const [error, setError] = useState("");
   const [rectifyOpen, setRectifyOpen] = useState(false);
+  const [insuranceVerifyOpen, setInsuranceVerifyOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("personal");
 
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
@@ -276,7 +484,7 @@ export default function ClientProfilePage() {
   if (loadKey && loadKey !== loadedFor) {
     setLoadedFor(loadKey);
     if (patient) {
-      setForm({ email: patient.email ?? "", phone: patient.phone ?? "", gender: patient.gender ?? "" });
+      setForm({ gender: patient.gender ?? "" });
       setPreferences({
         communication_language: patient.communication_language ?? "he",
         notification_channel: patient.notification_channel ?? "email",
@@ -292,8 +500,6 @@ export default function ClientProfilePage() {
       const parsed = parseAddress(patient.address ?? "");
       setAddressCity(parsed.city);
       setAddressStreet(parsed.street);
-    } else if (currentUser) {
-      setForm((f) => ({ ...f, email: currentUser.email }));
     }
   }
 
@@ -303,47 +509,32 @@ export default function ClientProfilePage() {
       )
     : undefined;
 
-  const emailError = form.email && !isValidEmail(form.email) ? "כתובת אימייל לא תקינה" : undefined;
-  const phoneError = form.phone && !isValidIsraeliPhone(form.phone) ? "מספר טלפון לא תקין" : undefined;
-
-  const [verifyOpen, setVerifyOpen] = useState(false);
-  const [pendingVerification, setPendingVerification] = useState<{ needsSms: boolean; needsEmail: boolean } | null>(
-    null
-  );
-
-  function saveProfile() {
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
     if (!patient) return;
     updatePatient(patient.id, {
-      email: form.email,
-      phone: form.phone,
       gender: form.gender || undefined,
       communication_language: preferences.communication_language,
       notification_channel: preferences.notification_channel,
-      kupah: insurance.kupah || undefined,
-      k_level: insurance.k_level || undefined,
-      has_b_insurance: insurance.has_b_insurance,
-      b_insurance_company: insurance.has_b_insurance ? insurance.b_insurance_company : undefined,
-      b_policy_number: insurance.has_b_insurance ? insurance.b_policy_number : undefined,
       address: [addressStreet.trim(), addressCity.trim()].filter(Boolean).join(", ") || undefined,
     });
     showToast("השינויים נשמרו", { variant: "success" });
   }
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError("");
-    if (emailError || phoneError) {
-      setError("יש לתקן את השדות המסומנים לפני השמירה");
-      return;
-    }
-    const emailChanged = patient && form.email !== (patient.email ?? "");
-    const phoneChanged = patient && form.phone !== (patient.phone ?? "");
-    if (emailChanged || phoneChanged) {
-      setPendingVerification({ needsSms: !!phoneChanged, needsEmail: !!emailChanged });
-      setVerifyOpen(true);
-      return;
-    }
-    saveProfile();
+  // Insurance changes go through the same password + OTP step-up as login
+  // (not the plain "שמור שינויים" above) — kupah/insurance affects pricing
+  // and eligibility, so it's gated separately from gender/address/preferences.
+  function handleSaveInsurance() {
+    if (!patient) return;
+    updatePatient(patient.id, {
+      kupah: insurance.kupah || undefined,
+      k_level: insurance.k_level || undefined,
+      has_b_insurance: insurance.has_b_insurance,
+      b_insurance_company: insurance.has_b_insurance ? insurance.b_insurance_company : undefined,
+      b_policy_number: insurance.has_b_insurance ? insurance.b_policy_number : undefined,
+    });
+    showToast("הפרופיל הביטוחי עודכן בהצלחה", { variant: "success" });
   }
 
   return (
@@ -415,22 +606,19 @@ export default function ClientProfilePage() {
             <Card>
               <CardHeader>
                 <CardTitle>פרטי קשר</CardTitle>
+                <p className="text-sm text-slate-500">
+                  לחצו על העט ליד שדה כדי לערוך אותו — כל שדה נשמר ומאומת בנפרד
+                </p>
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
-                <Input
-                  label="אימייל"
-                  type="email"
-                  value={form.email}
-                  onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  error={emailError}
-                />
-                <Input
-                  label="טלפון"
-                  value={form.phone}
-                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                  required
-                  error={phoneError}
-                />
+                {patient ? (
+                  <>
+                    <EditableContactRow patient={patient} field="email" />
+                    <EditableContactRow patient={patient} field="phone" />
+                  </>
+                ) : (
+                  <p className="text-sm text-slate-400">טוען...</p>
+                )}
               </CardContent>
             </Card>
 
@@ -516,14 +704,25 @@ export default function ClientProfilePage() {
             <Card>
               <CardHeader>
                 <CardTitle>פרופיל ביטוחי</CardTitle>
+                <p className="text-sm text-slate-500">
+                  שמירת שינויים כאן דורשת אימות סיסמה וקוד — כמו בכניסה למערכת
+                </p>
               </CardHeader>
-              <CardContent>
+              <CardContent className="flex flex-col gap-3">
                 <InsuranceProfileForm
                   value={insurance}
                   onChange={setInsurance}
                   showAddress={false}
                   allowNoKupah={patient?.id_document_type === "passport"}
                 />
+                <Button
+                  type="button"
+                  className="self-start"
+                  disabled={!patient}
+                  onClick={() => setInsuranceVerifyOpen(true)}
+                >
+                  שמור פרופיל ביטוחי
+                </Button>
               </CardContent>
             </Card>
           </TabsContent>
@@ -533,27 +732,21 @@ export default function ClientProfilePage() {
           </TabsContent>
         </Tabs>
 
-        {activeTab !== "privacy" && (
+        {activeTab !== "privacy" && activeTab !== "insurance" && (
           <Button type="submit" className="self-start">
             שמור שינויים
           </Button>
         )}
       </form>
 
+      <InsuranceVerifyDialog
+        open={insuranceVerifyOpen}
+        onClose={() => setInsuranceVerifyOpen(false)}
+        onVerified={handleSaveInsurance}
+      />
+
       {patient && (
         <RectifyDetailsDialog open={rectifyOpen} onClose={() => setRectifyOpen(false)} patient={patient} />
-      )}
-
-      {pendingVerification && (
-        <ContactVerificationDialog
-          open={verifyOpen}
-          onClose={() => setVerifyOpen(false)}
-          needsSms={pendingVerification.needsSms}
-          needsEmail={pendingVerification.needsEmail}
-          newPhone={form.phone}
-          newEmail={form.email}
-          onVerified={saveProfile}
-        />
       )}
     </ClientLayout>
   );
@@ -674,6 +867,13 @@ const RECTIFY_FIELD_LABELS: Record<"full_name" | "id_number" | "date_of_birth" |
   parent_name: "שם הורה",
 };
 
+type RectifyPhase = "form" | "password" | "otp";
+
+// Requesting a change to identifying details is sensitive enough to require
+// step-up re-auth first (password, then one OTP sent to SMS+email at once —
+// same 2FA policy as login, see PendingReauth in store.ts) — the request
+// still needs staff approval afterward (DSR rectification), this just
+// confirms it's really the account holder asking before it's even filed.
 function RectifyDetailsDialog({
   open,
   onClose,
@@ -684,14 +884,21 @@ function RectifyDetailsDialog({
   patient: Patient;
 }) {
   const addDsrRequest = useStore((s) => s.addDsrRequest);
+  const beginReauth = useStore((s) => s.beginReauth);
+  const verifyReauthOtp = useStore((s) => s.verifyReauthOtp);
+  const resendReauthOtp = useStore((s) => s.resendReauthOtp);
   const showToast = useStore((s) => s.showToast);
 
+  const [phase, setPhase] = useState<RectifyPhase>("form");
   const [values, setValues] = useState({
     full_name: "",
     id_number: "",
     date_of_birth: "",
     parent_name: "",
   });
+  const [pendingDiffs, setPendingDiffs] = useState<string[]>([]);
+  const [reauthPassword, setReauthPassword] = useState("");
+  const [reauthCode, setReauthCode] = useState("");
   const [error, setError] = useState("");
 
   // Re-seed the form from the patient record when the dialog opens — done
@@ -707,6 +914,9 @@ function RectifyDetailsDialog({
         date_of_birth: patient.date_of_birth ?? "",
         parent_name: patient.parent_name ?? "",
       });
+      setPhase("form");
+      setReauthPassword("");
+      setReauthCode("");
       setError("");
     }
   }
@@ -714,7 +924,7 @@ function RectifyDetailsDialog({
   const idNumberError =
     values.id_number && !isValidIsraeliId(values.id_number) ? "מספר תעודת זהות לא תקין" : undefined;
 
-  function handleSubmit(e: React.FormEvent) {
+  function handleFormSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     if (idNumberError) {
@@ -729,57 +939,131 @@ function RectifyDetailsDialog({
       setError("לא בוצע אף שינוי");
       return;
     }
+    setPendingDiffs(diffs);
+    setPhase("password");
+  }
 
-    addDsrRequest({ patient_id: patient.id, type: "rectification", notes: diffs.join("; ") });
+  // Nothing real to check the password against (see login() in store.ts —
+  // this app never stores real passwords) — just requires a non-empty entry
+  // before issuing the OTP, same as every other password field here.
+  function handlePasswordSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    if (!reauthPassword) {
+      setError("יש להזין סיסמה");
+      return;
+    }
+    const otp = beginReauth();
+    showToast("קוד אימות נשלח ב-SMS ובמייל", { description: `קוד הדגמה: ${otp}`, variant: "success" });
+    setPhase("otp");
+  }
+
+  function handleOtpSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    const result = verifyReauthOtp(reauthCode);
+    if (!result.ok) {
+      setError(result.error ?? "שגיאה באימות");
+      return;
+    }
+    addDsrRequest({ patient_id: patient.id, type: "rectification", notes: pendingDiffs.join("; ") });
     showToast("בקשת התיקון נשלחה", { description: "נטפל בבקשה בהקדם", variant: "success" });
     onClose();
   }
 
+  function handleResendReauthOtp() {
+    const otp = resendReauthOtp();
+    if (otp) showToast("קוד חדש נשלח ב-SMS ובמייל", { description: `קוד הדגמה: ${otp}` });
+  }
+
+  const DESCRIPTION_BY_PHASE: Record<RectifyPhase, string> = {
+    form: "השינוי ייכנס לתוקף רק לאחר אישור הצוות",
+    password: "לאימות זהותכם לפני שליחת הבקשה, הזינו את הסיסמה שלכם",
+    otp: "שלחנו קוד אימות ב-SMS ובמייל — הקוד זהה בשני הערוצים",
+  };
+
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title="בקשת שינוי פרטים מזהים"
-      description="השינוי ייכנס לתוקף רק לאחר אישור הצוות"
-    >
-      <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-        {error && (
-          <div className="rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
-            {error}
-          </div>
-        )}
-        <Input
-          label="שם מלא"
-          value={values.full_name}
-          onChange={(e) => setValues({ ...values, full_name: e.target.value })}
-          required
-        />
-        <Input
-          label="תעודת זהות / דרכון"
-          value={values.id_number}
-          onChange={(e) => setValues({ ...values, id_number: e.target.value })}
-          inputMode="numeric"
-          maxLength={9}
-          error={idNumberError}
-        />
-        <Input
-          label="תאריך לידה"
-          type="date"
-          value={values.date_of_birth}
-          onChange={(e) => setValues({ ...values, date_of_birth: e.target.value })}
-        />
-        <Input
-          label="שם הורה (אם המטופל קטין)"
-          value={values.parent_name}
-          onChange={(e) => setValues({ ...values, parent_name: e.target.value })}
-        />
-        <div className="flex justify-end gap-2 mt-2">
-          <Button type="button" variant="outline" onClick={onClose}>
-            ביטול
-          </Button>
-          <Button type="submit">שלח לבדיקה</Button>
+    <Dialog open={open} onClose={onClose} title="בקשת שינוי פרטים מזהים" description={DESCRIPTION_BY_PHASE[phase]}>
+      {error && (
+        <div className="mb-3 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
+          {error}
         </div>
-      </form>
+      )}
+      {phase === "form" && (
+        <form onSubmit={handleFormSubmit} className="flex flex-col gap-3">
+          <Input
+            label="שם מלא"
+            value={values.full_name}
+            onChange={(e) => setValues({ ...values, full_name: e.target.value })}
+            required
+          />
+          <Input
+            label="תעודת זהות / דרכון"
+            value={values.id_number}
+            onChange={(e) => setValues({ ...values, id_number: e.target.value })}
+            inputMode="numeric"
+            maxLength={9}
+            error={idNumberError}
+          />
+          <Input
+            label="תאריך לידה"
+            type="date"
+            value={values.date_of_birth}
+            onChange={(e) => setValues({ ...values, date_of_birth: e.target.value })}
+          />
+          <Input
+            label="שם הורה (אם המטופל קטין)"
+            value={values.parent_name}
+            onChange={(e) => setValues({ ...values, parent_name: e.target.value })}
+          />
+          <div className="flex justify-end gap-2 mt-2">
+            <Button type="button" variant="outline" onClick={onClose}>
+              ביטול
+            </Button>
+            <Button type="submit">המשך לאימות זהות</Button>
+          </div>
+        </form>
+      )}
+      {phase === "password" && (
+        <form onSubmit={handlePasswordSubmit} className="flex flex-col gap-3">
+          <Input
+            type="password"
+            label="סיסמה"
+            value={reauthPassword}
+            onChange={(e) => setReauthPassword(e.target.value)}
+            required
+          />
+          <div className="flex justify-end gap-2 mt-2">
+            <Button type="button" variant="outline" onClick={onClose}>
+              ביטול
+            </Button>
+            <Button type="submit">המשך</Button>
+          </div>
+        </form>
+      )}
+      {phase === "otp" && (
+        <form onSubmit={handleOtpSubmit} className="flex flex-col gap-3">
+          <Input
+            inputMode="numeric"
+            maxLength={6}
+            placeholder="123456"
+            label="קוד אימות"
+            value={reauthCode}
+            onChange={(e) => setReauthCode(e.target.value)}
+            className="text-center tracking-[0.4em] text-lg"
+            required
+          />
+          <button type="button" onClick={handleResendReauthOtp} className="self-start text-sm text-primary hover:underline">
+            שלח קוד מחדש
+          </button>
+          <div className="flex justify-end gap-2 mt-2">
+            <Button type="button" variant="outline" onClick={onClose}>
+              ביטול
+            </Button>
+            <Button type="submit">שלח בקשה</Button>
+          </div>
+        </form>
+      )}
     </Dialog>
   );
 }

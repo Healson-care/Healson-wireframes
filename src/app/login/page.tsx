@@ -13,30 +13,26 @@ import { useStore } from "@/lib/store";
 import { homeForRole } from "@/lib/useRequireRole";
 import { cn } from "@/lib/utils";
 
-type Phase = "credentials" | "otp-sms" | "otp-email";
+type Phase = "credentials" | "otp";
 
 export default function LoginPage() {
   const router = useRouter();
   const login = useStore((s) => s.login);
   const loginAsDemo = useStore((s) => s.loginAsDemo);
-  const verifyLoginSmsOtp = useStore((s) => s.verifyLoginSmsOtp);
-  const verifyLoginEmailOtp = useStore((s) => s.verifyLoginEmailOtp);
+  const verifyLoginOtp = useStore((s) => s.verifyLoginOtp);
   const resendLoginOtp = useStore((s) => s.resendLoginOtp);
   const showToast = useStore((s) => s.showToast);
   const currentUser = useStore((s) => s.currentUser);
-  // If this page is reached with a double-OTP verification already queued
-  // (e.g. redirected here from the landing page's demo role cards, or a
-  // refresh mid-flow), resume at the right OTP step instead of showing a
-  // blank credentials form that silently discards the in-progress login.
-  const [phase, setPhase] = useState<Phase>(() => {
-    const pending = useStore.getState().pendingLoginVerification;
-    if (!pending) return "credentials";
-    return pending.smsVerified ? "otp-email" : "otp-sms";
-  });
+  // If this page is reached with a 2FA verification already queued (e.g.
+  // redirected here from the landing page's demo role cards, or a refresh
+  // mid-flow), resume at the OTP step instead of showing a blank
+  // credentials form that silently discards the in-progress login.
+  const [phase, setPhase] = useState<Phase>(() =>
+    useStore.getState().pendingLoginVerification ? "otp" : "credentials"
+  );
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [smsCode, setSmsCode] = useState("");
-  const [emailCode, setEmailCode] = useState("");
+  const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [blockedStatus, setBlockedStatus] = useState<"rejected" | "suspended" | null>(null);
   const [loading, setLoading] = useState(false);
@@ -46,14 +42,10 @@ export default function LoginPage() {
   useEffect(() => {
     if (greetedPendingRef.current) return;
     greetedPendingRef.current = true;
-    if (phase !== "otp-sms" && phase !== "otp-email") return;
-    const channel = phase === "otp-sms" ? "sms" : "email";
-    const hint = resendLoginOtp(channel);
+    if (phase !== "otp") return;
+    const hint = resendLoginOtp();
     if (!hint) return;
-    showToast(channel === "sms" ? "קוד אימות נשלח ב-SMS" : "קוד אימות נשלח באימייל", {
-      description: `קוד הדגמה: ${hint}`,
-      variant: "success",
-    });
+    showToast("קוד אימות נשלח ב-SMS ובמייל", { description: `קוד הדגמה: ${hint}`, variant: "success" });
     // Only meant to greet an already-pending verification found at mount —
     // handleSubmit/handleDemo show their own toast when they create it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -84,9 +76,9 @@ export default function LoginPage() {
         return;
       }
       if (result.requiresOtp) {
-        setPhase("otp-sms");
-        const hint = resendLoginOtp("sms");
-        showToast("קוד אימות נשלח ב-SMS", { description: `קוד הדגמה: ${hint}`, variant: "success" });
+        setPhase("otp");
+        const hint = resendLoginOtp();
+        showToast("קוד אימות נשלח ב-SMS ובמייל", { description: `קוד הדגמה: ${hint}`, variant: "success" });
         return;
       }
       goHome();
@@ -103,37 +95,20 @@ export default function LoginPage() {
       return;
     }
     if (role === "patient" && useStore.getState().pendingLoginVerification) {
-      setPhase("otp-sms");
-      const hint = resendLoginOtp("sms");
-      showToast("קוד אימות נשלח ב-SMS", { description: `קוד הדגמה: ${hint}`, variant: "success" });
+      setPhase("otp");
+      const hint = resendLoginOtp();
+      showToast("קוד אימות נשלח ב-SMS ובמייל", { description: `קוד הדגמה: ${hint}`, variant: "success" });
       return;
     }
     setTimeout(goHome, 50);
   }
 
-  function handleVerifySms(e: React.FormEvent) {
+  function handleVerifyOtp(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setLoading(true);
     setTimeout(() => {
-      const result = verifyLoginSmsOtp(smsCode);
-      setLoading(false);
-      if (!result.ok) {
-        setError(result.error ?? "שגיאה באימות");
-        return;
-      }
-      setPhase("otp-email");
-      const hint = resendLoginOtp("email");
-      showToast("קוד אימות נשלח באימייל", { description: `קוד הדגמה: ${hint}`, variant: "success" });
-    }, 300);
-  }
-
-  function handleVerifyEmail(e: React.FormEvent) {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
-    setTimeout(() => {
-      const result = verifyLoginEmailOtp(emailCode);
+      const result = verifyLoginOtp(code);
       setLoading(false);
       if (!result.ok) {
         setError(result.error ?? "שגיאה באימות");
@@ -143,81 +118,41 @@ export default function LoginPage() {
     }, 300);
   }
 
-  function handleResendSms() {
-    const otp = resendLoginOtp("sms");
-    if (otp) showToast("קוד חדש נשלח ב-SMS", { description: `קוד הדגמה: ${otp}` });
+  function handleResendOtp() {
+    const otp = resendLoginOtp();
+    if (otp) showToast("קוד חדש נשלח ב-SMS ובמייל", { description: `קוד הדגמה: ${otp}` });
   }
 
-  function handleResendEmail() {
-    const otp = resendLoginOtp("email");
-    if (otp) showToast("קוד חדש נשלח באימייל", { description: `קוד הדגמה: ${otp}` });
-  }
-
-  if (phase === "otp-sms") {
+  if (phase === "otp") {
     return (
       <AuthLayout>
         <div className="mb-1 flex items-center gap-2">
           <Smartphone className="h-4 w-4 text-primary" />
-          <h1 className="text-lg font-semibold text-slate-900">אימות דו-שלבי (1/2)</h1>
+          <h1 className="text-lg font-semibold text-slate-900">אימות דו-גורמי</h1>
         </div>
         <p className="text-sm text-slate-500 mb-5">
-          לצורך אבטחת המידע הרפואי, מטופלים רשומים נדרשים לאמת קוד שנשלח ב-SMS וקוד נוסף באימייל.
+          שלחנו קוד אימות גם ב-SMS וגם למייל שלך — הקוד זהה בשני הערוצים, מספיק להזין אותו פעם אחת.
         </p>
         {error && (
           <div className="mb-4 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
             {error}
           </div>
         )}
-        <form onSubmit={handleVerifySms} className="flex flex-col gap-3">
+        <form onSubmit={handleVerifyOtp} className="flex flex-col gap-3">
           <Input
             inputMode="numeric"
             maxLength={6}
             placeholder="123456"
-            label="קוד מ-SMS"
-            value={smsCode}
-            onChange={(e) => setSmsCode(e.target.value)}
-            className="text-center tracking-[0.4em] text-lg"
-            required
-          />
-          <Button type="submit" loading={loading} className="w-full">
-            אמת קוד SMS
-          </Button>
-          <button type="button" onClick={handleResendSms} className="text-sm text-primary hover:underline">
-            שלח קוד מחדש
-          </button>
-        </form>
-      </AuthLayout>
-    );
-  }
-
-  if (phase === "otp-email") {
-    return (
-      <AuthLayout>
-        <div className="mb-1 flex items-center gap-2">
-          <Mail className="h-4 w-4 text-primary" />
-          <h1 className="text-lg font-semibold text-slate-900">אימות דו-שלבי (2/2)</h1>
-        </div>
-        <p className="text-sm text-slate-500 mb-5">שלחנו קוד אימות נוסף לכתובת האימייל שלך</p>
-        {error && (
-          <div className="mb-4 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
-            {error}
-          </div>
-        )}
-        <form onSubmit={handleVerifyEmail} className="flex flex-col gap-3">
-          <Input
-            inputMode="numeric"
-            maxLength={6}
-            placeholder="123456"
-            label="קוד מהאימייל"
-            value={emailCode}
-            onChange={(e) => setEmailCode(e.target.value)}
+            label="קוד אימות"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
             className="text-center tracking-[0.4em] text-lg"
             required
           />
           <Button type="submit" loading={loading} className="w-full">
             אמת קוד וכניסה
           </Button>
-          <button type="button" onClick={handleResendEmail} className="text-sm text-primary hover:underline">
+          <button type="button" onClick={handleResendOtp} className="text-sm text-primary hover:underline">
             שלח קוד מחדש
           </button>
         </form>

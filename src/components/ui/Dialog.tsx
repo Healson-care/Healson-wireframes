@@ -1,6 +1,7 @@
 "use client";
 
-import { ReactNode, useEffect, useId, useRef } from "react";
+import { ReactNode, useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,10 @@ export function Dialog({
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const descriptionId = useId();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // onClose is almost always an inline arrow (new identity every render). If
   // the effect below depended on it, ANY parent re-render — e.g. a keystroke
@@ -83,7 +88,13 @@ export function Dialog({
     };
   }, [open]);
 
-  return (
+  if (!mounted) return null;
+
+  // Portaled to document.body: a page-level <form> may be an ancestor of
+  // wherever this Dialog is rendered from, and this panel's own children
+  // often include a <form> (e.g. step-up re-auth flows) — nesting <form>
+  // inside <form> is invalid HTML and breaks submit routing.
+  return createPortal(
     <AnimatePresence>
       {open && (
         <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
@@ -140,7 +151,8 @@ export function Dialog({
           </motion.div>
         </div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }
 

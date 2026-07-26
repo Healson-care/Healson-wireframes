@@ -84,16 +84,31 @@ interface PendingProviderSubmission {
   otp: string;
 }
 
+// True 2FA — password (factor 1) + one OTP (factor 2), not three factors.
+// The single code is sent to both SMS and email at once purely for delivery
+// redundancy (if one channel fails, the other still has it) — it's still
+// one factor to enter, not two sequential gates like registration's.
 interface PendingLoginVerification {
   userId: string;
-  smsOtp: string;
-  emailOtp: string;
-  smsVerified: boolean;
+  otp: string;
 }
 
+// Email step is a link-click, not a code — matches how real signup email
+// confirmation almost always works (click the link), unlike the SMS step
+// (still a typed code, since there's no equivalent "link" concept for SMS).
+// Generic step-up re-authentication — password + one OTP (sent to both SMS
+// and email at once, same policy as login) — required before a sensitive
+// *action* while already signed in (e.g. requesting a change to identifying
+// details). Deliberately not tied to currentUser/login: this re-confirms
+// "it's still really you" mid-session, it doesn't sign anyone in.
+interface PendingReauth {
+  otp: string;
+}
+
+// No emailOtp field: there's nothing to type, so nothing to check — the
+// click itself is the proof, exactly like a real magic-link confirmation.
 interface PendingRegistrationVerification {
   smsOtp: string;
-  emailOtp: string;
   smsVerified: boolean;
 }
 
@@ -152,13 +167,25 @@ interface AuthState {
     // (reason, what to do next) instead of a generic one-line error.
     blockedStatus?: "rejected" | "suspended";
   };
-  verifyLoginSmsOtp: (code: string) => { ok: boolean; error?: string };
-  verifyLoginEmailOtp: (code: string) => { ok: boolean; error?: string };
-  resendLoginOtp: (channel: "sms" | "email") => string | null;
+  verifyLoginOtp: (code: string) => { ok: boolean; error?: string };
+  resendLoginOtp: () => string | null;
+  // Step-up re-auth (password already checked by the caller before calling
+  // this — there's nothing real to verify it against, see login()) — this
+  // just issues/checks the OTP half. Used before sensitive in-session
+  // actions like requesting identifying-details changes.
+  pendingReauth: PendingReauth | null;
+  beginReauth: () => string;
+  verifyReauthOtp: (code: string) => { ok: boolean; error?: string };
+  resendReauthOtp: () => string | null;
   pendingRegistrationVerification: PendingRegistrationVerification | null;
   beginRegistrationVerification: () => void;
   verifyRegistrationSmsOtp: (code: string) => { ok: boolean; error?: string };
-  verifyRegistrationEmailOtp: (code: string) => { ok: boolean; error?: string };
+  // No code param — clicking the (simulated) email link is itself the proof.
+  verifyRegistrationEmailLink: () => { ok: boolean; error?: string };
+  // Returns a code for "sms" (still shown as a demo hint), but null-ish
+  // signal for "email" doesn't apply — resending an email link has nothing
+  // to display except a confirmation toast, so callers should treat the
+  // email branch as fire-and-forget (see resendRegistrationOtp below).
   resendRegistrationOtp: (channel: "sms" | "email") => string | null;
   loginWithGoogle: () => void;
   register: (email: string, password: string) => { ok: boolean; otpHint: string };
@@ -492,6 +519,7 @@ export const useStore = create<Store>()(
       pendingRegistration: null,
       pendingProviderSubmission: null,
       pendingLoginVerification: null,
+      pendingReauth: null,
       pendingRegistrationVerification: null,
       pendingPasswordReset: null,
 
@@ -520,20 +548,16 @@ export const useStore = create<Store>()(
             }
           }
           // Policy: an existing patient (already has a Patient record, i.e.
-          // finished registration) must clear a double OTP step-up — SMS
-          // then email — before the personal area unlocks. Demo-only: the
-          // codes are fixed, nothing is actually sent.
+          // finished registration) must clear a 2FA step-up — password
+          // (factor 1) + one OTP (factor 2) — before the personal area
+          // unlocks. The code is sent to both SMS and email at once purely
+          // for delivery redundancy, not as two separate gates like
+          // registration's identity-proofing double-OTP. Demo-only: the
+          // code is fixed, nothing is actually sent.
           const isExistingPatient =
             existing.role === "patient" && get().patients.some((p) => p.user_id === existing.id);
           if (isExistingPatient) {
-            set({
-              pendingLoginVerification: {
-                userId: existing.id,
-                smsOtp: "123456",
-                emailOtp: "654321",
-                smsVerified: false,
-              },
-            });
+            set({ pendingLoginVerification: { userId: existing.id, otp: "123456" } });
             return { ok: true, requiresOtp: true };
           }
           set({ currentUser: existing });
@@ -560,14 +584,7 @@ export const useStore = create<Store>()(
           if (!matchingPatient.user_id) {
             get().updatePatient(matchingPatient.id, { user_id: linkedUser.id });
           }
-          set({
-            pendingLoginVerification: {
-              userId: linkedUser.id,
-              smsOtp: "123456",
-              emailOtp: "654321",
-              smsVerified: false,
-            },
-          });
+          set({ pendingLoginVerification: { userId: linkedUser.id, otp: "123456" } });
           return { ok: true, requiresOtp: true };
         }
         // Truly unknown email -> mock-create a new patient account on the fly.
@@ -632,18 +649,10 @@ export const useStore = create<Store>()(
         }
         const user = get().users.find((u) => u.role === role) ?? null;
         // Demo shortcut for an existing patient still has to clear the
-        // double OTP gate, same as the real login form — otherwise the
-        // wireframe would show the policy inconsistently to whoever is
-        // running the demo.
+        // 2FA gate, same as the real login form — otherwise the wireframe
+        // would show the policy inconsistently to whoever is running the demo.
         if (user && role === "patient" && get().patients.some((p) => p.user_id === user.id)) {
-          set({
-            pendingLoginVerification: {
-              userId: user.id,
-              smsOtp: "123456",
-              emailOtp: "654321",
-              smsVerified: false,
-            },
-          });
+          set({ pendingLoginVerification: { userId: user.id, otp: "123456" } });
           return;
         }
         set({ currentUser: user });
@@ -670,29 +679,35 @@ export const useStore = create<Store>()(
         }));
       },
 
-      verifyLoginSmsOtp: (code) => {
+      verifyLoginOtp: (code) => {
         const pending = get().pendingLoginVerification;
         if (!pending) return { ok: false, error: "לא נמצא תהליך אימות פעיל" };
-        if (code !== pending.smsOtp) return { ok: false, error: "קוד שגוי, נסה שנית" };
-        set({ pendingLoginVerification: { ...pending, smsVerified: true } });
-        return { ok: true };
-      },
-
-      verifyLoginEmailOtp: (code) => {
-        const pending = get().pendingLoginVerification;
-        if (!pending || !pending.smsVerified) {
-          return { ok: false, error: "יש לאמת קודם את הקוד שנשלח ב-SMS" };
-        }
-        if (code !== pending.emailOtp) return { ok: false, error: "קוד שגוי, נסה שנית" };
+        if (code !== pending.otp) return { ok: false, error: "קוד שגוי, נסה שנית" };
         const user = get().users.find((u) => u.id === pending.userId) ?? null;
         set({ currentUser: user, pendingLoginVerification: null });
         return { ok: true };
       },
 
-      resendLoginOtp: (channel) => {
+      resendLoginOtp: () => {
         const pending = get().pendingLoginVerification;
-        if (!pending) return null;
-        return channel === "sms" ? pending.smsOtp : pending.emailOtp;
+        return pending ? pending.otp : null;
+      },
+
+      beginReauth: () => {
+        const otp = "123456";
+        set({ pendingReauth: { otp } });
+        return otp;
+      },
+      verifyReauthOtp: (code) => {
+        const pending = get().pendingReauth;
+        if (!pending) return { ok: false, error: "לא נמצא תהליך אימות פעיל" };
+        if (code !== pending.otp) return { ok: false, error: "קוד שגוי, נסה שנית" };
+        set({ pendingReauth: null });
+        return { ok: true };
+      },
+      resendReauthOtp: () => {
+        const pending = get().pendingReauth;
+        return pending ? pending.otp : null;
       },
 
       // Policy: a new patient must also clear the SMS+email double OTP —
@@ -701,7 +716,7 @@ export const useStore = create<Store>()(
       // Demo-only: fixed codes, nothing is actually sent.
       beginRegistrationVerification: () => {
         set({
-          pendingRegistrationVerification: { smsOtp: "123456", emailOtp: "654321", smsVerified: false },
+          pendingRegistrationVerification: { smsOtp: "123456", smsVerified: false },
         });
       },
 
@@ -713,12 +728,13 @@ export const useStore = create<Store>()(
         return { ok: true };
       },
 
-      verifyRegistrationEmailOtp: (code) => {
+      // Called when the user clicks the (simulated) confirmation link — no
+      // code to check, so the only failure mode is skipping ahead of SMS.
+      verifyRegistrationEmailLink: () => {
         const pending = get().pendingRegistrationVerification;
         if (!pending || !pending.smsVerified) {
           return { ok: false, error: "יש לאמת קודם את הקוד שנשלח ב-SMS" };
         }
-        if (code !== pending.emailOtp) return { ok: false, error: "קוד שגוי, נסה שנית" };
         set({ pendingRegistrationVerification: null });
         return { ok: true };
       },
@@ -726,7 +742,9 @@ export const useStore = create<Store>()(
       resendRegistrationOtp: (channel) => {
         const pending = get().pendingRegistrationVerification;
         if (!pending) return null;
-        return channel === "sms" ? pending.smsOtp : pending.emailOtp;
+        // "email" has no code to hand back — the non-null return is just a
+        // sent-successfully signal for the caller's toast.
+        return channel === "sms" ? pending.smsOtp : "sent";
       },
 
       register: (email, password) => {
