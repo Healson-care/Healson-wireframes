@@ -36,6 +36,35 @@ export interface ResourceTarget {
   id: string;
   name: string;
   service_ids: string[];
+  /** The מערך this עמדה belongs to — items are assigned at מערך level, and
+   * only narrowed to individual עמדות when their לו״זים genuinely differ. */
+  service_array_id?: string;
+  kind: "facility" | "doctor";
+  /** True when this עמדה has a לו״ז of its own (inline or shared). Shown so a
+   * provider narrowing by schedule can tell which עמדות actually run. */
+  hasSchedule?: boolean;
+}
+
+/** A מערך, as far as the item dialog is concerned. */
+export interface ServiceArrayTarget {
+  id: string;
+  name: string;
+  branchName?: string;
+}
+
+/** A read-only price, rendered with the same label + box geometry as <Input>
+ * so locked MoH layers align with the editable ones in the same grid. */
+function LockedPriceField({ label, value }: { label: string; value?: number }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="flex items-center gap-1 text-xs font-medium text-slate-600">
+        <Lock className="h-3 w-3" /> {label}
+      </span>
+      <div className="flex h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-700">
+        {value != null ? formatCurrency(value) : "—"}
+      </div>
+    </div>
+  );
 }
 
 function layerPrice(item: CatalogItem | undefined, layer: InsuranceLayer): number | undefined {
@@ -56,6 +85,7 @@ export function ServiceCatalogSection({
   providerType,
   roomTargets,
   providerTargets,
+  serviceArrayTargets,
   onAssignResources,
 }: {
   items: ConsultationType[];
@@ -70,9 +100,11 @@ export function ServiceCatalogSection({
   // so an item is assigned to its resource at entry time.
   roomTargets?: ResourceTarget[];
   providerTargets?: ResourceTarget[];
+  /** The unit's מערכים — the level an item is actually assigned at. */
+  serviceArrayTargets?: ServiceArrayTarget[];
   onAssignResources?: (
     serviceId: string,
-    selection: { roomIds: string[]; providerIds: string[] }
+    selection: { roomIds: string[]; providerIds: string[]; serviceArrayIds: string[] }
   ) => void;
 }) {
   const serviceCategories = getProviderServiceCategories(providerType);
@@ -110,6 +142,11 @@ export function ServiceCatalogSection({
   const [hasRadiation, setHasRadiation] = useState(false);
   const [selectedRoomIds, setSelectedRoomIds] = useState<string[]>([]);
   const [selectedProviderIds, setSelectedProviderIds] = useState<string[]>([]);
+  // An item belongs to a מערך. By default every עמדה in that מערך performs it;
+  // `limitToStations` is the escape hatch for the real case where only some of
+  // a מערך's לו״זים actually offer the item (e.g. only the 3T MRI does cardiac).
+  const [selectedArrayIds, setSelectedArrayIds] = useState<string[]>([]);
+  const [limitToStations, setLimitToStations] = useState(false);
 
   // Only the catalog this provider type is exposed to — a מכון never sees
   // Healson items and a מרפאת חוץ never sees מב"ר items.
@@ -211,6 +248,8 @@ export function ServiceCatalogSection({
     setHasRadiation(false);
     setSelectedRoomIds([]);
     setSelectedProviderIds([]);
+    setSelectedArrayIds([]);
+    setLimitToStations(false);
   }
 
   function openCreate() {
@@ -242,6 +281,23 @@ export function ServiceCatalogSection({
     setSelectedRoomIds((roomTargets ?? []).filter((r) => r.service_ids.includes(item.id)).map((r) => r.id));
     setSelectedProviderIds(
       (providerTargets ?? []).filter((p) => p.service_ids.includes(item.id)).map((p) => p.id)
+    );
+    // Prefer the stored מערך link; fall back to deriving it from whichever
+    // עמדות already perform the item, so pre-existing catalogs open correctly.
+    const linkedStations = [...(roomTargets ?? []), ...(providerTargets ?? [])].filter((r) =>
+      r.service_ids.includes(item.id)
+    );
+    const derivedArrayIds = [
+      ...new Set(linkedStations.map((r) => r.service_array_id).filter((x): x is string => !!x)),
+    ];
+    const arrayIds = item.service_array_ids?.length ? item.service_array_ids : derivedArrayIds;
+    setSelectedArrayIds(arrayIds);
+    // Narrowed if the item runs on fewer עמדות than its מערכים contain.
+    const allInArrays = [...(roomTargets ?? []), ...(providerTargets ?? [])].filter(
+      (r) => r.service_array_id && arrayIds.includes(r.service_array_id)
+    );
+    setLimitToStations(
+      item.limited_to_stations ?? (allInArrays.length > 0 && linkedStations.length < allInArrays.length)
     );
     setOpen(true);
   }
@@ -281,6 +337,9 @@ export function ServiceCatalogSection({
       // Location linking is owned by the clinics screen — preserve whatever
       // links already exist, never reset them from here.
       linked_clinic_ids: editingExisting?.linked_clinic_ids ?? [],
+      service_array_ids: isUnit ? selectedArrayIds : editingExisting?.service_array_ids,
+      // Only meaningful when the item runs on a subset of its מערך's עמדות.
+      limited_to_stations: isUnit ? limitToStations || undefined : editingExisting?.limited_to_stations,
       requires_referral: requiresReferral,
       requires_fasting: serviceType === "test" ? requiresFasting : undefined,
       sample_type: serviceType === "test" && sampleType ? sampleType : undefined,
@@ -296,10 +355,32 @@ export function ServiceCatalogSection({
       onChange([...items, newItem]);
     }
     if (isUnit && onAssignResources) {
-      onAssignResources(id, { roomIds: selectedRoomIds, providerIds: selectedProviderIds });
+      // Not narrowed → every עמדה in the chosen מערכים performs the item, so
+      // the מערך choice expands to its stations here rather than making the
+      // provider tick each one.
+      const inArrays = (list?: ResourceTarget[]) =>
+        (list ?? []).filter((r) => r.service_array_id && selectedArrayIds.includes(r.service_array_id)).map((r) => r.id);
+      onAssignResources(id, {
+        roomIds: limitToStations ? selectedRoomIds : inArrays(roomTargets),
+        providerIds: limitToStations ? selectedProviderIds : inArrays(providerTargets),
+        serviceArrayIds: selectedArrayIds,
+      });
     }
     setOpen(false);
   }
+
+  // The עמדות that live in the currently-selected מערכים, grouped so the
+  // narrowing picker reads as "within מערך X, these stations".
+  const stationsInSelectedArrays = useMemo(() => {
+    const all = [...(roomTargets ?? []), ...(providerTargets ?? [])];
+    return selectedArrayIds
+      .map((arrayId) => ({
+        arrayId,
+        arrayName: serviceArrayTargets?.find((a) => a.id === arrayId)?.name ?? "מערך",
+        stations: all.filter((r) => r.service_array_id === arrayId),
+      }))
+      .filter((g) => g.stations.length > 0);
+  }, [selectedArrayIds, roomTargets, providerTargets, serviceArrayTargets]);
 
   function toggleTarget(id: string, list: string[], setList: (v: string[]) => void) {
     setList(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
@@ -538,35 +619,39 @@ export function ServiceCatalogSection({
           )}
 
           {/* Pricing — S/H are the MoH price list, always locked. Healson
-              items add the full item price P and the K/B Healson tariffs. */}
+              items add the full item price P and the K/B Healson tariffs.
+              All five layers render in ONE grid with identical field chrome:
+              the editable inputs and the locked MoH figures used to sit in two
+              grids of different column counts, so nothing lined up. */}
           <div className="flex flex-col gap-2 rounded-lg border border-slate-200 p-3">
             <p className="text-xs font-medium text-slate-600">מחירים</p>
-            {catalogKind === "healson" && (
-              <div className="grid sm:grid-cols-3 gap-2">
-                <Input
-                  label="מחיר פריט מלא (P)"
-                  type="number"
-                  value={priceFull}
-                  onChange={(e) => setPriceFull(e.target.value)}
-                  required
-                />
-                <Input label={`מחיר ${LAYER_LABELS.K} (K)`} type="number" value={priceK} onChange={(e) => setPriceK(e.target.value)} />
-                <Input label={`מחיר ${LAYER_LABELS.B} (B)`} type="number" value={priceB} onChange={(e) => setPriceB(e.target.value)} />
-              </div>
-            )}
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className="flex items-center justify-between rounded-md bg-slate-50 px-2 py-1.5">
-                <span className="flex items-center gap-1 text-slate-500">
-                  <Lock className="h-3 w-3" /> {LAYER_LABELS.S} (S)
-                </span>
-                <span className="font-medium text-slate-700">{mohS != null ? formatCurrency(mohS) : "—"}</span>
-              </div>
-              <div className="flex items-center justify-between rounded-md bg-slate-50 px-2 py-1.5">
-                <span className="flex items-center gap-1 text-slate-500">
-                  <Lock className="h-3 w-3" /> {LAYER_LABELS.H} (H)
-                </span>
-                <span className="font-medium text-slate-700">{mohH != null ? formatCurrency(mohH) : "—"}</span>
-              </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {catalogKind === "healson" && (
+                <>
+                  <Input
+                    label="מחיר פריט מלא (P)"
+                    type="number"
+                    value={priceFull}
+                    onChange={(e) => setPriceFull(e.target.value)}
+                    required
+                    className="sm:col-span-2"
+                  />
+                  <Input
+                    label={`מחיר ${LAYER_LABELS.K} (K)`}
+                    type="number"
+                    value={priceK}
+                    onChange={(e) => setPriceK(e.target.value)}
+                  />
+                  <Input
+                    label={`מחיר ${LAYER_LABELS.B} (B)`}
+                    type="number"
+                    value={priceB}
+                    onChange={(e) => setPriceB(e.target.value)}
+                  />
+                </>
+              )}
+              <LockedPriceField label={`${LAYER_LABELS.S} (S)`} value={mohS} />
+              <LockedPriceField label={`${LAYER_LABELS.H} (H)`} value={mohH} />
             </div>
             <p className="text-[11px] text-slate-400">
               S ו-H נקבעים תמיד לפי מחירון משרד הבריאות ואינם ניתנים לעריכה.
@@ -574,65 +659,97 @@ export function ServiceCatalogSection({
             </p>
           </div>
 
-          {/* Unit types assign the item to its resource right here — a room
-              (MRI 1, חדר פעולות) or an individual service provider. */}
+          {/* An item belongs to a מערך (service line), not to a room or a
+              person — that was the old model and it forced a unit to re-pick
+              every machine for every item. Narrowing down to individual לו״זים
+              stays available for the genuine case where a מערך's עמדות differ. */}
           {isUnit && (
-            <div className="flex flex-col gap-2 rounded-lg border border-slate-200 p-3">
-              <p className="text-xs font-medium text-slate-600">שיוך הפריט — חדר או נותן/ת שירות</p>
-              {(roomTargets?.length ?? 0) === 0 && (providerTargets?.length ?? 0) === 0 ? (
+            <div className="flex flex-col gap-3 rounded-lg border border-slate-200 p-3">
+              <p className="text-xs font-medium text-slate-600">שיוך למערך</p>
+              {(serviceArrayTargets?.length ?? 0) === 0 ? (
                 <p className="text-xs text-slate-400">
-                  עדיין לא הוגדרו חדרים או נותני שירות ביחידה — ניתן לשייך מאוחר יותר בלשוניות &quot;חדרים&quot;
-                  ו&quot;נותני שירות&quot;.
+                  עדיין לא הוגדרו מערכים ביחידה — ניתן לשייך מאוחר יותר בלשונית &quot;מערכים&quot;.
                 </p>
               ) : (
                 <>
-                  {(roomTargets?.length ?? 0) > 0 && (
-                    <div>
-                      <p className="mb-1 text-[11px] text-slate-500">חדרים</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {roomTargets!.map((r) => {
-                          const picked = selectedRoomIds.includes(r.id);
-                          return (
-                            <button
-                              key={r.id}
-                              type="button"
-                              onClick={() => toggleTarget(r.id, selectedRoomIds, setSelectedRoomIds)}
-                              className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
-                                picked
-                                  ? "border-primary bg-primary/10 text-primary font-medium"
-                                  : "border-slate-200 text-slate-600 hover:bg-slate-50"
-                              }`}
-                            >
-                              {r.name}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                  {(providerTargets?.length ?? 0) > 0 && (
-                    <div>
-                      <p className="mb-1 text-[11px] text-slate-500">נותני שירות</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {providerTargets!.map((p) => {
-                          const picked = selectedProviderIds.includes(p.id);
-                          return (
-                            <button
-                              key={p.id}
-                              type="button"
-                              onClick={() => toggleTarget(p.id, selectedProviderIds, setSelectedProviderIds)}
-                              className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
-                                picked
-                                  ? "border-primary bg-primary/10 text-primary font-medium"
-                                  : "border-slate-200 text-slate-600 hover:bg-slate-50"
-                              }`}
-                            >
-                              {p.name}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {serviceArrayTargets!.map((a) => {
+                      const picked = selectedArrayIds.includes(a.id);
+                      return (
+                        <button
+                          key={a.id}
+                          type="button"
+                          onClick={() => toggleTarget(a.id, selectedArrayIds, setSelectedArrayIds)}
+                          className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                            picked
+                              ? "border-primary bg-primary/10 font-medium text-primary"
+                              : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                          }`}
+                        >
+                          {a.name}
+                          {a.branchName && <span className="text-slate-400"> · {a.branchName}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {selectedArrayIds.length > 0 && (
+                    <>
+                      <label className="flex cursor-pointer items-start gap-2 border-t border-slate-100 pt-2.5 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={limitToStations}
+                          onChange={(e) => setLimitToStations(e.target.checked)}
+                          className="mt-0.5 h-4 w-4 rounded border-slate-300 accent-primary"
+                        />
+                        <span>
+                          הפריט מבוצע רק בחלק מהעמדות של המערך
+                          <span className="mt-0.5 block text-[11px] font-normal text-slate-500">
+                            ברירת מחדל: כל עמדה במערך שנבחר מבצעת את הפריט לפי הלו״ז שלה.
+                          </span>
+                        </span>
+                      </label>
+
+                      {limitToStations && (
+                        <div className="flex flex-col gap-2 rounded-lg bg-slate-50 p-2.5">
+                          {stationsInSelectedArrays.length === 0 ? (
+                            <p className="text-xs text-slate-400">
+                              אין עדיין עמדות במערכים שנבחרו — הוסיפו עמדות בלשונית &quot;מערכים&quot;.
+                            </p>
+                          ) : (
+                            stationsInSelectedArrays.map((group) => (
+                              <div key={group.arrayId}>
+                                <p className="mb-1 text-[11px] font-medium text-slate-500">{group.arrayName}</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {group.stations.map((r) => {
+                                    const list = r.kind === "facility" ? selectedRoomIds : selectedProviderIds;
+                                    const setList = r.kind === "facility" ? setSelectedRoomIds : setSelectedProviderIds;
+                                    const picked = list.includes(r.id);
+                                    return (
+                                      <button
+                                        key={r.id}
+                                        type="button"
+                                        onClick={() => toggleTarget(r.id, list, setList)}
+                                        className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                                          picked
+                                            ? "border-primary bg-primary/10 font-medium text-primary"
+                                            : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                                        }`}
+                                      >
+                                        {r.name}
+                                        {!r.hasSchedule && (
+                                          <span className="text-[10px] text-warning-text">· ללא לו״ז</span>
+                                        )}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </>
                   )}
                 </>
               )}

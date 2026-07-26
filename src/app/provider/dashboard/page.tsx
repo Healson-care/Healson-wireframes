@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/Button";
 import { Avatar, EmptyState, SectionHeading, StatCard } from "@/components/ui/Misc";
 import { CardListSkeleton, Skeleton } from "@/components/ui/Skeleton";
 import { OnboardingProgress } from "@/components/provider/OnboardingProgress";
-import { ProviderJourney } from "@/components/provider/ProviderJourney";
+import { RegistrationProgress } from "@/components/provider/RegistrationProgress";
 import { ProviderApplicationSummary } from "@/components/provider/ProviderApplicationSummary";
 import {
   Users,
@@ -62,7 +62,7 @@ export default function ProviderDashboardPage() {
   const setupConfig = getProviderSetupConfig(provider.provider_type);
   const isPendingReview = provider.status === "pending_review";
   const applicationSubmitted = !!provider.application_submitted_at;
-  // Brand-new account: ProviderJourney renders its own welcome hero (which is
+  // Brand-new account: RegistrationProgress renders its own welcome hero (which is
   // the greeting), so the operational header would just repeat it.
   const showWelcomeHero = isPendingReview && !provider.provider_type;
   const isOnboarding = provider.status === "onboarding";
@@ -239,11 +239,11 @@ export default function ProviderDashboardPage() {
       </div>
 
       <div className="flex flex-col gap-6">
-        {/* Pre-approval stages — the dashboard IS the home for both of them.
-            Before the license is verified ProviderJourney shows the whole path
-            with the setup steps locked; after it, OnboardingProgress unlocks
-            the same steps. Both vanish once approved and the operational home
-            takes over. */}
+        {/* The two phases (see src/lib/provider-phases.ts). RegistrationProgress
+            is phase 1 (רישום) and only ever appears on the solo path; once the
+            license is verified — or immediately, for an Ops-created unit —
+            OnboardingProgress takes over as phase 2 (הקמה). Both vanish once
+            approved and the operational home takes over. */}
         {/* Rejection reason as visible text — previously it lived only in the
             status badge's hover tooltip, invisible on touch devices. */}
         {provider.status === "rejected" && (
@@ -258,7 +258,7 @@ export default function ProviderDashboardPage() {
           </div>
         )}
         {isPendingReview && (
-          <ProviderJourney provider={provider} displayName={provider.display_name || currentUser.full_name} />
+          <RegistrationProgress provider={provider} displayName={provider.display_name || currentUser.full_name} />
         )}
         {isOnboarding && <OnboardingProgress provider={provider} />}
         {(isOnboarding || (isPendingReview && applicationSubmitted)) && (

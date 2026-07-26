@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useStore } from "@/lib/store";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -90,8 +91,12 @@ export function UnitStructureSection({ unitId }: { unitId: string }) {
       <div className="flex items-start gap-2 rounded-lg border border-info-border bg-info-bg px-3 py-2.5 text-xs leading-relaxed text-info-text">
         <Layers className="mt-0.5 h-4 w-4 shrink-0" />
         <span>
-          המבנה: <b>יחידה</b> → <b>סניפים</b> (אתרים פיזיים) → <b>מערכים</b> (קווי שירות: MRI, ייעוצים, בדיקות…).
-          את המשאבים (מכשירים / נותני שירות) משייכים למערך בלשוניות ‚מכשירים‘ ו‚נותני שירות‘.
+          המבנה: <b>יחידה</b> → <b>סניפים</b> (אתרים פיזיים) → <b>מערכים</b> (קווי שירות: הדמיה, ייעוצים, בדיקות…) →{" "}
+          <b>עמדות</b>. כאן מנהלים את הסניפים; המערכים והעמדות שבתוכם מנוהלים בלשונית{" "}
+          <Link href="/provider/profile/arrays" className="font-semibold underline">
+            מערכים
+          </Link>
+          .
         </span>
       </div>
 
@@ -100,41 +105,59 @@ export function UnitStructureSection({ unitId }: { unitId: string }) {
           icon={<MapPinned className="h-10 w-10" />}
           title="אין עדיין סניפים"
           description="הוסיפו סניף (אתר פיזי של היחידה), ואז הגדירו בו מערכים."
+          action={
+            <Button size="sm" onClick={openAdd}>
+              <Plus className="h-4 w-4" /> הוספת סניף
+            </Button>
+          }
         />
       ) : (
-        branches.map((b) => (
-          <Card key={b.id} className="p-4">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div className="min-w-0">
-                <p className="flex items-center gap-1.5 font-medium text-slate-900">
-                  <MapPinned className="h-4 w-4 text-primary" /> {b.name}
-                </p>
-                {(b.city || b.address) && (
-                  <p className="mt-0.5 pr-5 text-xs text-slate-500">
-                    {[b.city, b.address].filter(Boolean).join(" · ")}
+        // Two columns: a branch card holds a name, an address and a short list
+        // of its מערכים — full-width rows left most of the screen empty.
+        <div className="grid gap-3 lg:grid-cols-2">
+          {branches.map((b) => (
+            <Card key={b.id} className="flex flex-col p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="flex items-center gap-2 text-base font-bold text-slate-900">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                      <MapPinned className="h-4.5 w-4.5" />
+                    </span>
+                    {b.name}
                   </p>
-                )}
+                  {(b.city || b.address || b.contact_phone) && (
+                    <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
+                      {[b.city, b.address].filter(Boolean).join(" · ")}
+                      {b.contact_phone && (
+                        <>
+                          <br />
+                          {b.contact_phone}
+                        </>
+                      )}
+                    </p>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    onClick={() => openEdit(b)}
+                    className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                    title="עריכת סניף"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setDeleteId(b.id)}
+                    className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-500"
+                    title="מחיקת סניף"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => openEdit(b)}
-                  className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-                  title="עריכת סניף"
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  onClick={() => setDeleteId(b.id)}
-                  className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-500"
-                  title="מחיקת סניף"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            </div>
-            <BranchArraysManager branch={b} />
-          </Card>
-        ))
+              <BranchArraysManager branch={b} />
+            </Card>
+          ))}
+        </div>
       )}
 
       <Dialog

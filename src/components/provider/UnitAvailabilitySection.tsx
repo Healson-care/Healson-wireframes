@@ -19,6 +19,7 @@ import {
   totalWeeklyHours,
 } from "@/lib/schedule";
 import { UnitResource, buildUnitOverview, getUnitResources } from "@/lib/unit-resources";
+import { UnitCoverageCalendar } from "@/components/provider/UnitCoverageCalendar";
 import {
   AffiliatedDoctor,
   ConsultationType,
@@ -32,6 +33,7 @@ import {
 import {
   AlertCircle,
   CalendarClock,
+  CalendarDays,
   ChevronDown,
   ChevronLeft,
   CopyPlus,
@@ -44,11 +46,11 @@ import {
   Trash2,
 } from "lucide-react";
 
-/** Availability for a medical unit (§PRV-08) — the unified מערכים → לוזים view.
+/** Availability for a medical unit (§PRV-08) — the unified מערכים → עמדות view.
  *
- * A unit doesn't have one calendar. Its bookable resources — מכשירים and נותני
- * שירות — are its לוזים, each with its own week (a "לוז" IS a schedule). Here
- * they're grouped by מערך (service line), and each לוז expands to edit its week.
+ * A unit doesn't have one calendar. Its bookable resources — עמדות ציוד and נותני
+ * שירות — are its עמדות, each with its own week (a "עמדה" IS a schedule). Here
+ * they're grouped by מערך (service line), and each עמדה expands to edit its week.
  * The "תמונת מצב" tab is the combined read-only picture across the whole unit. */
 export function UnitAvailabilitySection({
   provider,
@@ -60,6 +62,7 @@ export function UnitAvailabilitySection({
   const providers = useStore((s) => s.providers);
   const organizationBranches = useStore((s) => s.organizationBranches);
   const serviceArrays = useStore((s) => s.serviceArrays);
+  const appointments = useStore((s) => s.appointments);
 
   const doctorInfo = useMemo(
     () =>
@@ -91,18 +94,33 @@ export function UnitAvailabilitySection({
   const sharedSchedules = provider.resource_schedules ?? [];
 
   return (
-    <Tabs defaultValue="arrays" className="flex flex-col gap-4">
+    <Tabs defaultValue="calendar" className="flex flex-col gap-4">
       <TabsList>
+        {/* The calendar leads: "when are we open and where are the holes" is
+            the question a unit opens this screen with. Editing a specific
+            לו״ז is the follow-up, not the entry point. */}
+        <TabsTrigger value="calendar" icon={<CalendarDays className="h-4 w-4" />}>
+          יומן
+        </TabsTrigger>
         <TabsTrigger value="arrays" icon={<Layers className="h-4 w-4" />}>
-          מערכים ולוזים
+          מערכים ועמדות
         </TabsTrigger>
         <TabsTrigger value="shared" icon={<CopyPlus className="h-4 w-4" />}>
-          לוזים משותפים
+          לו״זים משותפים
         </TabsTrigger>
         <TabsTrigger value="general" icon={<CalendarClock className="h-4 w-4" />}>
           תמונת מצב
         </TabsTrigger>
       </TabsList>
+
+      <TabsContent value="calendar">
+        <UnitCoverageCalendar
+          resources={resources}
+          arrays={unitArrays}
+          branchNames={new Map(unitBranches.map((b) => [b.id, b.name]))}
+          appointments={appointments.filter((a) => a.provider_id === provider.id)}
+        />
+      </TabsContent>
 
       <TabsContent value="arrays">
         <ArraysView
@@ -131,7 +149,7 @@ export function UnitAvailabilitySection({
 }
 
 // ---------------------------------------------------------------------------
-// מערכים → לוזים — the merged, expandable view
+// מערכים → עמדות — the merged, expandable view
 // ---------------------------------------------------------------------------
 
 interface LozItem {
@@ -219,7 +237,7 @@ function ArraysView({
   );
 
   // The read-only preview shown instead of the editor when a resource follows a
-  // shared לו״ז — its hours are edited once, in the "לוזים משותפים" tab.
+  // shared לו״ז — its hours are edited once, in the "לו״זים משותפים" tab.
   const sharedPreview = (resource: UnitResource | undefined, scheduleId: string): ReactNode => {
     const shared = sharedSchedules.find((s) => s.id === scheduleId);
     return (
@@ -228,7 +246,7 @@ function ArraysView({
           <Link2 className="h-3.5 w-3.5" /> עוקב אחרי הלו״ז המשותף {shared ? `"${shared.name}"` : ""}
         </p>
         <p className="mt-1 text-slate-500">
-          עריכת השעות מתבצעת פעם אחת בלשונית &quot;לוזים משותפים&quot;; שינוי שם משפיע על כל המשאבים החולקים אותו. כאן ניתן רק
+          עריכת השעות מתבצעת פעם אחת בלשונית &quot;לו״זים משותפים&quot;; שינוי שם משפיע על כל המשאבים החולקים אותו. כאן ניתן רק
           לבחור מקור לו״ז אחר.
         </p>
         {resource && <div className="mt-2">{<WeekStrip resource={resource} />}</div>}
@@ -254,8 +272,8 @@ function ArraysView({
               holder={f}
               title={f.name}
               subtitle={resources.find((r) => r.id === f.id)?.subtitle}
-              emptyLabel="ללוז אין עדיין לוח זמנים"
-              serviceScopeLabel="כל הפריטים של הלוז"
+              emptyLabel="לעמדה אין עדיין לוח זמנים"
+              serviceScopeLabel="כל הפריטים של העמדה"
               services={services.filter((s) => f.service_ids.includes(s.id))}
               onChange={(next) => onChange({ facilities: facilities.map((x) => (x.id === next.id ? next : x)) })}
             />
@@ -296,7 +314,7 @@ function ArraysView({
     }),
   ];
 
-  // Nest the לוזים by the unit's real structure: סניף → מערך → לוזים.
+  // Nest the עמדות by the unit's real structure: סניף → מערך → עמדות.
   type ArrayGroup = { key: string; name: string; items: LozItem[] };
   type BranchGroup = { branchId: string; branchName: string; arrays: ArrayGroup[] };
   const branchGroups: BranchGroup[] = [];
@@ -340,7 +358,7 @@ function ArraysView({
             )}
             <span className="font-medium text-slate-900">{res?.name}</span>
             <Badge tone={it.kind === "doctor" ? "blue" : "slate"}>
-              {it.kind === "doctor" ? "נותן שירות" : "מכשיר"}
+              {it.kind === "doctor" ? "נותן שירות" : "ציוד"}
             </Badge>
             {it.capacity > 1 && <Badge tone="green">מייצג {it.capacity} מכשירים</Badge>}
             {it.scheduleId && (
@@ -369,20 +387,20 @@ function ArraysView({
     return (
       <EmptyState
         icon={<Layers className="h-10 w-10" />}
-        title="לא הוגדרו לוזים"
-        description="הגדירו מכשירים ונותני שירות — ולכל אחד לו״ז משלו. הם יופיעו כאן מקובצים למערכים (קווי שירות)."
+        title="לא הוגדרו עמדות"
+        description="הגדירו עמדות — ציוד או נותני שירות — ולכל אחת לו״ז משלה. הן יופיעו כאן מקובצות למערכים (קווי שירות)."
       />
     );
   }
 
   return (
     <div className="flex flex-col gap-4">
-      {/* In-app explainer of the סניף → מערך → לוז model */}
+      {/* In-app explainer of the סניף → מערך → עמדה model */}
       <div className="flex items-start gap-2 rounded-lg border border-info-border bg-info-bg px-3 py-2.5 text-xs leading-relaxed text-info-text">
         <Layers className="mt-0.5 h-4 w-4 shrink-0" />
         <span>
-          המבנה: <b>סניף</b> → <b>מערך</b> (קו שירות: MRI, ייעוצים, בדיקות…) → <b>לוזים</b>. כל לוז הוא עמדה עם לו״ז
-          משלה — מכשיר או נותן שירות יחיד (לוז אחד יכול לייצג כמה מכשירים זהים). שייכו כל לוז למערך דרך הבורר שבתוכו;
+          המבנה: <b>סניף</b> → <b>מערך</b> (קו שירות: MRI, ייעוצים, בדיקות…) → <b>עמדות</b>. כל עמדה הוא עמדה עם לו״ז
+          משלה — פריט ציוד או נותן שירות יחיד (עמדה אחת יכולה לייצג כמה מכשירים זהים). שייכו כל עמדה למערך דרך הבורר שבתוכו;
           סניפים ומערכים מוגדרים במסך ניהול הספק.
         </span>
       </div>
@@ -393,7 +411,7 @@ function ArraysView({
             <MapPinned className="h-4 w-4 text-primary" />
             <p className="text-sm font-bold text-slate-900">{bg.branchName}</p>
             <span className="text-xs text-slate-400">
-              · {bg.arrays.length} מערכים · {bg.arrays.reduce((n, a) => n + a.items.length, 0)} לוזים
+              · {bg.arrays.length} מערכים · {bg.arrays.reduce((n, a) => n + a.items.length, 0)} עמדות
             </span>
           </div>
 
@@ -404,7 +422,7 @@ function ArraysView({
                 <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
                   <Layers className="h-4 w-4 text-primary" />
                   <p className="text-sm font-semibold text-slate-900">{ag.name}</p>
-                  <Badge tone="purple">{ag.items.length} לוזים</Badge>
+                  <Badge tone="purple">{ag.items.length} עמדות</Badge>
                   {machines > ag.items.length && (
                     <span className="text-xs text-slate-400">· {machines} מכשירים בפועל</span>
                   )}
@@ -445,12 +463,12 @@ function GeneralAvailability({
             <div>
               <p className="text-sm font-medium text-slate-900">תמונת מצב — כל היחידה</p>
               <p className="text-xs text-slate-500">
-                {overview.facilities.length} מכשירים · {overview.doctors.length} נותני שירות ·{" "}
+                {overview.facilities.length} עמדות ציוד · {overview.doctors.length} נותני שירות ·{" "}
                 {overview.activeDays} ימי פעילות בשבוע · {overview.totalWeeklyHours.toFixed(1)} שעות משאב נטו
               </p>
             </div>
           </div>
-          {allResources.length === 0 && <Badge tone="warning">לא הוגדרו לוזים</Badge>}
+          {allResources.length === 0 && <Badge tone="warning">לא הוגדרו עמדות</Badge>}
         </div>
 
         {/* How many resources are open on each weekday. */}
@@ -475,38 +493,38 @@ function GeneralAvailability({
             );
           })}
         </div>
-        <p className="mt-2 text-[11px] text-slate-400">מספר הלוזים (מכשירים + נותני שירות) הפעילים בכל יום.</p>
+        <p className="mt-2 text-[11px] text-slate-400">מספר העמדות (ציוד + נותני שירות) הפעילות בכל יום.</p>
       </Card>
 
       {/* Warnings — the two ways a unit's schedule ends up not bookable. */}
       {overview.resourcesWithoutAvailability.length > 0 && (
         <WarningRow>
-          {overview.resourcesWithoutAvailability.length} לוזים ללא לוח זמנים:{" "}
+          {overview.resourcesWithoutAvailability.length} עמדות ללא לו״ז:{" "}
           {overview.resourcesWithoutAvailability.map((r) => r.name).join(", ")}. עד שיוגדר להם לוח זמנים לא ייווצרו
           תורים.
         </WarningRow>
       )}
       {overview.servicesWithoutResource.length > 0 && (
         <WarningRow>
-          {overview.servicesWithoutResource.length} פריטים אינם מקושרים ללוז:{" "}
+          {overview.servicesWithoutResource.length} פריטים אינם מקושרים לעמדה:{" "}
           {overview.servicesWithoutResource
             .slice(0, 4)
             .map((s) => s.name)
             .join(", ")}
           {overview.servicesWithoutResource.length > 4 ? " ועוד" : ""}. הם ייבנו לפי שעות הפעילות הכלליות של
-          היחידה עד שישויכו ללוז.
+          היחידה עד שישויכו לעמדה.
         </WarningRow>
       )}
 
       {/* Every resource's week, read-only — editing happens in the מערכים tab. */}
       {allResources.length > 0 && (
         <Card className="p-4">
-          <p className="mb-3 text-sm font-medium text-slate-800">השבוע של כל לוז</p>
+          <p className="mb-3 text-sm font-medium text-slate-800">השבוע של כל עמדה</p>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[46rem] border-collapse text-xs">
               <thead>
                 <tr className="text-slate-500">
-                  <th className="p-2 text-right font-medium">לוז</th>
+                  <th className="p-2 text-right font-medium">עמדה</th>
                   {DAY_KEYS.map((d) => (
                     <th key={d} className="p-2 text-center font-medium">
                       {DAY_LABELS[d]}
@@ -530,8 +548,8 @@ function GeneralAvailability({
           <CalendarClock className="h-4 w-4 text-slate-400" /> שעות הפעילות של היחידה
         </p>
         <p className="mb-3 text-xs text-slate-500">
-          שעות הפתיחה של היחידה כולה — מוצגות למטופלים, ומשמשות כברירת מחדל לפריטים שעדיין לא שויכו ללוז. הן
-          אינן מגבילות את לוחות הזמנים של הלוזים.
+          שעות הפתיחה של היחידה כולה — מוצגות למטופלים, ומשמשות כברירת מחדל לפריטים שעדיין לא שויכו לעמדה. הן
+          אינן מגבילות את לוחות הזמנים של העמדות.
         </p>
         {unit ? (
           <ScheduleEditor
@@ -561,7 +579,7 @@ function ResourceWeekRow({ resource }: { resource: UnitResource }) {
       <td className="p-2 align-top">
         <p className="font-medium text-slate-800">{resource.name}</p>
         <p className="text-[10px] text-slate-400">
-          {resource.kind === "facility" ? "מכשיר" : "נותן/ת שירות"}
+          {resource.kind === "facility" ? "ציוד" : "נותן/ת שירות"}
           {resource.service_array ? ` · ${resource.service_array}` : ""}
           {resource.service_ids.length > 0 ? ` · ${resource.service_ids.length} פריטים` : ""}
         </p>
@@ -602,7 +620,7 @@ function WarningRow({ children }: { children: ReactNode }) {
 }
 
 // ---------------------------------------------------------------------------
-// Shared schedules (לוזים משותפים)
+// Shared schedules (לו״זים משותפים)
 // ---------------------------------------------------------------------------
 
 /** The "מקור לו״ז" control on a resource: independent (inline) or a shared לו״ז. */
@@ -631,7 +649,7 @@ function ScheduleSourcePicker({
         ))}
       </select>
       {sharedSchedules.length === 0 && (
-        <span className="text-slate-400">אין עדיין לוזים משותפים — צרו אחד בלשונית &quot;לוזים משותפים&quot;.</span>
+        <span className="text-slate-400">אין עדיין לו״זים משותפים — צרו אחד בלשונית &quot;לו״זים משותפים&quot;.</span>
       )}
     </label>
   );
@@ -764,8 +782,8 @@ function SharedSchedulesView({
       {sharedSchedules.length === 0 ? (
         <EmptyState
           icon={<CopyPlus className="h-10 w-10" />}
-          title="אין עדיין לוזים משותפים"
-          description="צרו לו״ז משותף כדי להחיל אותו על כמה מכשירים או נותני שירות בבת אחת."
+          title="אין עדיין לו״זים משותפים"
+          description="צרו לו״ז משותף כדי להחיל אותו על כמה עמדות בבת אחת."
         />
       ) : (
         sharedSchedules.map((s) => {

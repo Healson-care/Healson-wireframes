@@ -9,8 +9,8 @@ import { Network } from "lucide-react";
 export default function ProviderStructurePage() {
   return (
     <ProfilePageFrame
-      title="סניפים ומערכים"
-      description="הסניפים של היחידה, והמערכים (קווי שירות) שבכל סניף. את המכשירים ונותני השירות משייכים למערכים בלשוניות המתאימות."
+      title="סניפים"
+      description="האתרים הפיזיים של היחידה. כל סניף מכיל מערכים (קווי שירות) — אותם מנהלים בלשונית ‚מערכים‘."
     >
       {({ provider }) => {
         const setupConfig = getProviderSetupConfig(provider.provider_type);
@@ -20,7 +20,7 @@ export default function ProviderStructurePage() {
           return (
             <EmptyState
               icon={<Network className="h-10 w-10" />}
-              title="ניהול סניפים ומערכים אינו רלוונטי לסוג הספק שלך"
+              title="ניהול סניפים אינו רלוונטי לסוג הספק שלך"
               description="זמין ליחידות רפואיות (מכון רפואי / מרפאת חוץ) הפועלות בכמה אתרים וקווי שירות."
             />
           );

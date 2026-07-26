@@ -333,9 +333,12 @@ interface EntitiesState {
     branchId: string,
     data: { type: ServiceArrayType; name?: string }
   ) => { ok: boolean; error?: string; serviceArray?: ServiceArray };
+  // `branch_id` is editable so a מערך can be MOVED between סניפים from the
+  // מערכים screen. Its עמדות resolve their branch through the מערך, so they
+  // follow automatically — nothing else needs rewriting.
   updateServiceArray: (
     id: string,
-    data: Partial<Pick<ServiceArray, "type" | "name">>
+    data: Partial<Pick<ServiceArray, "type" | "name" | "branch_id">>
   ) => void;
   deleteServiceArray: (id: string) => { ok: boolean; error?: string };
   // Internal: clears service_array_id off a unit's resources referencing gone מערכים.
@@ -797,7 +800,10 @@ export const useStore = create<Store>()(
           created_date: new Date().toISOString(),
         };
         set((s) => ({ users: [...s.users, newUser] }));
-        get().upsertProviderProfile(newUser.id, { display_name: full_name });
+        // Everything that comes through the public join flow is on the "solo"
+        // path by definition — a medical unit never reaches this action, its
+        // user is opened by Ops (addOrganizationUnit + createProviderUnitUser).
+        get().upsertProviderProfile(newUser.id, { display_name: full_name, onboarding_path: "solo" });
         // Logged in immediately (PROV-REGISTRATION) — unlike the old
         // apply-then-wait-for-Ops flow, the applicant gets a real session
         // the moment their account exists and completes the rest of their
@@ -1475,6 +1481,9 @@ export const useStore = create<Store>()(
           // Admin-created units skip the public license-review queue — Ops is
           // the one creating them — and land straight in onboarding so the
           // unit's user can complete agreements/catalog/availability.
+          // This IS the unit path: no רישום phase, straight into הקמה with a
+          // blank slate (see src/lib/provider-phases.ts).
+          onboarding_path: "unit",
           status: "onboarding",
           license_verified_at: new Date().toISOString(),
           application_submitted_at: new Date().toISOString(),
@@ -1794,7 +1803,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 26,
+      version: 27,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
       // records), the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER seed
       // account, the v3 -> v4 AppointmentStatus rename ("ממתין לאישור" ->
@@ -1868,7 +1877,11 @@ export const useStore = create<Store>()(
       // units (מכון הדסה / מרפאות חוץ) now get a branch + מערכים generated from their
       // resources, and the demo מרפאת חוץ branch gets its מערכים — reseed so every
       // unit shows סניף → מערך → משאב, not just the demo org's מכון.
-      migrate: (persistedState, version) => (version < 26 ? ({} as Store) : (persistedState as Store)),
+      // v26 -> v27 splits the provider join flow into two named phases and two
+      // paths (ProviderProfile.onboarding_path — see src/lib/provider-phases.ts),
+      // renames the unit resource concept to עמדה, and assigns the demo מכון its
+      // own patients — reseed clean so the demo accounts reflect all three.
+      migrate: (persistedState, version) => (version < 27 ? ({} as Store) : (persistedState as Store)),
       // Uploaded files (photos/PDFs) are stored as base64 data URLs inside
       // this same persisted blob (no real backend — see file.ts). If a
       // single write ever still exceeds the browser's localStorage quota

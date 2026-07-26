@@ -2,28 +2,49 @@
 
 import { ProfilePageFrame } from "@/components/provider/ProfilePageFrame";
 import { OpenDecisionNote } from "@/components/ui/Misc";
-import { ResourceTarget, ServiceCatalogSection } from "@/components/provider/ServiceCatalogSection";
+import {
+  ResourceTarget,
+  ServiceArrayTarget,
+  ServiceCatalogSection,
+} from "@/components/provider/ServiceCatalogSection";
 import { PriceListEntry, PriceListSection } from "@/components/provider/PriceListSection";
 import { getProviderSetupConfig } from "@/lib/provider-setup";
 import { useStore } from "@/lib/store";
 
 export default function ProviderServicesPage() {
   const allProviders = useStore((s) => s.providers);
+  const organizationBranches = useStore((s) => s.organizationBranches);
+  const serviceArrays = useStore((s) => s.serviceArrays);
   return (
     <ProfilePageFrame title="פריטים ומחירים" description="הזנת פריטים לפי קוד מהקטלוג והמחירים לכל שכבת ביטוח">
       {({ provider, update }) => {
         const setupConfig = getProviderSetupConfig(provider.provider_type);
-        // The unit's rooms and affiliated service providers, so an item can be
-        // assigned to its resource straight from the item dialog (§PRV-08).
+        // The unit's מערכים, and the עמדות inside each — an item is assigned to
+        // a מערך, and only narrowed to specific עמדות when their לו״זים differ.
+        const unitBranches = organizationBranches.filter((b) => b.unit_id === provider.id);
+        const branchIds = new Set(unitBranches.map((b) => b.id));
+        const serviceArrayTargets: ServiceArrayTarget[] = serviceArrays
+          .filter((a) => branchIds.has(a.branch_id))
+          .map((a) => ({
+            id: a.id,
+            name: a.name,
+            branchName: unitBranches.find((b) => b.id === a.branch_id)?.name,
+          }));
         const roomTargets: ResourceTarget[] = (provider.facilities ?? []).map((f) => ({
           id: f.id,
           name: f.name,
           service_ids: f.service_ids ?? [],
+          service_array_id: f.service_array_id,
+          kind: "facility",
+          hasSchedule: !!f.schedule || !!f.schedule_id,
         }));
         const providerTargets: ResourceTarget[] = (provider.affiliated_doctors ?? []).map((a) => ({
           id: a.id,
           name: allProviders.find((p) => p.id === a.doctor_provider_id)?.display_name ?? "נותן/ת שירות",
           service_ids: a.service_ids ?? [],
+          service_array_id: a.service_array_id,
+          kind: "doctor",
+          hasSchedule: !!a.schedule || !!a.schedule_id,
         }));
         return (
           <>
@@ -40,6 +61,7 @@ export default function ProviderServicesPage() {
                 providerType={provider.provider_type}
                 roomTargets={roomTargets}
                 providerTargets={providerTargets}
+                serviceArrayTargets={serviceArrayTargets}
                 onAssignResources={(serviceId, sel) =>
                   update({
                     facilities: (provider.facilities ?? []).map((f) => ({

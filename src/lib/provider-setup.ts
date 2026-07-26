@@ -229,7 +229,6 @@ export function getFirstIncompleteStepKey(provider: ProviderProfile): string | u
     ...(config.showAgreements ? [{ done: provider.agreements.length > 0, key: "agreements" }] : []),
     { done: isCatalogComplete(provider), key: "catalog" },
     ...(config.locationTypes.length > 0 ? [{ done: isLocationsComplete(provider), key: "locations" }] : []),
-    ...(config.showFacilities ? [{ done: isFacilitiesComplete(provider), key: "facilities" }] : []),
     ...(config.showAvailability ? [{ done: isAvailabilityComplete(provider), key: "availability" }] : []),
     ...(config.showAffiliatedDoctors ? [{ done: isAffiliatedDoctorsComplete(provider), key: "doctors" }] : []),
   ];
@@ -263,11 +262,11 @@ export function getNextProviderAction(provider: ProviderProfile): string | null 
         : `נשאר לך להוסיף ${config.locationLabelSingular} ראשון/ה כדי להתחיל לקבל הזמנות.`;
     }
     if (config.showFacilities && !isFacilitiesComplete(provider)) {
-      return "הוסיפו את החדרים של היחידה (MRI, CT, חדר פעולות…) — הזמינות והפריטים מוגדרים ברמת החדר.";
+      return "הוסיפו עמדות למערכים של היחידה (MRI 1, CT 1, חדר פעולות…) — הזמינות והפריטים מוגדרים ברמת העמדה.";
     }
     if (config.showAvailability && !isAvailabilityComplete(provider)) {
       return config.showFacilities
-        ? "חסרה זמינות — הגדירו לוח זמנים לכל חדר ולכל נותן/ת שירות ביחידה."
+        ? "חסרה זמינות — הגדירו לו״ז לכל עמדה ולכל נותן/ת שירות ביחידה."
         : `חסרה זמינות פעילה עבור אחד ה${config.locationLabelPlural} שלך.`;
     }
     if (config.showAffiliatedDoctors && !isAffiliatedDoctorsComplete(provider)) {

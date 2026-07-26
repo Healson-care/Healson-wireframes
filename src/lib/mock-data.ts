@@ -1738,7 +1738,10 @@ export const SEED_PATIENTS: Patient[] = PATIENT_NAMES.map((name, i) => {
     b_insurance_company: hasB ? B_INSURANCE_COMPANIES[i % B_INSURANCE_COMPANIES.length] : undefined,
     b_policy_number: hasB ? `POL-${100000 + i * 91}` : undefined,
     status: i % 5 === 0 ? "לא פעיל" : i % 7 === 0 ? "ממתין" : "פעיל",
-    assigned_provider: i % 3 === 0 ? provider1.id : i % 3 === 1 ? provider2.id : undefined,
+    // Every seeded patient is assigned to one of the three demo providers —
+    // the medical unit used to get none, which left its "מטופלים" tab empty on
+    // the demo account even though it has appointments and orders.
+    assigned_provider: i % 3 === 0 ? provider1.id : i % 3 === 1 ? provider2.id : "prov_institute",
     created_date: isoDateDaysFromNow(-i * 17),
     user_id: i === 0 ? DEMO_PATIENT_USER.id : undefined,
   };

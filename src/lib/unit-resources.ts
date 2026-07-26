@@ -57,14 +57,14 @@ export interface UnitResource extends ScheduleHolder {
   subtitle?: string;
   service_ids: string[];
   is_active: boolean;
-  /** Which branch (site) this לוז runs in — resolved from its מערך when linked. */
+  /** Which branch (site) this עמדה runs in — resolved from its מערך when linked. */
   branch_id?: string;
-  /** The מערך (ServiceArray) this לוז belongs to, if linked. */
+  /** The מערך (ServiceArray) this עמדה belongs to, if linked. */
   service_array_id?: string;
   /** The מערך's display name — resolved from the linked ServiceArray, falling
    * back to the legacy free-text `service_array` string. "מערך MRI" / "מערך ייעוצים". */
   service_array?: string;
-  /** How many identical stations this one לוז represents (concurrent capacity
+  /** How many identical stations this one עמדה represents (concurrent capacity
    * per slot). A doctor is always 1; a facility can stand for several machines. */
   capacity: number;
   /** The shared ResourceSchedule this resource follows, if any — its effective
@@ -74,13 +74,16 @@ export interface UnitResource extends ScheduleHolder {
   schedule_exceptions?: ScheduleException[];
 }
 
+// An עמדה (station) is the unit of scheduling: one queue, one לו״ז. It is
+// either a piece of equipment/room or a single service provider — the *kind*
+// distinguishes them, but both are עמדות and neither is a "חדר" or a "לוז".
 export const UNIT_RESOURCE_KIND_LABELS: Record<UnitResourceKind, string> = {
-  facility: "חדר",
+  facility: "ציוד",
   doctor: "נותן/ת שירות",
 };
 
 export const UNIT_RESOURCE_KIND_LABELS_PLURAL: Record<UnitResourceKind, string> = {
-  facility: "חדרים",
+  facility: "עמדות ציוד",
   doctor: "נותני שירות",
 };
 
@@ -261,7 +264,7 @@ export function unitSlotTimesForDate(
           })
         );
     });
-  // Each open resource contributes `capacity` concurrent openings (a לוז that
+  // Each open resource contributes `capacity` concurrent openings (a עמדה that
   // stands for N stations → its id appears N times).
   return [...openByTime.entries()]
     .map(([time, ids]) => {
@@ -284,7 +287,7 @@ export function freeResourceIds(
   appointments: Appointment[],
   date: string
 ): string[] {
-  // How many bookings each resource id already holds at this time. A לוז with
+  // How many bookings each resource id already holds at this time. A עמדה with
   // capacity N appears N times in slot.resourceIds, and can absorb N bookings
   // on the same id before it's full.
   const takenCount = new Map<string, number>();

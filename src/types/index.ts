@@ -582,6 +582,16 @@ export interface ConsultationType {
   // Consultations and internal/product-like entries have no MOH code.
   moh_code?: string;
   linked_clinic_ids?: string[]; // Clinic ("calendar") ids this service can be booked against
+  // Medical units (§PRV-08): an item belongs to one or more מערכים (service
+  // lines), NOT to a specific machine or person — that is the level a unit
+  // reasons at ("MRI ראש is part of מערך ההדמיה"). Which עמדות inside the מערך
+  // actually perform it is stored on the עמדות themselves (`service_ids`), and
+  // defaults to all of them.
+  service_array_ids?: string[];
+  // True when the item deliberately runs on only SOME of its מערך's עמדות —
+  // e.g. a cardiac MRI only the 3T scanner can do. Purely a UI intent flag:
+  // the authoritative link is still each עמדה's `service_ids`.
+  limited_to_stations?: boolean;
   // Requires a referral/pre-authorization from the patient's kupah before
   // booking — relevant across every service_type, so kept ungated.
   requires_referral?: boolean;
@@ -751,7 +761,7 @@ export interface AffiliatedDoctor {
   role?: string; // "רופא בכיר", "מנהל יחידה"… free text
   service_ids: string[]; // ConsultationType ids of the organization's catalog
   clinic_ids?: string[]; // organization locations the doctor works at
-  // The מערך (ServiceArray) this doctor's לוז belongs to — placing it in a
+  // The מערך (ServiceArray) this doctor's עמדה belongs to — placing it in a
   // branch + service line. `branch_id` is derived from the מערך; the free-text
   // `service_array` is a legacy display fallback for resources not yet migrated.
   service_array_id?: string;
@@ -788,10 +798,23 @@ export function isUnitProviderType(type?: ProviderType): boolean {
   return !!type && UNIT_PROVIDER_TYPES.includes(type);
 }
 
+// Types that may SELF-register through the public join flow (the "solo" path).
+// A medical unit is deliberately absent: units are onboarded manually — the
+// agreements are signed off-platform and Healson ops opens the user — so
+// offering "מכון רפואי" in a public type picker would create an account that
+// bypasses that process. See src/lib/provider-phases.ts.
+export const SELF_REGISTERABLE_PROVIDER_TYPES: ProviderType[] = PROVIDER_TYPES.filter(
+  (t) => !UNIT_PROVIDER_TYPES.includes(t) && t !== "hospital"
+);
+
+export function isSelfRegisterableType(type?: ProviderType): boolean {
+  return !!type && SELF_REGISTERABLE_PROVIDER_TYPES.includes(type);
+}
+
 // ---------------------------------------------------------------------------
 // מערך (service line) — a first-class service domain inside a branch (§PRV-08).
 //
-// The hierarchy is יחידה → סניף → מערך → משאבי שירות (לוזים). A מערך is picked
+// The hierarchy is יחידה → סניף → מערך → משאבי שירות (עמדות). A מערך is picked
 // from this dedicated predefined catalog (an OPERATIONAL vocabulary — how a unit
 // organizes its service lines — NOT the clinical Skill tree), then given a free
 // display name ("מערך MRI קומה -1"). Resources (facilities/doctors) point at a
@@ -906,15 +929,15 @@ export interface ProviderFacility {
   model?: string; // "Siemens Magnetom Vida 3T"
   room?: string; // "חדר 4, קומה -1"
   is_active: boolean;
-  // The מערך (ServiceArray) this לוז belongs to — placing it in a branch +
+  // The מערך (ServiceArray) this עמדה belongs to — placing it in a branch +
   // service line. `branch_id` is derived from the מערך; the free-text
   // `service_array` is a legacy display fallback for un-migrated resources.
   service_array_id?: string;
-  // Which branch (site) of the unit this לוז physically sits in.
+  // Which branch (site) of the unit this עמדה physically sits in.
   branch_id?: string;
-  // The מערך (service line) this לוז belongs to — "מערך MRI", "מערך ייעוצים".
+  // The מערך (service line) this עמדה belongs to — "מערך MRI", "מערך ייעוצים".
   service_array?: string;
-  // How many identical stations/machines this one לוז represents (a לוז of
+  // How many identical stations/machines this one עמדה represents (a עמדה of
   // "ראשון 08–17, קיבולת 4" = 4 concurrent slots per time). Default 1.
   capacity?: number;
   // ConsultationType ids performed on this facility ("MRI ראש", "MRI בטן"…).
@@ -970,6 +993,12 @@ export interface ProviderProfile {
   coordination_notes?: string; // free-text notes to the Healson ops team, not shown to patients
   is_published: boolean;
   status: ProviderStatus;
+  // Which join path this provider came in on — see src/lib/provider-phases.ts.
+  // "solo" self-registers through /provider/register (phase רישום, then הקמה);
+  // "unit" is opened manually by Healson ops and skips רישום entirely, landing
+  // straight in הקמה as a blank slate. Optional: pre-split records derive it
+  // from provider_type (units are never self-registerable).
+  onboarding_path?: "solo" | "unit";
   phone_verified_at?: string;
   license_file?: UploadedFile;
   doctor_subtype?: DoctorSubtype;
@@ -995,7 +1024,7 @@ export interface ProviderProfile {
   // queue and week. Together with affiliated_doctors these are the unit's
   // bookable resources.
   facilities?: ProviderFacility[];
-  // Medical units only (§PRV-08) — reusable weekly schedules (לוזים) defined
+  // Medical units only (§PRV-08) — reusable weekly schedules (לו״זים) defined
   // once and applied to several resources via their `schedule_id`. Editing one
   // here re-times every resource that references it.
   resource_schedules?: ResourceSchedule[];

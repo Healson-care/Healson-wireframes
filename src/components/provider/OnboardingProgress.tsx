@@ -13,6 +13,8 @@ import { ProfilePhotoField } from "@/components/provider/ProfilePhotoField";
 import { DemoPanel } from "@/components/provider/DemoPanel";
 import { cn } from "@/lib/utils";
 import type { ProviderProfile } from "@/types";
+import { isUnitPath } from "@/lib/provider-phases";
+import { PhaseHeader } from "@/components/provider/PhaseHeader";
 import {
   getNextProviderAction,
   getProviderSetupConfig,
@@ -20,7 +22,6 @@ import {
   isLocationsComplete,
   isAvailabilityComplete,
   isAffiliatedDoctorsComplete,
-  isFacilitiesComplete,
 } from "@/lib/provider-setup";
 
 interface Step {
@@ -38,12 +39,15 @@ interface Step {
 }
 
 /**
- * The persistent onboarding progress meter — shown throughout the onboarding
- * STAGE (the dashboard and every profile-config page while `status ===
- * "onboarding"`), so the provider always sees how close they are to going live
- * and can jump to the next step. Self-contained: owns the agreement-sign dialog
- * and the go-live / demo-approve actions. Once published this is never rendered
- * — the provider manages everything through the normal profile pages instead.
+ * PHASE 2 — הקמה. The persistent setup meter, and the point where the two join
+ * paths unite: a solo provider arrives here after Healson verifies their
+ * license, a medical unit STARTS here (Ops opened the account, so רישום never
+ * existed for them — see src/lib/provider-phases.ts).
+ *
+ * Shown on the dashboard and on every profile-config page for as long as
+ * `status === "onboarding"`, so the provider always knows what's left and can
+ * jump to it. Self-contained: owns the agreement-sign dialog and the go-live /
+ * demo-approve actions. Once published it is never rendered again.
  */
 export function OnboardingProgress({ provider, className }: { provider: ProviderProfile; className?: string }) {
   const router = useRouter();
@@ -52,21 +56,39 @@ export function OnboardingProgress({ provider, className }: { provider: Provider
   const approveProviderGoLive = useStore((s) => s.approveProviderGoLive);
   const showToast = useStore((s) => s.showToast);
   const updateProviderById = useStore((s) => s.updateProviderById);
+  const organizationBranches = useStore((s) => s.organizationBranches);
+  const serviceArrays = useStore((s) => s.serviceArrays);
   const [signDialogOpen, setSignDialogOpen] = useState(false);
   const [photoDialogOpen, setPhotoDialogOpen] = useState(false);
 
   const setupConfig = getProviderSetupConfig(provider.provider_type);
+  const unitPath = isUnitPath(provider);
+  // Branches and מערכים live in their own store slices, not on the profile.
+  const unitBranches = organizationBranches.filter((b) => b.unit_id === provider.id);
+  const unitBranchIds = new Set(unitBranches.map((b) => b.id));
+  const unitArrays = serviceArrays.filter((a) => unitBranchIds.has(a.branch_id));
   const steps: Step[] = [
     { key: "sign", ok: !!provider.agreement_signed_at, label: "חתימת הסכם", sign: true },
     ...(setupConfig.showAgreements
       ? [{ key: "agreements", ok: provider.agreements.length > 0, label: "הסדרי ביטוח", href: "/provider/profile/agreements" }]
       : []),
     { key: "catalog", ok: isCatalogComplete(provider), label: setupConfig.catalogLabel, href: "/provider/profile/services" },
-    ...(setupConfig.locationTypes.length > 0
-      ? [{ key: "locations", ok: isLocationsComplete(provider), label: setupConfig.locationLabelPlural, href: "/provider/profile/clinics" }]
-      : []),
-    ...(setupConfig.showFacilities
-      ? [{ key: "facilities", ok: isFacilitiesComplete(provider), label: "חדרים", href: "/provider/profile/facilities" }]
+    // A unit builds itself bottom-up: סניפים → מערכים → עמדות. Everyone else
+    // just needs their location list.
+    ...(unitPath && setupConfig.showFacilities
+      ? [
+          { key: "branches", ok: unitBranches.length > 0, label: "סניפים", href: "/provider/profile/structure" },
+          { key: "arrays", ok: unitArrays.length > 0, label: "מערכים", href: "/provider/profile/arrays" },
+        ]
+      : setupConfig.locationTypes.length > 0
+      ? [
+          {
+            key: "locations",
+            ok: isLocationsComplete(provider),
+            label: setupConfig.locationLabelPlural,
+            href: "/provider/profile/clinics",
+          },
+        ]
       : []),
     ...(setupConfig.showAvailability
       ? [{ key: "availability", ok: isAvailabilityComplete(provider), label: "זמינות", href: "/provider/profile/availability" }]
@@ -122,13 +144,27 @@ export function OnboardingProgress({ provider, className }: { provider: Provider
           </div>
         </div>
       )}
+      <PhaseHeader phase="setup" registrationDoneByHealson={unitPath} className="mb-4" />
+
+      {/* A unit lands here on day one with nothing configured — frame that as a
+          fresh start rather than as "you're 0% done at something you failed". */}
+      {unitPath && percent === 0 && !goLiveRequested && (
+        <p className="mb-4 flex items-start gap-2 rounded-xl border border-info-border bg-info-bg px-3.5 py-2.5 text-sm leading-relaxed text-info-text">
+          <Rocket className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            החשבון של {provider.display_name || "היחידה"} מוכן — ההסכמים כבר סגורים מול Healson. מכאן זה שלכם:
+            הוסיפו סניפים ומערכים, עמדות ולוחות זמנים, ואת הפריטים שאתם מציעים.
+          </span>
+        </p>
+      )}
+
       <div className="flex flex-wrap items-center gap-5">
         <ProgressRing percent={percent} size={72} tone={goLiveRequested ? "info" : "primary"} label="הושלם" textClassName="text-slate-900" />
         <div className="min-w-[220px] flex-1">
           <div className="flex items-center gap-2">
             {goLiveRequested ? <Clock className="h-4 w-4 text-info" /> : <Rocket className="h-4 w-4 text-primary" />}
             <h2 className="text-base font-bold text-slate-900">
-              {goLiveRequested ? "ממתין לאישור פרסום" : "השלמת ההצטרפות"}
+              {goLiveRequested ? "ממתין לאישור פרסום" : "הקמת החשבון"}
             </h2>
           </div>
           <p className="mt-1 text-sm leading-relaxed text-slate-600">{message}</p>

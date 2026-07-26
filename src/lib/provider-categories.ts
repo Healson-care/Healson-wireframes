@@ -15,7 +15,7 @@ import {
   User,
   type LucideIcon,
 } from "lucide-react";
-import { ProviderType } from "@/types";
+import { ProviderType, isSelfRegisterableType } from "@/types";
 
 export type ProviderCategory = "individual" | "organization" | "store";
 
@@ -70,6 +70,24 @@ export const PROVIDER_TYPE_ICONS: Record<ProviderType, LucideIcon> = {
   medical_call_center: PhoneCall,
   insurance_agency: Shield,
 };
+
+// The join flow may only offer types that can actually self-register. Medical
+// units (מכון רפואי / מרפאת חוץ) are onboarded manually — Healson signs the
+// agreements and opens the user — so they are filtered out of every public
+// picker rather than creating an account that bypasses that process. A category
+// left with no types disappears entirely.
+export function selfRegisterableCategories(): ProviderCategoryConfig[] {
+  return PROVIDER_CATEGORIES.map((c) => ({
+    ...c,
+    types: c.types.filter((t) => isSelfRegisterableType(t)),
+  })).filter((c) => c.types.length > 0);
+}
+
+/** The types a category hides because they're Ops-onboarded — used to explain
+ * the omission instead of silently dropping "מכון רפואי" from the list. */
+export function manuallyOnboardedTypes(key: ProviderCategory): ProviderType[] {
+  return getCategory(key).types.filter((t) => !isSelfRegisterableType(t));
+}
 
 export function getCategory(key: ProviderCategory): ProviderCategoryConfig {
   return PROVIDER_CATEGORIES.find((c) => c.key === key) ?? PROVIDER_CATEGORIES[0];

@@ -1,7 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { ProviderLayout } from "@/components/layouts/ProviderLayout";
+import { Button } from "@/components/ui/Button";
+import { Dialog } from "@/components/ui/Dialog";
+import { Input } from "@/components/ui/Input";
+import { generateId } from "@/lib/utils";
+import type { Clinic, ProviderProfile } from "@/types";
 import { useStore } from "@/lib/store";
 import { useCurrentProvider } from "@/lib/useCurrentPatient";
 import { Card, CardContent } from "@/components/ui/Card";
@@ -16,7 +22,17 @@ import {
   isLocationsComplete,
   isAvailabilityComplete,
 } from "@/lib/provider-setup";
-import { Star, CheckCircle2, ChevronLeft } from "lucide-react";
+import { Star, CheckCircle2, ChevronLeft, MapPinned, Pencil } from "lucide-react";
+
+const EMPTY_CLINIC_HOURS: Clinic["hours"] = {
+  sunday: null,
+  monday: null,
+  tuesday: null,
+  wednesday: null,
+  thursday: null,
+  friday: null,
+  saturday: null,
+};
 
 export default function ProviderProfileOverviewPage() {
   const currentUser = useStore((s) => s.currentUser);
@@ -111,6 +127,12 @@ export default function ProviderProfileOverviewPage() {
         </Card>
       )}
 
+      {/* פרטי היחידה — a medical unit has exactly ONE address and it is
+          identity, not configuration, so it lives here rather than as its own
+          nav entry (which used to be labelled "פרטי היחידה" and sat oddly
+          alongside סניפים, implying the unit had two location concepts). */}
+      {setupConfig.singleLocation && <UnitDetailsCard provider={provider} />}
+
       {/* Section cards — navigate to each configuration page */}
       <SectionHeading>ניהול הפרופיל</SectionHeading>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -132,5 +154,88 @@ export default function ProviderProfileOverviewPage() {
         ))}
       </div>
     </ProviderLayout>
+  );
+}
+
+/** The unit's single address + contact details, edited in place. */
+function UnitDetailsCard({ provider }: { provider: ProviderProfile }) {
+  const updateProviderById = useStore((s) => s.updateProviderById);
+  const showToast = useStore((s) => s.showToast);
+  const existing = provider.clinic_locations[0];
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({
+    address: existing?.address ?? "",
+    city: existing?.city ?? "",
+    phone: existing?.phone ?? "",
+  });
+
+  function save() {
+    const next: Clinic = {
+      ...existing,
+      id: existing?.id ?? generateId("clinic"),
+      // A unit's site carries the unit's own name — never a second one.
+      name: provider.display_name,
+      address: form.address,
+      city: form.city,
+      phone: form.phone,
+      is_primary: true,
+      hours: existing?.hours ?? EMPTY_CLINIC_HOURS,
+      location_type: "clinic",
+    };
+    updateProviderById(provider.id, {
+      clinic_locations: [next, ...provider.clinic_locations.slice(1)],
+    });
+    showToast("פרטי היחידה נשמרו", { variant: "success" });
+    setOpen(false);
+  }
+
+  const filled = !!existing?.address || !!existing?.city;
+
+  return (
+    <>
+      <SectionHeading>פרטי היחידה</SectionHeading>
+      <Card className="mb-6">
+        <CardContent className="flex flex-wrap items-start justify-between gap-3 pt-4">
+          <div className="flex items-start gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <MapPinned className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="text-sm font-semibold text-slate-900">{provider.display_name}</p>
+              {filled ? (
+                <p className="mt-0.5 text-xs leading-relaxed text-slate-500">
+                  {[existing?.city, existing?.address].filter(Boolean).join(", ")}
+                  {existing?.phone && (
+                    <>
+                      <br />
+                      {existing.phone}
+                    </>
+                  )}
+                </p>
+              ) : (
+                <p className="mt-0.5 text-xs text-warning-text">טרם הוגדרה כתובת ליחידה</p>
+              )}
+            </div>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+            <Pencil className="h-3.5 w-3.5" /> {filled ? "עריכה" : "הגדרת פרטים"}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Dialog open={open} onClose={() => setOpen(false)} title="פרטי היחידה">
+        <div className="flex flex-col gap-3">
+          <p className="text-xs leading-relaxed text-slate-500">
+            הכתובת הראשית של היחידה. את האתרים הפיזיים שבהם היא פועלת מגדירים בלשונית ‚סניפים‘.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Input label="עיר" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
+            <Input label="כתובת" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+          </div>
+          <Input label="טלפון" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+          <Button onClick={save}>שמור פרטי יחידה</Button>
+        </div>
+      </Dialog>
+    </>
   );
 }
