@@ -1,7 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { Input, Select } from "@/components/ui/Input";
 import { B_INSURANCE_COMPANIES, KUPOT, K_LEVELS_BY_KUPAH, Kupah, KLevel } from "@/types";
+
+const OTHER_COMPANY = "אחר";
 
 export interface InsuranceProfileValue {
   // "" = no Israeli kupah (tourist/no institutional coverage) — only ever a
@@ -39,6 +42,14 @@ export function InsuranceProfileForm({
   // ת"ז, as their ID document). An ת"ז holder must always pick a real kupah.
   allowNoKupah?: boolean;
 }) {
+  // "אחר" chosen but no free text typed yet still needs the picker to show
+  // "אחר" even though the underlying field is momentarily "" — hence this
+  // local flag rather than deriving purely from value.b_insurance_company.
+  const [otherPicked, setOtherPicked] = useState(false);
+  const isOtherCompany = value.b_insurance_company
+    ? !B_INSURANCE_COMPANIES.includes(value.b_insurance_company)
+    : otherPicked;
+
   return (
     <div className="flex flex-col gap-3">
       <Select
@@ -84,8 +95,12 @@ export function InsuranceProfileForm({
         <div className="grid grid-cols-2 gap-2">
           <Select
             label="חברת ביטוח"
-            value={value.b_insurance_company}
-            onChange={(e) => onChange({ ...value, b_insurance_company: e.target.value })}
+            value={isOtherCompany ? OTHER_COMPANY : value.b_insurance_company}
+            onChange={(e) => {
+              const next = e.target.value;
+              setOtherPicked(next === OTHER_COMPANY);
+              onChange({ ...value, b_insurance_company: next === OTHER_COMPANY ? "" : next });
+            }}
           >
             <option value="">בחרו חברה</option>
             {B_INSURANCE_COMPANIES.map((c) => (
@@ -93,6 +108,7 @@ export function InsuranceProfileForm({
                 {c}
               </option>
             ))}
+            <option value={OTHER_COMPANY}>אחר</option>
           </Select>
           <Input
             label="מספר פוליסה (אופציונלי)"
@@ -100,6 +116,15 @@ export function InsuranceProfileForm({
             onChange={(e) => onChange({ ...value, b_policy_number: e.target.value })}
           />
         </div>
+      )}
+
+      {isOtherCompany && (
+        <Input
+          label="שם חברת הביטוח"
+          placeholder="הזינו את שם חברת הביטוח"
+          value={value.b_insurance_company}
+          onChange={(e) => onChange({ ...value, b_insurance_company: e.target.value })}
+        />
       )}
 
       {showAddress && (
