@@ -31,7 +31,7 @@ export default function RegisterPage() {
   const resendOtp = useStore((s) => s.resendOtp);
   const beginRegistrationVerification = useStore((s) => s.beginRegistrationVerification);
   const verifyRegistrationSmsOtp = useStore((s) => s.verifyRegistrationSmsOtp);
-  const verifyRegistrationEmailOtp = useStore((s) => s.verifyRegistrationEmailOtp);
+  const verifyRegistrationEmailLink = useStore((s) => s.verifyRegistrationEmailLink);
   const resendRegistrationOtp = useStore((s) => s.resendRegistrationOtp);
   const currentUser = useStore((s) => s.currentUser);
   const hasHydrated = useStore((s) => s.hasHydrated);
@@ -46,7 +46,6 @@ export default function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [otpCode, setOtpCode] = useState("");
   const [finalSmsCode, setFinalSmsCode] = useState("");
-  const [finalEmailCode, setFinalEmailCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -191,17 +190,17 @@ export default function RegisterPage() {
         return;
       }
       setPhase("final-email");
-      const hint = resendRegistrationOtp("email");
-      showToast("קוד אימות נשלח באימייל", { description: `קוד הדגמה: ${hint}`, variant: "success" });
+      resendRegistrationOtp("email");
+      showToast("שלחנו לך מייל עם קישור לאישור החשבון", { variant: "success" });
     }, 300);
   }
 
-  function handleVerifyFinalEmail(e: React.FormEvent) {
-    e.preventDefault();
+  // Clicking the (simulated) link in the confirmation card — no code to check.
+  function handleConfirmFinalEmailLink() {
     setError("");
     setLoading(true);
     setTimeout(() => {
-      const result = verifyRegistrationEmailOtp(finalEmailCode);
+      const result = verifyRegistrationEmailLink();
       setLoading(false);
       if (!result.ok) {
         setError(result.error ?? "שגיאה באימות");
@@ -217,8 +216,8 @@ export default function RegisterPage() {
   }
 
   function handleResendFinalEmail() {
-    const otp = resendRegistrationOtp("email");
-    if (otp) showToast("קוד חדש נשלח באימייל", { description: `קוד הדגמה: ${otp}` });
+    if (!resendRegistrationOtp("email")) return;
+    showToast("שלחנו שוב מייל עם קישור לאישור החשבון");
   }
 
   if (effectivePhase === "otp") {
@@ -345,30 +344,27 @@ export default function RegisterPage() {
     return (
       <AuthLayout onClose={handleClose}>
         <h1 className="text-lg font-semibold text-slate-900 mb-1">אימות דו-שלבי (2/2)</h1>
-        <p className="text-sm text-slate-500 mb-5">שלחנו קוד אימות נוסף לכתובת האימייל שלך</p>
+        <p className="text-sm text-slate-500 mb-5">שלחנו לך מייל עם קישור לאישור החשבון</p>
         {error && (
           <div className="mb-4 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
             {error}
           </div>
         )}
-        <form onSubmit={handleVerifyFinalEmail} className="flex flex-col gap-3">
-          <Input
-            inputMode="numeric"
-            maxLength={6}
-            placeholder="123456"
-            label="קוד מהאימייל"
-            value={finalEmailCode}
-            onChange={(e) => setFinalEmailCode(e.target.value)}
-            className="text-center tracking-[0.4em] text-lg"
-            required
-          />
-          <Button type="submit" loading={loading} className="w-full">
-            אמת קוד וסיים הרשמה
-          </Button>
+        <div className="flex flex-col gap-3">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="flex items-center gap-2 mb-2 text-slate-500">
+              <Mail className="h-4 w-4" />
+              <span className="text-xs font-medium">מייל הדגמה מ-HEALSON</span>
+            </div>
+            <p className="text-sm text-slate-700 mb-3">לחצו על הקישור הבא כדי לאשר את פרטי ההרשמה שלכם.</p>
+            <Button type="button" onClick={handleConfirmFinalEmailLink} loading={loading} className="w-full">
+              אשרו את החשבון שלי
+            </Button>
+          </div>
           <button type="button" onClick={handleResendFinalEmail} className="text-sm text-primary hover:underline">
-            שלח קוד מחדש
+            שלח קישור מחדש
           </button>
-        </form>
+        </div>
       </AuthLayout>
     );
   }
