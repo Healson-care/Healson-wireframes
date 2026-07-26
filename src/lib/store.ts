@@ -25,7 +25,12 @@ import {
   PatientDocument,
   ProviderProfile,
   ProviderType,
+  ResourceSchedule,
   Role,
+  ServiceArray,
+  ServiceArrayType,
+  SERVICE_ARRAY_TYPE_LABELS,
+  ScheduleException,
   ServiceType,
   SkillDomain,
   SkillSubdomain,
@@ -34,6 +39,7 @@ import {
   User,
   VisitRecord,
   WaitlistEntry,
+  WeeklySchedule,
 } from "@/types";
 import { DEFAULT_REMINDER_SETTINGS, ReminderSettings } from "@/lib/reminders";
 import {
@@ -41,6 +47,7 @@ import {
   SEED_APPOINTMENTS,
   SEED_BRANCHES,
   SEED_ORGANIZATION_BRANCHES,
+  SEED_SERVICE_ARRAYS,
   SEED_CATALOG,
   SEED_CATALOG_REQUESTS,
   SEED_CONSENT_RECORDS,
@@ -224,6 +231,7 @@ interface EntitiesState {
   leads: Lead[];
   providers: ProviderProfile[];
   organizationBranches: OrganizationBranch[];
+  serviceArrays: ServiceArray[];
   catalog: CatalogItem[];
   catalogRequests: CatalogRequest[];
   skillDomains: SkillDomain[];
@@ -291,6 +299,20 @@ interface EntitiesState {
   ) => { ok: boolean; error?: string; branch?: OrganizationBranch };
   updateOrganizationBranch: (id: string, data: Partial<Omit<OrganizationBranch, "id" | "unit_id">>) => void;
   deleteOrganizationBranch: (id: string) => { ok: boolean; error?: string };
+  // מערכים (service lines) inside a branch (§PRV-08) — a first-class entity
+  // typed from the predefined SERVICE_ARRAY_TYPES catalog. Deleting one detaches
+  // every resource whose service_array_id pointed at it.
+  addServiceArray: (
+    branchId: string,
+    data: { type: ServiceArrayType; name?: string }
+  ) => { ok: boolean; error?: string; serviceArray?: ServiceArray };
+  updateServiceArray: (
+    id: string,
+    data: Partial<Pick<ServiceArray, "type" | "name">>
+  ) => void;
+  deleteServiceArray: (id: string) => { ok: boolean; error?: string };
+  // Internal: clears service_array_id off a unit's resources referencing gone מערכים.
+  detachServiceArrays: (unitId: string, arrayIds: Set<string>) => void;
   addOrganizationUnit: (
     organizationId: string,
     data: {
@@ -348,9 +370,33 @@ interface EntitiesState {
   updateAffiliatedDoctor: (
     organizationId: string,
     affiliationId: string,
-    data: Partial<Pick<AffiliatedDoctor, "role" | "service_ids" | "clinic_ids">>
+    data: Partial<Pick<AffiliatedDoctor, "role" | "service_ids" | "clinic_ids" | "service_array_id" | "branch_id">>
   ) => void;
   removeAffiliatedDoctor: (organizationId: string, affiliationId: string) => void;
+
+  // --- Shared resource schedules (§PRV-08, medical units) ------------------
+  // A reusable weekly לו״ז defined once and applied to several resources at
+  // once. Applying it sets `schedule_id` on the chosen facilities/doctors;
+  // deleting one detaches every resource that referenced it. Each resource
+  // still books against its own independent queue (see getUnitResources).
+  addResourceSchedule: (
+    unitId: string,
+    data: { name: string; schedule: WeeklySchedule; schedule_exceptions?: ScheduleException[] }
+  ) => { ok: boolean; error?: string; scheduleId?: string };
+  updateResourceSchedule: (
+    unitId: string,
+    scheduleId: string,
+    data: Partial<Pick<ResourceSchedule, "name" | "schedule" | "schedule_exceptions">>
+  ) => void;
+  deleteResourceSchedule: (unitId: string, scheduleId: string) => void;
+  // Attach a shared schedule to a set of resources (or detach with
+  // scheduleId=null). Resources are addressed by facility id / affiliation id.
+  applyResourceSchedule: (
+    unitId: string,
+    scheduleId: string | null,
+    targets: { facilityIds?: string[]; doctorAffiliationIds?: string[] }
+  ) => void;
+
   setProviderCommission: (id: string, rate: number) => void;
   setDefaultCommissionRate: (rate: number) => void;
   setServiceTypeCommissionRate: (type: ServiceType, rate: number | undefined) => void;
@@ -885,6 +931,7 @@ export const useStore = create<Store>()(
       leads: SEED_LEADS,
       providers: SEED_PROVIDERS,
       organizationBranches: SEED_ORGANIZATION_BRANCHES,
+      serviceArrays: SEED_SERVICE_ARRAYS,
       catalog: SEED_CATALOG,
       catalogRequests: SEED_CATALOG_REQUESTS,
       skillDomains: SEED_SKILL_DOMAINS,
@@ -1191,6 +1238,63 @@ export const useStore = create<Store>()(
           }
         }
       },
+
+      addResourceSchedule: (unitId, data) => {
+        const unit = get().providers.find((p) => p.id === unitId);
+        if (!unit) return { ok: false, error: "היחידה לא נמצאה" };
+        if (!data.name.trim()) return { ok: false, error: 'יש להזין שם ללו״ז' };
+        const schedule: ResourceSchedule = {
+          id: generateId("sched"),
+          name: data.name.trim(),
+          schedule: data.schedule,
+          schedule_exceptions: data.schedule_exceptions,
+          created_at: new Date().toISOString(),
+        };
+        get().updateProviderById(unitId, {
+          resource_schedules: [...(unit.resource_schedules ?? []), schedule],
+        });
+        return { ok: true, scheduleId: schedule.id };
+      },
+      updateResourceSchedule: (unitId, scheduleId, data) => {
+        const unit = get().providers.find((p) => p.id === unitId);
+        if (!unit) return;
+        get().updateProviderById(unitId, {
+          resource_schedules: (unit.resource_schedules ?? []).map((s) =>
+            s.id === scheduleId
+              ? { ...s, ...data, name: data.name?.trim() ?? s.name }
+              : s
+          ),
+        });
+      },
+      deleteResourceSchedule: (unitId, scheduleId) => {
+        const unit = get().providers.find((p) => p.id === unitId);
+        if (!unit) return;
+        // Detach every resource that referenced this לו״ז so it doesn't dangle
+        // (they revert to their own inline schedule, i.e. no shared hours).
+        const detach = <T extends { schedule_id?: string }>(r: T): T =>
+          r.schedule_id === scheduleId ? { ...r, schedule_id: undefined } : r;
+        get().updateProviderById(unitId, {
+          resource_schedules: (unit.resource_schedules ?? []).filter((s) => s.id !== scheduleId),
+          facilities: (unit.facilities ?? []).map(detach),
+          affiliated_doctors: (unit.affiliated_doctors ?? []).map(detach),
+        });
+      },
+      applyResourceSchedule: (unitId, scheduleId, targets) => {
+        const unit = get().providers.find((p) => p.id === unitId);
+        if (!unit) return;
+        const facilityIds = new Set(targets.facilityIds ?? []);
+        const doctorIds = new Set(targets.doctorAffiliationIds ?? []);
+        const nextId = scheduleId ?? undefined;
+        get().updateProviderById(unitId, {
+          facilities: (unit.facilities ?? []).map((f) =>
+            facilityIds.has(f.id) ? { ...f, schedule_id: nextId } : f
+          ),
+          affiliated_doctors: (unit.affiliated_doctors ?? []).map((a) =>
+            doctorIds.has(a.id) ? { ...a, schedule_id: nextId } : a
+          ),
+        });
+      },
+
       setProviderCommission: (id, rate) => get().updateProviderById(id, { commission_rate: rate }),
       setDefaultCommissionRate: (rate) => set({ defaultCommissionRate: rate }),
       setServiceTypeCommissionRate: (type, rate) =>
@@ -1278,8 +1382,62 @@ export const useStore = create<Store>()(
           organizationBranches: s.organizationBranches.map((b) => (b.id === id ? { ...b, ...data } : b)),
         })),
       deleteOrganizationBranch: (id) => {
-        set((s) => ({ organizationBranches: s.organizationBranches.filter((b) => b.id !== id) }));
+        const branch = get().organizationBranches.find((b) => b.id === id);
+        // Removing a branch removes its מערכים too, and detaches any resource of
+        // the branch's unit that pointed at one of them (they revert to "ללא מערך").
+        const removedArrayIds = new Set(
+          get().serviceArrays.filter((a) => a.branch_id === id).map((a) => a.id)
+        );
+        set((s) => ({
+          organizationBranches: s.organizationBranches.filter((b) => b.id !== id),
+          serviceArrays: s.serviceArrays.filter((a) => a.branch_id !== id),
+        }));
+        if (branch && removedArrayIds.size > 0) {
+          get().detachServiceArrays(branch.unit_id, removedArrayIds);
+        }
         return { ok: true };
+      },
+
+      addServiceArray: (branchId, data) => {
+        const branch = get().organizationBranches.find((b) => b.id === branchId);
+        if (!branch) return { ok: false, error: "הסניף לא נמצא" };
+        const serviceArray: ServiceArray = {
+          id: generateId("sarr"),
+          branch_id: branchId,
+          type: data.type,
+          name: data.name?.trim() || SERVICE_ARRAY_TYPE_LABELS[data.type],
+          created_date: new Date().toISOString(),
+        };
+        set((s) => ({ serviceArrays: [...s.serviceArrays, serviceArray] }));
+        return { ok: true, serviceArray };
+      },
+      updateServiceArray: (id, data) =>
+        set((s) => ({
+          serviceArrays: s.serviceArrays.map((a) =>
+            a.id === id ? { ...a, ...data, name: data.name?.trim() || a.name } : a
+          ),
+        })),
+      deleteServiceArray: (id) => {
+        const arr = get().serviceArrays.find((a) => a.id === id);
+        set((s) => ({ serviceArrays: s.serviceArrays.filter((a) => a.id !== id) }));
+        if (arr) {
+          const unit = get().organizationBranches.find((b) => b.id === arr.branch_id);
+          if (unit) get().detachServiceArrays(unit.unit_id, new Set([id]));
+        }
+        return { ok: true };
+      },
+      // Clear service_array_id off a unit's resources when their מערך is gone.
+      detachServiceArrays: (unitId: string, arrayIds: Set<string>) => {
+        const unit = get().providers.find((p) => p.id === unitId);
+        if (!unit) return;
+        const detach = <T extends { service_array_id?: string }>(r: T): T =>
+          r.service_array_id && arrayIds.has(r.service_array_id)
+            ? { ...r, service_array_id: undefined }
+            : r;
+        get().updateProviderById(unitId, {
+          facilities: (unit.facilities ?? []).map(detach),
+          affiliated_doctors: (unit.affiliated_doctors ?? []).map(detach),
+        });
       },
 
       addOrganizationUnit: (organizationId, data) => {
@@ -1618,7 +1776,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 23,
+      version: 26,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
       // records), the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER seed
       // account, the v3 -> v4 AppointmentStatus rename ("ממתין לאישור" ->
@@ -1681,7 +1839,18 @@ export const useStore = create<Store>()(
       // reseed clean so the מערך grouping + capacity show on the demo accounts.
       // v22 -> v23 tags the demo institute's affiliated doctors with a מערך
       // (service_array) so the merged מערכים→לוזים availability view groups them.
-      migrate: (persistedState, version) => (version < 23 ? ({} as Store) : (persistedState as Store)),
+      // v23 -> v24 adds shared resource schedules (ResourceSchedule): a unit-level
+      // resource_schedules array + schedule_id on ProviderFacility/AffiliatedDoctor,
+      // so one לו״ז can be applied to several resources at once — reseed clean.
+      // v24 -> v25 makes מערך first-class: a new serviceArrays slice (ServiceArray,
+      // typed from SERVICE_ARRAY_TYPES, keyed to a branch), service_array_id on
+      // resources replacing the free-text service_array, and seeded מערכים for the
+      // demo מכון's branches — reseed clean so the new slice + links are present.
+      // v25 -> v26 back-fills the FULL hierarchy across every unit: the standalone
+      // units (מכון הדסה / מרפאות חוץ) now get a branch + מערכים generated from their
+      // resources, and the demo מרפאת חוץ branch gets its מערכים — reseed so every
+      // unit shows סניף → מערך → משאב, not just the demo org's מכון.
+      migrate: (persistedState, version) => (version < 26 ? ({} as Store) : (persistedState as Store)),
       // Uploaded files (photos/PDFs) are stored as base64 data URLs inside
       // this same persisted blob (no real backend — see file.ts). If a
       // single write ever still exceeds the browser's localStorage quota

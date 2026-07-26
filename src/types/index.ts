@@ -463,6 +463,22 @@ export interface ScheduleException {
   reason?: string;
 }
 
+// A reusable weekly schedule (לו"ז) defined once at the unit level and applied
+// to several resources at once (§PRV-08). Sharing a schedule means the resources
+// keep the SAME open hours, NOT the same queue: each resource that references it
+// still books against its own independent availability (see getUnitResources) —
+// "לו״ז אחד המוחל על כמה משאבים, זמינות עצמאית לכל משאב מאחורי הקלעים".
+// A resource with its own inline `schedule` ignores this; one with `schedule_id`
+// takes its weekly grid from here, and may still add its own date exceptions
+// (e.g. a single doctor's vacation) on top.
+export interface ResourceSchedule {
+  id: string;
+  name: string; // "לו״ז בוקר משותף" — free text
+  schedule: WeeklySchedule;
+  schedule_exceptions?: ScheduleException[];
+  created_at: string;
+}
+
 // A function, not a shared constant — each caller needs its own day arrays.
 export function emptyWeeklySchedule(): WeeklySchedule {
   return {
@@ -735,14 +751,19 @@ export interface AffiliatedDoctor {
   role?: string; // "רופא בכיר", "מנהל יחידה"… free text
   service_ids: string[]; // ConsultationType ids of the organization's catalog
   clinic_ids?: string[]; // organization locations the doctor works at
-  // Which branch (site) this doctor's לוז runs in, and its מערך (usually
-  // "מערך ייעוצים"). A doctor לוז is one station — capacity is implicitly 1.
+  // The מערך (ServiceArray) this doctor's לוז belongs to — placing it in a
+  // branch + service line. `branch_id` is derived from the מערך; the free-text
+  // `service_array` is a legacy display fallback for resources not yet migrated.
+  service_array_id?: string;
   branch_id?: string;
   service_array?: string;
   // The doctor's own week inside the unit (§PRV-08). In a medical unit
   // availability is owned by the *resource* that delivers the service, not by
   // the unit as a whole — a doctor with no schedule of their own simply has no
   // bookable slots (their services fall back to the unit's general hours).
+  // When `schedule_id` is set the weekly grid comes from a shared ResourceSchedule
+  // (see resolveResourceSchedule); `schedule_exceptions` here still apply on top.
+  schedule_id?: string;
   schedule?: WeeklySchedule;
   schedule_exceptions?: ScheduleException[];
   added_at: string;
@@ -765,6 +786,65 @@ export const UNIT_PROVIDER_TYPES: ProviderType[] = ["medical_institute", "outpat
 
 export function isUnitProviderType(type?: ProviderType): boolean {
   return !!type && UNIT_PROVIDER_TYPES.includes(type);
+}
+
+// ---------------------------------------------------------------------------
+// מערך (service line) — a first-class service domain inside a branch (§PRV-08).
+//
+// The hierarchy is יחידה → סניף → מערך → משאבי שירות (לוזים). A מערך is picked
+// from this dedicated predefined catalog (an OPERATIONAL vocabulary — how a unit
+// organizes its service lines — NOT the clinical Skill tree), then given a free
+// display name ("מערך MRI קומה -1"). Resources (facilities/doctors) point at a
+// מערך via `service_array_id`, which also places them in that מערך's branch.
+// The legacy free-text `service_array` string is kept only as a display fallback.
+// ---------------------------------------------------------------------------
+export type ServiceArrayType =
+  | "imaging"
+  | "consultations"
+  | "lab"
+  | "samples"
+  | "procedures"
+  | "treatments"
+  | "surgery"
+  | "rehab"
+  | "womens_health"
+  | "other";
+
+export const SERVICE_ARRAY_TYPES: ServiceArrayType[] = [
+  "imaging",
+  "consultations",
+  "lab",
+  "samples",
+  "procedures",
+  "treatments",
+  "surgery",
+  "rehab",
+  "womens_health",
+  "other",
+];
+
+export const SERVICE_ARRAY_TYPE_LABELS: Record<ServiceArrayType, string> = {
+  imaging: "מערך הדמיה",
+  consultations: "מערך ייעוצים",
+  lab: "מערך מעבדה",
+  samples: "מערך דגימות",
+  procedures: "מערך פעולות",
+  treatments: "מערך טיפולים",
+  surgery: "מערך ניתוחים",
+  rehab: "מערך שיקום",
+  womens_health: "מערך בריאות האישה",
+  other: "מערך אחר",
+};
+
+/** A מערך instance: a service line inside a specific branch, typed by the
+ * predefined SERVICE_ARRAY_TYPES catalog. Lives in its own top-level store
+ * slice (like OrganizationBranch), keyed to its branch via `branch_id`. */
+export interface ServiceArray {
+  id: string;
+  branch_id: string; // the OrganizationBranch (סניף) this מערך belongs to
+  type: ServiceArrayType; // from the predefined catalog
+  name: string; // display name — defaults to the type label, editable
+  created_date: string;
 }
 
 export type FacilityKind =
@@ -826,6 +906,10 @@ export interface ProviderFacility {
   model?: string; // "Siemens Magnetom Vida 3T"
   room?: string; // "חדר 4, קומה -1"
   is_active: boolean;
+  // The מערך (ServiceArray) this לוז belongs to — placing it in a branch +
+  // service line. `branch_id` is derived from the מערך; the free-text
+  // `service_array` is a legacy display fallback for un-migrated resources.
+  service_array_id?: string;
   // Which branch (site) of the unit this לוז physically sits in.
   branch_id?: string;
   // The מערך (service line) this לוז belongs to — "מערך MRI", "מערך ייעוצים".
@@ -836,6 +920,10 @@ export interface ProviderFacility {
   // ConsultationType ids performed on this facility ("MRI ראש", "MRI בטן"…).
   // Empty means the facility exists but nothing is bookable on it yet.
   service_ids: string[];
+  // When set, the weekly grid comes from a shared ResourceSchedule applied to
+  // this facility (see resolveResourceSchedule); its own `schedule_exceptions`
+  // still apply on top. Falls back to the inline `schedule` when unset.
+  schedule_id?: string;
   schedule?: WeeklySchedule;
   schedule_exceptions?: ScheduleException[];
   created_at: string;
@@ -907,6 +995,10 @@ export interface ProviderProfile {
   // queue and week. Together with affiliated_doctors these are the unit's
   // bookable resources.
   facilities?: ProviderFacility[];
+  // Medical units only (§PRV-08) — reusable weekly schedules (לוזים) defined
+  // once and applied to several resources via their `schedule_id`. Editing one
+  // here re-times every resource that references it.
+  resource_schedules?: ResourceSchedule[];
   // Doctor only — organizations this doctor is affiliated with (the inverse
   // of affiliated_doctors, kept in sync by the store so a doctor's own
   // profile can show where they practice).

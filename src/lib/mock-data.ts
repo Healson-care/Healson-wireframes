@@ -20,6 +20,8 @@ import {
   PatientDocument,
   PriceByLayer,
   OrganizationBranch,
+  ServiceArray,
+  ServiceArrayType,
   ProviderProfile,
   ProviderType,
   User,
@@ -1246,6 +1248,7 @@ const demoUnitInstitute = demoUnit({
       kind: "mri",
       model: "Siemens Magnetom Vida 3T",
       branch_id: demoBranchTlvId,
+      service_array_id: "sarr_mri_tlv",
       service_array: "מערך MRI",
       capacity: 3,
       is_active: true,
@@ -1257,6 +1260,7 @@ const demoUnitInstitute = demoUnit({
       name: "CT 1",
       kind: "ct",
       branch_id: demoBranchTlvId,
+      service_array_id: "sarr_ct_tlv",
       service_array: "מערך CT",
       capacity: 1,
       is_active: true,
@@ -1268,6 +1272,7 @@ const demoUnitInstitute = demoUnit({
       name: "MRI 1",
       kind: "mri",
       branch_id: demoBranchHaifaId,
+      service_array_id: "sarr_mri_haifa",
       service_array: "מערך MRI",
       capacity: 2,
       is_active: true,
@@ -1283,7 +1288,111 @@ const demoUnitClinic = demoUnit({
   specialty: "רב-תחומי",
 });
 
+// ---------------------------------------------------------------------------
+// Back-fill the full hierarchy for the standalone units (מכון הדסה / מרפאות חוץ
+// הדסה) that predate the branch+מערך model: give each a branch, turn each of its
+// resources' free-text `service_array` label into a first-class ServiceArray in
+// that branch, and point the resource at it via service_array_id. Mutates the
+// unit's facilities/doctors in place so every unit shows סניף → מערך → משאב.
+// ---------------------------------------------------------------------------
+function inferArrayType(label: string, kind?: string): ServiceArrayType {
+  if (/MRI|CT|הדמי|רנטגן|אולטרסאונד|ממוגר|אבחון|קרדיולוג/.test(label)) return "imaging";
+  if (/ייעוץ|ייעוצים|חוות דעת/.test(label)) return "consultations";
+  if (/מעבד/.test(label)) return "lab";
+  if (/דגימ/.test(label)) return "samples";
+  if (/פעולו|פעולה/.test(label)) return "procedures";
+  if (/ניתוח/.test(label)) return "surgery";
+  if (/שיקום/.test(label)) return "rehab";
+  if (/טיפול/.test(label)) return "treatments";
+  if (kind === "sampling_station") return "samples";
+  if (kind === "operating_room") return "surgery";
+  if (kind === "procedure_room") return "procedures";
+  if (kind === "treatment_room") return "treatments";
+  if (kind && ["mri", "ct", "ultrasound", "xray", "mammography", "pet_ct", "bone_density", "cardiology"].includes(kind))
+    return "imaging";
+  return "other";
+}
+
+function facilityArrayLabel(kind?: string): string {
+  switch (kind) {
+    case "sampling_station":
+      return "מערך דגימות";
+    case "cardiology":
+      return "מערך אבחונים";
+    case "treatment_room":
+      return "מערך טיפולים";
+    case "procedure_room":
+      return "מערך פעולות";
+    case "operating_room":
+      return "מערך ניתוחים";
+    default:
+      return "מערך הדמיה";
+  }
+}
+
+function buildUnitHierarchy(
+  unit: ProviderProfile,
+  branch: { id: string; name: string; city?: string; address?: string; phone?: string }
+): { branch: OrganizationBranch; arrays: ServiceArray[] } {
+  const branchRec: OrganizationBranch = {
+    id: branch.id,
+    unit_id: unit.id,
+    name: branch.name,
+    city: branch.city,
+    address: branch.address,
+    contact_phone: branch.phone,
+    created_date: isoDateDaysFromNow(-200),
+  };
+  const byLabel = new Map<string, ServiceArray>();
+  const ensure = (label: string, type: ServiceArrayType): ServiceArray => {
+    let a = byLabel.get(label);
+    if (!a) {
+      a = {
+        id: `sarr_${unit.id}_${byLabel.size + 1}`,
+        branch_id: branch.id,
+        type,
+        name: label,
+        created_date: isoDateDaysFromNow(-200),
+      };
+      byLabel.set(label, a);
+    }
+    return a;
+  };
+  (unit.facilities ?? []).forEach((f) => {
+    const label = f.service_array || facilityArrayLabel(f.kind);
+    const a = ensure(label, inferArrayType(label, f.kind));
+    f.branch_id = branch.id;
+    f.service_array_id = a.id;
+    f.service_array = label;
+  });
+  (unit.affiliated_doctors ?? []).forEach((d) => {
+    const label = d.service_array || "מערך ייעוצים";
+    const a = ensure(label, inferArrayType(label));
+    d.branch_id = branch.id;
+    d.service_array_id = a.id;
+    d.service_array = label;
+  });
+  return { branch: branchRec, arrays: [...byLabel.values()] };
+}
+
+const instituteHierarchy = buildUnitHierarchy(providerInstitute, {
+  id: "branch_institute_main",
+  name: "סניף ראשון לציון",
+  city: "ראשון לציון",
+  address: "רחוב הזית 8",
+  phone: "03-5559090",
+});
+const outpatientHierarchy = buildUnitHierarchy(providerOutpatient, {
+  id: "branch_outpatient_main",
+  name: "סניף ירושלים",
+  city: "ירושלים",
+  address: "יפו 210",
+  phone: "02-5558080",
+});
+
 export const SEED_ORGANIZATION_BRANCHES: OrganizationBranch[] = [
+  instituteHierarchy.branch,
+  outpatientHierarchy.branch,
   {
     id: demoBranchTlvId,
     unit_id: demoUnitInstituteId,
@@ -1310,6 +1419,59 @@ export const SEED_ORGANIZATION_BRANCHES: OrganizationBranch[] = [
     address: "יגאל אלון 94",
     contact_phone: "03-7000003",
     created_date: isoDateDaysFromNow(-60),
+  },
+];
+
+// מערכים (service lines) inside the מכון's branches — each typed from the
+// predefined SERVICE_ARRAY_TYPES catalog. The demo מכון's facilities point at
+// these via service_array_id (ת"א has an MRI + a CT line, חיפה an MRI line).
+export const SEED_SERVICE_ARRAYS: ServiceArray[] = [
+  // Back-filled from the standalone units' resources (מכון הדסה / מרפאות חוץ).
+  ...instituteHierarchy.arrays,
+  ...outpatientHierarchy.arrays,
+  // The demo מכון (under the org), per branch.
+  {
+    id: "sarr_mri_tlv",
+    branch_id: demoBranchTlvId,
+    type: "imaging",
+    name: "מערך MRI",
+    created_date: isoDateDaysFromNow(-75),
+  },
+  {
+    id: "sarr_ct_tlv",
+    branch_id: demoBranchTlvId,
+    type: "imaging",
+    name: "מערך CT",
+    created_date: isoDateDaysFromNow(-75),
+  },
+  {
+    id: "sarr_mri_haifa",
+    branch_id: demoBranchHaifaId,
+    type: "imaging",
+    name: "מערך MRI",
+    created_date: isoDateDaysFromNow(-65),
+  },
+  // The demo מרפאת חוץ's branch — service lines it will staff.
+  {
+    id: "sarr_clinic_consult",
+    branch_id: demoBranchClinicId,
+    type: "consultations",
+    name: "מערך ייעוצים",
+    created_date: isoDateDaysFromNow(-58),
+  },
+  {
+    id: "sarr_clinic_tests",
+    branch_id: demoBranchClinicId,
+    type: "lab",
+    name: "מערך בדיקות",
+    created_date: isoDateDaysFromNow(-58),
+  },
+  {
+    id: "sarr_clinic_treat",
+    branch_id: demoBranchClinicId,
+    type: "treatments",
+    name: "מערך טיפולים",
+    created_date: isoDateDaysFromNow(-58),
   },
 ];
 

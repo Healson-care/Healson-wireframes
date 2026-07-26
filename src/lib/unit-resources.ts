@@ -28,7 +28,9 @@ import {
   FACILITY_KIND_LABELS,
   ProviderFacility,
   ProviderProfile,
+  ResourceSchedule,
   ScheduleException,
+  ServiceArray,
   WeeklySchedule,
   isUnitProviderType,
 } from "@/types";
@@ -55,13 +57,19 @@ export interface UnitResource extends ScheduleHolder {
   subtitle?: string;
   service_ids: string[];
   is_active: boolean;
-  /** Which branch (site) this לוז runs in. */
+  /** Which branch (site) this לוז runs in — resolved from its מערך when linked. */
   branch_id?: string;
-  /** The מערך (service line) this לוז belongs to — "מערך MRI" / "מערך ייעוצים". */
+  /** The מערך (ServiceArray) this לוז belongs to, if linked. */
+  service_array_id?: string;
+  /** The מערך's display name — resolved from the linked ServiceArray, falling
+   * back to the legacy free-text `service_array` string. "מערך MRI" / "מערך ייעוצים". */
   service_array?: string;
   /** How many identical stations this one לוז represents (concurrent capacity
    * per slot). A doctor is always 1; a facility can stand for several machines. */
   capacity: number;
+  /** The shared ResourceSchedule this resource follows, if any — its effective
+   * `schedule` below is already resolved from it (see resolveResourceSchedule). */
+  schedule_id?: string;
   schedule?: WeeklySchedule;
   schedule_exceptions?: ScheduleException[];
 }
@@ -80,7 +88,52 @@ export function isUnitProvider(provider: ProviderProfile): boolean {
   return isUnitProviderType(provider.provider_type);
 }
 
-export function facilityToResource(facility: ProviderFacility, kindLabel: string): UnitResource {
+/** A resource's effective weekly grid + date exceptions. When the resource
+ * references a shared ResourceSchedule (`schedule_id`), the weekly grid comes
+ * from that לו״ז while the resource's OWN `schedule_exceptions` still apply on
+ * top — so one resource's vacation never spills onto everyone sharing the לו״ז,
+ * and each resource keeps an independent bookable queue. Falls back to the
+ * inline `schedule` when nothing is shared. */
+export function resolveResourceSchedule(
+  holder: { schedule_id?: string; schedule?: WeeklySchedule; schedule_exceptions?: ScheduleException[] },
+  schedules?: Map<string, ResourceSchedule>
+): { schedule?: WeeklySchedule; schedule_exceptions?: ScheduleException[] } {
+  const shared = holder.schedule_id ? schedules?.get(holder.schedule_id) : undefined;
+  if (shared) {
+    return {
+      schedule: shared.schedule,
+      schedule_exceptions: [
+        ...(shared.schedule_exceptions ?? []),
+        ...(holder.schedule_exceptions ?? []),
+      ],
+    };
+  }
+  return { schedule: holder.schedule, schedule_exceptions: holder.schedule_exceptions };
+}
+
+/** A resource's מערך (service line) + branch, preferring the linked ServiceArray
+ * (first-class) over the legacy free-text `service_array` string. */
+export function resolveResourceArray(
+  holder: { service_array_id?: string; service_array?: string; branch_id?: string },
+  arrays?: Map<string, ServiceArray>
+): { service_array_id?: string; service_array?: string; branch_id?: string } {
+  const arr = holder.service_array_id ? arrays?.get(holder.service_array_id) : undefined;
+  if (arr) return { service_array_id: arr.id, service_array: arr.name, branch_id: arr.branch_id };
+  return {
+    service_array_id: holder.service_array_id,
+    service_array: holder.service_array,
+    branch_id: holder.branch_id,
+  };
+}
+
+export function facilityToResource(
+  facility: ProviderFacility,
+  kindLabel: string,
+  schedules?: Map<string, ResourceSchedule>,
+  arrays?: Map<string, ServiceArray>
+): UnitResource {
+  const resolved = resolveResourceSchedule(facility, schedules);
+  const arr = resolveResourceArray(facility, arrays);
   return {
     id: facility.id,
     kind: "facility",
@@ -88,19 +141,25 @@ export function facilityToResource(facility: ProviderFacility, kindLabel: string
     subtitle: [kindLabel, facility.model, facility.room].filter(Boolean).join(" · "),
     service_ids: facility.service_ids ?? [],
     is_active: facility.is_active !== false,
-    branch_id: facility.branch_id,
-    service_array: facility.service_array,
+    branch_id: arr.branch_id,
+    service_array_id: arr.service_array_id,
+    service_array: arr.service_array,
     capacity: Math.max(1, facility.capacity ?? 1),
-    schedule: facility.schedule,
-    schedule_exceptions: facility.schedule_exceptions,
+    schedule_id: facility.schedule_id,
+    schedule: resolved.schedule,
+    schedule_exceptions: resolved.schedule_exceptions,
   };
 }
 
 export function doctorToResource(
   affiliation: AffiliatedDoctor,
   doctorName: string,
-  subtitle?: string
+  subtitle?: string,
+  schedules?: Map<string, ResourceSchedule>,
+  arrays?: Map<string, ServiceArray>
 ): UnitResource {
+  const resolved = resolveResourceSchedule(affiliation, schedules);
+  const arr = resolveResourceArray(affiliation, arrays);
   return {
     id: affiliation.id,
     kind: "doctor",
@@ -108,28 +167,36 @@ export function doctorToResource(
     subtitle: [affiliation.role, subtitle].filter(Boolean).join(" · ") || undefined,
     service_ids: affiliation.service_ids ?? [],
     is_active: true,
-    branch_id: affiliation.branch_id,
-    service_array: affiliation.service_array,
+    branch_id: arr.branch_id,
+    service_array_id: arr.service_array_id,
+    service_array: arr.service_array,
     capacity: 1,
-    schedule: affiliation.schedule,
-    schedule_exceptions: affiliation.schedule_exceptions,
+    schedule_id: affiliation.schedule_id,
+    schedule: resolved.schedule,
+    schedule_exceptions: resolved.schedule_exceptions,
   };
 }
 
 /** Every bookable resource of a unit — facilities first, then doctors.
  * `doctorNames` maps a doctor ProviderProfile id to its display name (the
- * caller has the providers list; this module deliberately doesn't). */
+ * caller has the providers list; this module deliberately doesn't).
+ * `serviceArrays` (the branch-scoped מערכים, another store slice) resolves each
+ * resource's first-class מערך name/branch — omit it and the legacy free-text
+ * `service_array` string is used instead. */
 export function getUnitResources(
   provider: ProviderProfile,
-  doctorNames?: Map<string, { name: string; specialty?: string }>
+  doctorNames?: Map<string, { name: string; specialty?: string }>,
+  serviceArrays?: ServiceArray[]
 ): UnitResource[] {
   if (!isUnitProvider(provider)) return [];
+  const schedules = new Map((provider.resource_schedules ?? []).map((s) => [s.id, s]));
+  const arrays = new Map((serviceArrays ?? []).map((a) => [a.id, a]));
   const facilities = (provider.facilities ?? []).map((f) =>
-    facilityToResource(f, FACILITY_KIND_LABELS[f.kind] ?? "")
+    facilityToResource(f, FACILITY_KIND_LABELS[f.kind] ?? "", schedules, arrays)
   );
   const doctors = (provider.affiliated_doctors ?? []).map((a) => {
     const info = doctorNames?.get(a.doctor_provider_id);
-    return doctorToResource(a, info?.name ?? "נותן/ת שירות", info?.specialty);
+    return doctorToResource(a, info?.name ?? "נותן/ת שירות", info?.specialty, schedules, arrays);
   });
   return [...facilities, ...doctors];
 }
