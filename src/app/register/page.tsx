@@ -167,9 +167,7 @@ export default function RegisterPage() {
         date_of_birth: dateOfBirth,
         kupah: insurance.kupah || undefined,
         k_level: insurance.k_level || undefined,
-        has_b_insurance: insurance.has_b_insurance,
-        b_insurance_company: insurance.has_b_insurance ? insurance.b_insurance_company : undefined,
-        b_policy_number: insurance.has_b_insurance ? insurance.b_policy_number : undefined,
+        b_insurances: insurance.b_insurances.length > 0 ? insurance.b_insurances : undefined,
         address: insurance.address || undefined,
       },
       consents

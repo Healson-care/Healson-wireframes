@@ -289,9 +289,7 @@ export default function ClientProfilePage() {
       setInsurance({
         kupah: patient.kupah ?? "",
         k_level: patient.k_level ?? "",
-        has_b_insurance: !!patient.has_b_insurance,
-        b_insurance_company: patient.b_insurance_company ?? "",
-        b_policy_number: patient.b_policy_number ?? "",
+        b_insurances: patient.b_insurances ?? [],
         address: patient.address ?? "",
       });
       const parsed = parseAddress(patient.address ?? "");
@@ -327,9 +325,7 @@ export default function ClientProfilePage() {
     updatePatient(patient.id, {
       kupah: insurance.kupah || undefined,
       k_level: insurance.k_level || undefined,
-      has_b_insurance: insurance.has_b_insurance,
-      b_insurance_company: insurance.has_b_insurance ? insurance.b_insurance_company : undefined,
-      b_policy_number: insurance.has_b_insurance ? insurance.b_policy_number : undefined,
+      b_insurances: insurance.b_insurances.length > 0 ? insurance.b_insurances : undefined,
     });
     showToast("הפרופיל הביטוחי עודכן בהצלחה", { variant: "success" });
   }

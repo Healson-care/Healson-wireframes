@@ -378,7 +378,10 @@ function AdminPatientChartPageContent() {
               />
               <InfoRow label="קופת חולים" value={patient.kupah ?? "ללא קופה (תייר)"} />
               {patient.k_level && <InfoRow label="מסלול השב״ן" value={patient.k_level} />}
-              <InfoRow label="ביטוח פרטי (שכבה B)" value={patient.has_b_insurance ? patient.b_insurance_company || "כן" : "אין"} />
+              <InfoRow
+                label="ביטוח פרטי (שכבה B)"
+                value={patient.b_insurances?.length ? patient.b_insurances.map((ins) => ins.company || "כן").join(", ") : "אין"}
+              />
               <InfoRow label="כתובת" value={patient.address || "—"} />
               {patient.parent_name && <InfoRow label="שם הורה/אפוטרופוס" value={patient.parent_name} />}
               {patient.id_document_photo && (
@@ -669,8 +672,7 @@ function AdminPatientChartPageContent() {
             gender: values.gender || undefined,
             kupah: values.kupah || undefined,
             k_level: values.k_level || undefined,
-            b_insurance_company: values.has_b_insurance ? values.b_insurance_company : undefined,
-            b_policy_number: values.has_b_insurance ? values.b_policy_number : undefined,
+            b_insurances: values.b_insurances.length > 0 ? values.b_insurances : undefined,
             address: values.address || undefined,
           });
           showToast("פרטי המטופל עודכנו", { variant: "success" });
@@ -687,9 +689,7 @@ function AdminPatientChartPageContent() {
           parent_name: patient.parent_name ?? "",
           kupah: patient.kupah ?? "",
           k_level: patient.k_level ?? "",
-          has_b_insurance: patient.has_b_insurance ?? false,
-          b_insurance_company: patient.b_insurance_company ?? "",
-          b_policy_number: patient.b_policy_number ?? "",
+          b_insurances: patient.b_insurances ?? [],
           address: patient.address ?? "",
           status: patient.status,
         }}

@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { Plus, Trash2 } from "lucide-react";
 import { Input, Select } from "@/components/ui/Input";
-import { B_INSURANCE_COMPANIES, KUPOT, K_LEVELS_BY_KUPAH, Kupah, KLevel } from "@/types";
+import { Button } from "@/components/ui/Button";
+import { B_INSURANCE_COMPANIES, KUPOT, K_LEVELS_BY_KUPAH, Kupah, KLevel, PatientInsurance } from "@/types";
 
 const OTHER_COMPANY = "אחר";
 
@@ -11,23 +13,24 @@ export interface InsuranceProfileValue {
   // valid choice when the caller passes allowNoKupah (see below).
   kupah: Kupah | "";
   k_level: KLevel | "";
-  has_b_insurance: boolean;
-  b_insurance_company: string;
-  b_policy_number: string;
+  // A patient can hold several private policies at once (unlike kupah,
+  // which is single by law) — "has private insurance" is just
+  // b_insurances.length > 0, not a separate field.
+  b_insurances: PatientInsurance[];
   address: string;
 }
 
 export const EMPTY_INSURANCE_PROFILE: InsuranceProfileValue = {
   kupah: "כללית",
   k_level: "",
-  has_b_insurance: false,
-  b_insurance_company: "",
-  b_policy_number: "",
+  b_insurances: [],
   address: "",
 };
 
+const EMPTY_B_INSURANCE: PatientInsurance = { company: "", policy_number: "" };
+
 /** Patient insurance profile fields (§4.3) — kupah (S), optional K-level
- * (שב"ן), optional B (private health insurance). */
+ * (שב"ן), optional B (one or more private health insurance policies). */
 export function InsuranceProfileForm({
   value,
   onChange,
@@ -43,12 +46,27 @@ export function InsuranceProfileForm({
   allowNoKupah?: boolean;
 }) {
   // "אחר" chosen but no free text typed yet still needs the picker to show
-  // "אחר" even though the underlying field is momentarily "" — hence this
-  // local flag rather than deriving purely from value.b_insurance_company.
-  const [otherPicked, setOtherPicked] = useState(false);
-  const isOtherCompany = value.b_insurance_company
-    ? !B_INSURANCE_COMPANIES.includes(value.b_insurance_company)
-    : otherPicked;
+  // "אחר" even though the underlying field is momentarily "" — keyed by row
+  // index, same reasoning as the old single-insurance local flag.
+  const [otherPickedRows, setOtherPickedRows] = useState<Record<number, boolean>>({});
+
+  const hasBInsurance = value.b_insurances.length > 0;
+
+  function updateRow(index: number, patch: Partial<PatientInsurance>) {
+    onChange({
+      ...value,
+      b_insurances: value.b_insurances.map((ins, i) => (i === index ? { ...ins, ...patch } : ins)),
+    });
+  }
+
+  function removeRow(index: number) {
+    onChange({ ...value, b_insurances: value.b_insurances.filter((_, i) => i !== index) });
+    setOtherPickedRows((prev) => {
+      const next = { ...prev };
+      delete next[index];
+      return next;
+    });
+  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -84,47 +102,76 @@ export function InsuranceProfileForm({
       <label className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2.5 cursor-pointer">
         <input
           type="checkbox"
-          checked={value.has_b_insurance}
-          onChange={(e) => onChange({ ...value, has_b_insurance: e.target.checked })}
+          checked={hasBInsurance}
+          onChange={(e) => onChange({ ...value, b_insurances: e.target.checked ? [{ ...EMPTY_B_INSURANCE }] : [] })}
           className="h-4 w-4 rounded border-slate-300 accent-primary"
         />
         <span className="text-sm text-slate-700">יש לי ביטוח בריאות פרטי</span>
       </label>
 
-      {value.has_b_insurance && (
-        <div className="grid grid-cols-2 gap-2">
-          <Select
-            label="חברת ביטוח"
-            value={isOtherCompany ? OTHER_COMPANY : value.b_insurance_company}
-            onChange={(e) => {
-              const next = e.target.value;
-              setOtherPicked(next === OTHER_COMPANY);
-              onChange({ ...value, b_insurance_company: next === OTHER_COMPANY ? "" : next });
-            }}
+      {hasBInsurance && (
+        <div className="flex flex-col gap-2">
+          {value.b_insurances.map((ins, index) => {
+            const isOtherCompany = ins.company ? !B_INSURANCE_COMPANIES.includes(ins.company) : otherPickedRows[index];
+            return (
+              <div key={index} className="rounded-lg border border-slate-200 p-3 flex flex-col gap-2">
+                <div className="flex items-start gap-2">
+                  <div className="grid grid-cols-2 gap-2 flex-1">
+                    <Select
+                      label="חברת ביטוח"
+                      value={isOtherCompany ? OTHER_COMPANY : ins.company}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setOtherPickedRows((prev) => ({ ...prev, [index]: next === OTHER_COMPANY }));
+                        updateRow(index, { company: next === OTHER_COMPANY ? "" : next });
+                      }}
+                    >
+                      <option value="">בחרו חברה</option>
+                      {B_INSURANCE_COMPANIES.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                      <option value={OTHER_COMPANY}>אחר</option>
+                    </Select>
+                    <Input
+                      label="מספר פוליסה (אופציונלי)"
+                      value={ins.policy_number ?? ""}
+                      onChange={(e) => updateRow(index, { policy_number: e.target.value })}
+                    />
+                  </div>
+                  {value.b_insurances.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeRow(index)}
+                      aria-label="הסר ביטוח"
+                      className="mt-6 shrink-0 rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-danger"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+                {isOtherCompany && (
+                  <Input
+                    label="שם חברת הביטוח"
+                    placeholder="הזינו את שם חברת הביטוח"
+                    value={ins.company}
+                    onChange={(e) => updateRow(index, { company: e.target.value })}
+                  />
+                )}
+              </div>
+            );
+          })}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="self-start"
+            onClick={() => onChange({ ...value, b_insurances: [...value.b_insurances, { ...EMPTY_B_INSURANCE }] })}
           >
-            <option value="">בחרו חברה</option>
-            {B_INSURANCE_COMPANIES.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-            <option value={OTHER_COMPANY}>אחר</option>
-          </Select>
-          <Input
-            label="מספר פוליסה (אופציונלי)"
-            value={value.b_policy_number}
-            onChange={(e) => onChange({ ...value, b_policy_number: e.target.value })}
-          />
+            <Plus className="h-4 w-4" /> הוסף ביטוח נוסף
+          </Button>
         </div>
-      )}
-
-      {isOtherCompany && (
-        <Input
-          label="שם חברת הביטוח"
-          placeholder="הזינו את שם חברת הביטוח"
-          value={value.b_insurance_company}
-          onChange={(e) => onChange({ ...value, b_insurance_company: e.target.value })}
-        />
       )}
 
       {showAddress && (
