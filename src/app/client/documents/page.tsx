@@ -10,7 +10,6 @@ import {
   FileText,
   FlaskConical,
   ListChecks,
-  MoreVertical,
   Pencil,
   Plus,
   Receipt,
@@ -27,18 +26,15 @@ import { Button } from "@/components/ui/Button";
 import { Dialog, ConfirmDialog } from "@/components/ui/Dialog";
 import { Input } from "@/components/ui/Input";
 import { FilterDropdown } from "@/components/ui/FilterDropdown";
-import { Popover } from "@/components/ui/Popover";
-import { DocumentUploadDialog } from "@/components/patient/DocumentUploadDialog";
+import { FileDropzone } from "@/components/ui/FileDropzone";
 import { fileToDataUrl, validateDocumentFile } from "@/lib/file";
-import { formatDateHe } from "@/lib/utils";
-import {
-  Appointment,
-  documentAppointmentIds,
-  DOCUMENT_CATEGORIES,
-  DocumentCategory,
-  LabReferral,
-  PatientDocument,
-} from "@/types";
+import { formatDateHe, cn } from "@/lib/utils";
+import { Appointment, DOCUMENT_CATEGORIES, DocumentCategory, DocumentStatus, LabReferral, PatientDocument } from "@/types";
+
+const DOCUMENT_STATUS_OPTIONS: { value: DocumentStatus; label: string }[] = [
+  { value: "ממתין למילוי", label: "ממתין למילוי" },
+  { value: "זמין", label: "זמין" },
+];
 
 type DocItem = { kind: "doc"; id: string; category: DocumentCategory; created_date: string; data: PatientDocument };
 type LabItem = { kind: "lab"; id: string; category: "lab_result"; created_date: string; data: LabReferral };
@@ -70,126 +66,102 @@ function CategoryFilter({
   );
 }
 
+function StatusFilter({
+  activeStatuses,
+  onChange,
+}: {
+  activeStatuses: DocumentStatus[];
+  onChange: (statuses: DocumentStatus[]) => void;
+}) {
+  return (
+    <FilterDropdown
+      values={activeStatuses}
+      options={DOCUMENT_STATUS_OPTIONS}
+      allLabel="כל הסטטוסים"
+      onChange={(values) => onChange(values as DocumentStatus[])}
+    />
+  );
+}
+
 // One flat row per document/lab-result. A doc still shows which visit it's
 // linked to (if any) as a subtitle, but the list itself is never grouped by
 // appointment — that context lives on the appointment card on
 // /client/appointments, this page is the patient's own document library.
 function DocumentRow({
   item,
-  linkedAppointments,
+  linkedAppointment,
+  onFillQuestionnaire,
+  onUploadFile,
   onDownload,
   onRename,
   onDelete,
-  onGoToAppointment,
 }: {
   item: DisplayItem;
-  linkedAppointments: Appointment[];
+  linkedAppointment?: Appointment;
+  onFillQuestionnaire: (docId: string) => void;
+  onUploadFile: (docId: string, file: File | null) => void;
   onDownload: () => void;
   onRename: (doc: PatientDocument) => void;
   onDelete: (docId: string) => void;
-  onGoToAppointment: (appointmentId: string) => void;
 }) {
   if (item.kind === "doc") {
     const categoryLabel = DOCUMENT_CATEGORIES.find((c) => c.id === item.category)?.label;
     const Icon = CATEGORY_ICON[item.category];
+    const isPending = item.data.status === "ממתין למילוי";
     return (
-      <div className="flex items-center justify-between gap-3 px-3.5 py-2.5">
+      <div className={cn("flex items-center justify-between gap-3 px-3.5 py-2.5", isPending && "bg-warning-bg")}>
         <div className="flex items-center gap-2.5 min-w-0">
-          <Icon className="h-4 w-4 shrink-0 text-slate-400" />
+          <Icon className={cn("h-4 w-4 shrink-0", isPending ? "text-warning-text" : "text-slate-400")} />
           <div className="min-w-0">
-            <p className="text-sm font-medium text-slate-800 truncate">{item.data.title}</p>
+            <p className={cn("text-sm font-medium truncate", isPending ? "text-warning-text" : "text-slate-800")}>
+              {item.data.title}
+            </p>
             <p className="text-xs text-slate-400 truncate">
               {categoryLabel} · {formatDateHe(item.data.created_date)}
+              {linkedAppointment && ` · קשור לתור ${formatDateHe(linkedAppointment.date)}`}
             </p>
-            {linkedAppointments.length === 1 && (
-              <button
-                type="button"
-                onClick={() => onGoToAppointment(linkedAppointments[0].id)}
-                className="truncate text-xs text-primary hover:underline"
-              >
-                קשור לתור {formatDateHe(linkedAppointments[0].date)}
-              </button>
-            )}
-            {linkedAppointments.length > 1 && (
-              <p className="truncate text-xs text-slate-400">קשור ל-{linkedAppointments.length} תורים</p>
-            )}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {linkedAppointments.length > 1 && (
-            <Popover
-              align="end"
-              trigger={
-                <span
-                  className="flex items-center justify-center rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-primary"
-                  title="תורים מקושרים"
-                >
-                  <CalendarDays className="h-3.5 w-3.5" />
-                </span>
-              }
-            >
-              {(close) => (
-                <div className="flex flex-col gap-0.5">
-                  <p className="mb-1 px-2 text-xs font-semibold text-slate-400">תורים מקושרים</p>
-                  {linkedAppointments.map((appt) => (
-                    <button
-                      key={appt.id}
-                      type="button"
-                      onClick={() => {
-                        close();
-                        onGoToAppointment(appt.id);
-                      }}
-                      className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-right text-sm text-slate-700 transition-colors hover:bg-slate-50"
-                    >
-                      <span className="truncate">{appt.service_name}</span>
-                      <span className="shrink-0 text-xs text-slate-400">{formatDateHe(appt.date)}</span>
-                    </button>
-                  ))}
-                </div>
+          {isPending ? (
+            item.category === "questionnaire" ? (
+              <Button size="sm" onClick={() => onFillQuestionnaire(item.data.id)}>
+                מלא עכשיו
+              </Button>
+            ) : (
+              <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-primary hover:text-primary">
+                <Upload className="h-3.5 w-3.5" /> העלאה
+                <input
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png"
+                  className="hidden"
+                  onChange={(e) => onUploadFile(item.data.id, e.target.files?.[0] ?? null)}
+                />
+              </label>
+            )
+          ) : (
+            <>
+              {item.data.file && (
+                <Button variant="outline" size="sm" onClick={onDownload}>
+                  <Download className="h-3.5 w-3.5" /> הורד
+                </Button>
               )}
-            </Popover>
-          )}
-          {item.data.file && (
-            <Button variant="outline" size="sm" onClick={onDownload}>
-              <Download className="h-3.5 w-3.5" /> הורד
-            </Button>
-          )}
-          <Popover
-            align="end"
-            trigger={
-              <span
-                className="flex items-center justify-center rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
-                title="עוד פעולות"
+              <button
+                onClick={() => onRename(item.data)}
+                className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                title="שינוי שם"
               >
-                <MoreVertical className="h-3.5 w-3.5" />
-              </span>
-            }
-          >
-            {(close) => (
-              <div className="flex flex-col gap-0.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    close();
-                    onRename(item.data);
-                  }}
-                  className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-right text-sm text-slate-700 transition-colors hover:bg-slate-50"
-                >
-                  <Pencil className="h-3.5 w-3.5" /> שינוי שם
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    close();
-                    onDelete(item.data.id);
-                  }}
-                  className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-right text-sm text-danger transition-colors hover:bg-danger/10"
-                >
-                  <Trash2 className="h-3.5 w-3.5" /> מחיקה
-                </button>
-              </div>
-            )}
-          </Popover>
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => onDelete(item.data.id)}
+                className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-danger/10 hover:text-danger"
+                title="מחיקה"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </>
+          )}
         </div>
       </div>
     );
@@ -235,12 +207,17 @@ function ClientDocumentsPageContent() {
   const documents = useStore((s) => s.documents);
   const labReferrals = useStore((s) => s.labReferrals);
   const appointments = useStore((s) => s.appointments);
+  const addDocument = useStore((s) => s.addDocument);
   const updateDocument = useStore((s) => s.updateDocument);
   const deleteDocument = useStore((s) => s.deleteDocument);
   const showToast = useStore((s) => s.showToast);
 
   const [activeCategories, setActiveCategories] = useState<DocumentCategory[]>([]);
+  const [activeStatuses, setActiveStatuses] = useState<DocumentStatus[]>([]);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [renameDoc, setRenameDoc] = useState<PatientDocument | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
@@ -262,32 +239,30 @@ function ClientDocumentsPageContent() {
     [items]
   );
 
-  // Pending items live exclusively in the banner above (pendingItems) — once
-  // resolved they naturally lose that status and "graduate" into this list,
-  // so nothing here duplicates a CTA already shown up top.
-  const availableItems = useMemo(
-    () => items.filter((i) => !(i.kind === "doc" && i.data.status === "ממתין למילוי")),
-    [items]
-  );
-
   const categoryFilteredItems =
-    activeCategories.length === 0 ? availableItems : availableItems.filter((i) => activeCategories.includes(i.category));
+    activeCategories.length === 0 ? items : items.filter((i) => activeCategories.includes(i.category));
+
+  // Status only exists on documents (not lab referrals), so picking a
+  // status naturally narrows the list to docs — that matches the intent
+  // ("show me what's pending" / "show me what's ready").
+  const statusFilteredItems =
+    activeStatuses.length === 0
+      ? categoryFilteredItems
+      : categoryFilteredItems.filter((i) => i.kind === "doc" && activeStatuses.includes(i.data.status ?? "זמין"));
 
   // "?appointment=" (arriving from the appointment card's "לצפייה מלאה
   // במסמכים" link, or the booking-confirmation receipt link) narrows the
   // same flat list to that visit's docs rather than switching to a
   // different, grouped view.
   const visibleItems = appointmentFilter
-    ? categoryFilteredItems.filter((i) => i.kind === "doc" && documentAppointmentIds(i.data).includes(appointmentFilter))
-    : categoryFilteredItems;
+    ? statusFilteredItems.filter((i) => i.kind === "doc" && i.data.appointment_id === appointmentFilter)
+    : statusFilteredItems;
 
   const filteredAppointment = appointmentFilter ? appointments.find((a) => a.id === appointmentFilter) : undefined;
 
-  function getLinkedAppointments(item: DisplayItem): Appointment[] {
-    if (item.kind !== "doc") return [];
-    return documentAppointmentIds(item.data)
-      .map((id) => appointments.find((a) => a.id === id))
-      .filter((a): a is Appointment => !!a);
+  function getLinkedAppointment(item: DisplayItem): Appointment | undefined {
+    if (item.kind !== "doc" || !item.data.appointment_id) return undefined;
+    return appointments.find((a) => a.id === item.data.appointment_id);
   }
 
   function handleFillQuestionnaire(docId: string) {
@@ -314,6 +289,26 @@ function ClientDocumentsPageContent() {
 
   function handleDownload() {
     showToast("הקובץ הורד (מצב הדגמה)", { variant: "success" });
+  }
+
+  async function handleUpload(e: React.FormEvent) {
+    e.preventDefault();
+    if (!patient || !title.trim()) return;
+    setUploading(true);
+    addDocument({
+      patient_id: patient.id,
+      category: "referral_personal",
+      title: title.trim(),
+      uploaded_by: "patient",
+      file: file
+        ? { file_name: file.name, uploaded_at: new Date().toISOString(), data_url: await fileToDataUrl(file) }
+        : undefined,
+    });
+    setUploading(false);
+    setUploadOpen(false);
+    setTitle("");
+    setFile(null);
+    showToast("המסמך הועלה בהצלחה", { variant: "success" });
   }
 
   function openRenameDialog(doc: PatientDocument) {
@@ -374,13 +369,9 @@ function ClientDocumentsPageContent() {
                   <div className="min-w-0">
                     <p className="text-xs font-medium text-warning-text truncate">{item.data.title}</p>
                     {appt && (
-                      <button
-                        type="button"
-                        onClick={() => router.push(`/client/appointments?appointment=${appt.id}`)}
-                        className="truncate text-[11px] text-warning-text/70 hover:underline"
-                      >
+                      <p className="text-[11px] text-warning-text/70 truncate">
                         {appt.service_name} · {formatDateHe(appt.date)}
-                      </button>
+                      </p>
                     )}
                   </div>
                   {item.category === "questionnaire" ? (
@@ -408,34 +399,51 @@ function ClientDocumentsPageContent() {
       <p className="text-xs font-semibold text-slate-400 mb-1.5 px-1">המסמכים שלי</p>
       <div className="mb-3 flex flex-wrap gap-2">
         <CategoryFilter activeCategories={activeCategories} onChange={setActiveCategories} />
+        <StatusFilter activeStatuses={activeStatuses} onChange={setActiveStatuses} />
       </div>
 
       {visibleItems.length === 0 ? (
         <EmptyState icon={<FileText className="h-10 w-10" />} title="אין מסמכים להצגה" />
       ) : (
-        <div className="rounded-xl border border-slate-200 bg-white shadow-sm divide-y divide-slate-100">
+        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm divide-y divide-slate-100">
           {visibleItems.map((item) => (
             <DocumentRow
               key={item.id}
               item={item}
-              linkedAppointments={getLinkedAppointments(item)}
+              linkedAppointment={getLinkedAppointment(item)}
+              onFillQuestionnaire={handleFillQuestionnaire}
+              onUploadFile={handleUploadRequiredDoc}
               onDownload={handleDownload}
               onRename={openRenameDialog}
               onDelete={(docId) => setDeleteDocId(docId)}
-              onGoToAppointment={(appointmentId) => router.push(`/client/appointments?appointment=${appointmentId}`)}
             />
           ))}
         </div>
       )}
 
-      <DocumentUploadDialog
+      <Dialog
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
-        patientId={patient?.id ?? ""}
-        category="referral_personal"
-        dialogTitle="מסמך חדש"
+        title="מסמך חדש"
         description="הפניה או טופס אישי (למשל צילום ת&quot;ז)"
-      />
+      >
+        <form onSubmit={handleUpload} className="flex flex-col gap-3">
+          <Input
+            label="שם המסמך"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder='לדוגמה: "הפניה לרופא עיניים"'
+            required
+          />
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-slate-700">קובץ</label>
+            <FileDropzone file={file} onFileChange={setFile} />
+          </div>
+          <Button type="submit" loading={uploading} className="mt-2">
+            <Upload className="h-4 w-4" /> העלה
+          </Button>
+        </form>
+      </Dialog>
 
       <Dialog open={!!renameDoc} onClose={() => setRenameDoc(null)} title="שינוי שם מסמך">
         <form onSubmit={handleRename} className="flex flex-col gap-3">

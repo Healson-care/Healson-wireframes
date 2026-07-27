@@ -1332,23 +1332,10 @@ export interface PatientDocument {
   category: DocumentCategory;
   title: string;
   uploaded_by: "patient" | "provider" | "system";
-  // Set by system-generated docs (booking receipts, questionnaires, the
-  // required-documents checklist) — always exactly one appointment.
   appointment_id?: string;
-  // Set by patient-initiated manual uploads (the "מסמך חדש" / "הוספת מסמך
-  // אחר" dialogs) — zero, one, or many linked appointments. Kept separate
-  // from appointment_id rather than folding those flows onto it, since a
-  // single scalar can't express "linked to two appointments".
-  appointment_ids?: string[];
   status?: DocumentStatus;
   created_date: string;
   file?: UploadedFile;
-}
-
-/** Every appointment a document is linked to, regardless of which of the two
- * linking fields produced it (see PatientDocument). */
-export function documentAppointmentIds(doc: PatientDocument): string[] {
-  return doc.appointment_ids ?? (doc.appointment_id ? [doc.appointment_id] : []);
 }
 
 export interface Branch {

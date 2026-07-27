@@ -12,9 +12,9 @@ import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog, Dialog } from "@/components/ui/Dialog";
 import { Input } from "@/components/ui/Input";
+import { FileDropzone } from "@/components/ui/FileDropzone";
 import { Popover } from "@/components/ui/Popover";
 import { AppointmentReminderPlan } from "@/components/patient/AppointmentReminderPlan";
-import { DocumentUploadDialog } from "@/components/patient/DocumentUploadDialog";
 import { SlotPicker } from "@/components/book/SlotPicker";
 import { WaitlistJoinDialog } from "@/components/book/WaitlistJoinDialog";
 import {
@@ -46,7 +46,6 @@ import { fileToDataUrl, validateDocumentFile } from "@/lib/file";
 import {
   Appointment,
   AppointmentStatus,
-  documentAppointmentIds,
   DOCUMENT_CATEGORIES,
   WaitlistEntry,
   WaitlistStatus,
@@ -481,6 +480,7 @@ function AppointmentListCard({
   const router = useRouter();
   const providers = useStore((s) => s.providers);
   const documents = useStore((s) => s.documents);
+  const addDocument = useStore((s) => s.addDocument);
   const updateDocument = useStore((s) => s.updateDocument);
   const showToast = useStore((s) => s.showToast);
 
@@ -490,14 +490,16 @@ function AppointmentListCard({
     provider?.clinic_locations.find((c) => c.id === bookedClinicId) ??
     provider?.clinic_locations.find((c) => c.is_primary) ??
     provider?.clinic_locations[0];
-  const linkedDocs =
-    item.kind === "appointment" ? documents.filter((d) => documentAppointmentIds(d).includes(item.data.id)) : [];
+  const linkedDocs = item.kind === "appointment" ? documents.filter((d) => d.appointment_id === item.data.id) : [];
   // The pre-appointment checklist — every linked doc still waiting on the
   // patient, regardless of category (named required docs from
   // ConsultationType.required_documents, plus questionnaires).
   const pendingRequiredDocs = linkedDocs.filter((d) => d.status === "ממתין למילוי");
 
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadTitle, setUploadTitle] = useState("");
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   function handleFillQuestionnaire(docId: string) {
     updateDocument(docId, { status: "זמין" });
@@ -519,6 +521,29 @@ function AppointmentListCard({
       status: "זמין",
       file: { file_name: file.name, uploaded_at: new Date().toISOString(), data_url: dataUrl },
     });
+    showToast("המסמך הועלה בהצלחה", { variant: "success" });
+  }
+
+  // For anything NOT on the required-documents checklist — patients can add
+  // as many of these as they like, each becomes its own "other" document.
+  async function handleUploadDocument(e: React.FormEvent) {
+    e.preventDefault();
+    if (item.kind !== "appointment" || !uploadTitle.trim()) return;
+    setUploading(true);
+    addDocument({
+      patient_id: item.data.created_by_id ?? "",
+      category: "other",
+      title: uploadTitle.trim(),
+      uploaded_by: "patient",
+      appointment_id: item.data.id,
+      file: uploadFile
+        ? { file_name: uploadFile.name, uploaded_at: new Date().toISOString(), data_url: await fileToDataUrl(uploadFile) }
+        : undefined,
+    });
+    setUploading(false);
+    setUploadOpen(false);
+    setUploadTitle("");
+    setUploadFile(null);
     showToast("המסמך הועלה בהצלחה", { variant: "success" });
   }
 
@@ -838,15 +863,29 @@ function AppointmentListCard({
       </Card>
 
       {item.kind === "appointment" && (
-        <DocumentUploadDialog
+        <Dialog
           open={uploadOpen}
           onClose={() => setUploadOpen(false)}
-          patientId={item.data.created_by_id ?? ""}
-          category="other"
-          dialogTitle="הוספת מסמך אחר"
+          title="הוספת מסמך אחר"
           description="מסמך שאינו ברשימת המסמכים הנדרשים לתור זה — אפשר להוסיף כמה שצריך"
-          defaultAppointmentIds={[item.data.id]}
-        />
+        >
+          <form onSubmit={handleUploadDocument} className="flex flex-col gap-3">
+            <Input
+              label="שם המסמך"
+              value={uploadTitle}
+              onChange={(e) => setUploadTitle(e.target.value)}
+              placeholder='לדוגמה: "תוצאות בדיקה נוספת"'
+              required
+            />
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-slate-700">קובץ</label>
+              <FileDropzone file={uploadFile} onFileChange={setUploadFile} />
+            </div>
+            <Button type="submit" loading={uploading} className="mt-2">
+              <Upload className="h-4 w-4" /> העלה
+            </Button>
+          </form>
+        </Dialog>
       )}
     </motion.div>
   );
