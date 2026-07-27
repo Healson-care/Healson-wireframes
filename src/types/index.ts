@@ -345,7 +345,7 @@ export interface DsrRequest {
 // happen before a Patient record even exists (mid-registration, only the
 // User account is there yet), so it can't carry a patient_id.
 export type OtpIssueChannel = "sms" | "email";
-export type OtpIssueContext = "registration" | "login";
+export type OtpIssueContext = "registration" | "login" | "password-reset" | "reauth";
 export type OtpIssueStatus = "פתוח" | "טופל";
 export const OTP_ISSUE_STATUSES: OtpIssueStatus[] = ["פתוח", "טופל"];
 

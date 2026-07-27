@@ -21,6 +21,7 @@ import {
   InsuranceProfileForm,
   InsuranceProfileValue,
 } from "@/components/patient/InsuranceProfileForm";
+import { useOtpAttemptGuard, ResendControl, BlockedPanel, WrongAttemptsLockoutNotice } from "@/components/shared/OtpAttemptGuard";
 
 type Phase = "credentials" | "otp" | "profile" | "consent" | "final-sms" | "final-email";
 
@@ -39,6 +40,9 @@ export default function RegisterPage() {
   const completePatientRegistration = useStore((s) => s.completePatientRegistration);
   const patients = useStore((s) => s.patients);
   const showToast = useStore((s) => s.showToast);
+  const emailCodeGuard = useOtpAttemptGuard("registration");
+  const finalSmsGuard = useOtpAttemptGuard("registration");
+  const finalEmailGuard = useOtpAttemptGuard("registration");
 
   const [phase, setPhase] = useState<Phase>("credentials");
   const [email, setEmail] = useState("");
@@ -113,6 +117,7 @@ export default function RegisterPage() {
 
   function handleVerify(e: React.FormEvent) {
     e.preventDefault();
+    if (emailCodeGuard.verifyLockSecondsLeft > 0) return;
     setError("");
     setLoading(true);
     setTimeout(() => {
@@ -120,6 +125,7 @@ export default function RegisterPage() {
       setLoading(false);
       if (!result.ok) {
         setError(result.error ?? "שגיאה באימות");
+        emailCodeGuard.noteWrongAttempt();
         return;
       }
       setPhase("profile");
@@ -127,8 +133,12 @@ export default function RegisterPage() {
   }
 
   function handleResend() {
+    if (emailCodeGuard.secondsLeft > 0 || emailCodeGuard.blocked) return;
     const otp = resendOtp();
-    if (otp) showToast("קוד חדש נשלח לאימייל", { description: `קוד הדגמה: ${otp}` });
+    if (otp) {
+      showToast("קוד חדש נשלח לאימייל", { description: `קוד הדגמה: ${otp}` });
+      emailCodeGuard.noteResend();
+    }
   }
 
   function handleProfileSubmit(e: React.FormEvent) {
@@ -180,6 +190,7 @@ export default function RegisterPage() {
 
   function handleVerifyFinalSms(e: React.FormEvent) {
     e.preventDefault();
+    if (finalSmsGuard.verifyLockSecondsLeft > 0) return;
     setError("");
     setLoading(true);
     setTimeout(() => {
@@ -187,6 +198,7 @@ export default function RegisterPage() {
       setLoading(false);
       if (!result.ok) {
         setError(result.error ?? "שגיאה באימות");
+        finalSmsGuard.noteWrongAttempt();
         return;
       }
       setPhase("final-email");
@@ -211,13 +223,19 @@ export default function RegisterPage() {
   }
 
   function handleResendFinalSms() {
+    if (finalSmsGuard.secondsLeft > 0 || finalSmsGuard.blocked) return;
     const otp = resendRegistrationOtp("sms");
-    if (otp) showToast("קוד חדש נשלח ב-SMS", { description: `קוד הדגמה: ${otp}` });
+    if (otp) {
+      showToast("קוד חדש נשלח ב-SMS", { description: `קוד הדגמה: ${otp}` });
+      finalSmsGuard.noteResend();
+    }
   }
 
   function handleResendFinalEmail() {
+    if (finalEmailGuard.secondsLeft > 0 || finalEmailGuard.blocked) return;
     if (!resendRegistrationOtp("email")) return;
     showToast("שלחנו שוב מייל עם קישור לאישור החשבון");
+    finalEmailGuard.noteResend();
   }
 
   if (effectivePhase === "otp") {
@@ -230,24 +248,34 @@ export default function RegisterPage() {
             {error}
           </div>
         )}
-        <form onSubmit={handleVerify} className="flex flex-col gap-3">
-          <Input
-            inputMode="numeric"
-            maxLength={6}
-            placeholder="123456"
-            label="קוד אימות"
-            value={otpCode}
-            onChange={(e) => setOtpCode(e.target.value)}
-            className="text-center tracking-[0.4em] text-lg"
-            required
-          />
-          <Button type="submit" loading={loading} className="w-full">
-            אמת קוד
-          </Button>
-          <button type="button" onClick={handleResend} className="text-sm text-primary hover:underline">
-            שלח קוד מחדש
-          </button>
-        </form>
+        {emailCodeGuard.blocked ? (
+          <BlockedPanel />
+        ) : (
+          <form onSubmit={handleVerify} className="flex flex-col gap-3">
+            <Input
+              inputMode="numeric"
+              maxLength={6}
+              placeholder="123456"
+              label="קוד אימות"
+              value={otpCode}
+              onChange={(e) => setOtpCode(e.target.value)}
+              className="text-center tracking-[0.4em] text-lg"
+              disabled={emailCodeGuard.verifyLockSecondsLeft > 0}
+              required
+            />
+            <WrongAttemptsLockoutNotice secondsLeft={emailCodeGuard.verifyLockSecondsLeft} />
+            <Button type="submit" loading={loading} disabled={emailCodeGuard.verifyLockSecondsLeft > 0} className="w-full">
+              אמת קוד
+            </Button>
+            <ResendControl
+              secondsLeft={emailCodeGuard.secondsLeft}
+              onResend={handleResend}
+              resendCount={emailCodeGuard.resendCount}
+              issueReported={emailCodeGuard.issueReported}
+              onReportIssue={() => emailCodeGuard.reportIssue("email", email)}
+            />
+          </form>
+        )}
       </AuthLayout>
     );
   }
@@ -318,24 +346,34 @@ export default function RegisterPage() {
             {error}
           </div>
         )}
-        <form onSubmit={handleVerifyFinalSms} className="flex flex-col gap-3">
-          <Input
-            inputMode="numeric"
-            maxLength={6}
-            placeholder="123456"
-            label="קוד מ-SMS"
-            value={finalSmsCode}
-            onChange={(e) => setFinalSmsCode(e.target.value)}
-            className="text-center tracking-[0.4em] text-lg"
-            required
-          />
-          <Button type="submit" loading={loading} className="w-full">
-            אמת קוד SMS
-          </Button>
-          <button type="button" onClick={handleResendFinalSms} className="text-sm text-primary hover:underline">
-            שלח קוד מחדש
-          </button>
-        </form>
+        {finalSmsGuard.blocked ? (
+          <BlockedPanel />
+        ) : (
+          <form onSubmit={handleVerifyFinalSms} className="flex flex-col gap-3">
+            <Input
+              inputMode="numeric"
+              maxLength={6}
+              placeholder="123456"
+              label="קוד מ-SMS"
+              value={finalSmsCode}
+              onChange={(e) => setFinalSmsCode(e.target.value)}
+              className="text-center tracking-[0.4em] text-lg"
+              disabled={finalSmsGuard.verifyLockSecondsLeft > 0}
+              required
+            />
+            <WrongAttemptsLockoutNotice secondsLeft={finalSmsGuard.verifyLockSecondsLeft} />
+            <Button type="submit" loading={loading} disabled={finalSmsGuard.verifyLockSecondsLeft > 0} className="w-full">
+              אמת קוד SMS
+            </Button>
+            <ResendControl
+              secondsLeft={finalSmsGuard.secondsLeft}
+              onResend={handleResendFinalSms}
+              resendCount={finalSmsGuard.resendCount}
+              issueReported={finalSmsGuard.issueReported}
+              onReportIssue={() => finalSmsGuard.reportIssue("sms", phone)}
+            />
+          </form>
+        )}
       </AuthLayout>
     );
   }
@@ -350,21 +388,29 @@ export default function RegisterPage() {
             {error}
           </div>
         )}
-        <div className="flex flex-col gap-3">
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <div className="flex items-center gap-2 mb-2 text-slate-500">
-              <Mail className="h-4 w-4" />
-              <span className="text-xs font-medium">מייל הדגמה מ-HEALSON</span>
+        {finalEmailGuard.blocked ? (
+          <BlockedPanel />
+        ) : (
+          <div className="flex flex-col gap-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-center gap-2 mb-2 text-slate-500">
+                <Mail className="h-4 w-4" />
+                <span className="text-xs font-medium">מייל הדגמה מ-HEALSON</span>
+              </div>
+              <p className="text-sm text-slate-700 mb-3">לחצו על הקישור הבא כדי לאשר את פרטי ההרשמה שלכם.</p>
+              <Button type="button" onClick={handleConfirmFinalEmailLink} loading={loading} className="w-full">
+                אשרו את החשבון שלי
+              </Button>
             </div>
-            <p className="text-sm text-slate-700 mb-3">לחצו על הקישור הבא כדי לאשר את פרטי ההרשמה שלכם.</p>
-            <Button type="button" onClick={handleConfirmFinalEmailLink} loading={loading} className="w-full">
-              אשרו את החשבון שלי
-            </Button>
+            <ResendControl
+              secondsLeft={finalEmailGuard.secondsLeft}
+              onResend={handleResendFinalEmail}
+              resendCount={finalEmailGuard.resendCount}
+              issueReported={finalEmailGuard.issueReported}
+              onReportIssue={() => finalEmailGuard.reportIssue("email", email)}
+            />
           </div>
-          <button type="button" onClick={handleResendFinalEmail} className="text-sm text-primary hover:underline">
-            שלח קישור מחדש
-          </button>
-        </div>
+        )}
       </AuthLayout>
     );
   }
