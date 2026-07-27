@@ -39,7 +39,7 @@ export function PhaseHeader({
               className={cn(
                 "flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors",
                 current
-                  ? "bg-primary text-white"
+                  ? "bg-[var(--brand-navy)] text-white"
                   : done || skipped
                   ? "bg-success-bg text-success-text"
                   : "bg-slate-100 text-slate-500"

@@ -16,6 +16,10 @@ import {
   typeNamesAPerson,
 } from "@/lib/provider-categories";
 
+// A gold icon tile with a navy glyph — echoes the "H." brand mark.
+const ICON_TILE =
+  "flex items-center justify-center rounded-xl bg-gradient-to-br from-[var(--brand-gold-soft)] to-[var(--brand-gold)] text-[var(--brand-navy)] shadow-sm";
+
 /**
  * The first real choice of the join flow — rendered INLINE on the provider
  * dashboard (inside RegistrationProgress) rather than on a separate wizard screen,
@@ -55,8 +59,9 @@ export function ProviderTypePicker() {
     else setCategory(key);
   }
 
+  // Warm cards on the light welcome surface — gold accents, navy text.
   const cardClass =
-    "group flex items-start gap-3.5 rounded-2xl border border-slate-200 bg-white p-4 text-right shadow-sm transition-all hover:border-primary hover:shadow-md";
+    "group flex items-start gap-3.5 rounded-2xl border border-[var(--brand-ivory-200)] bg-white p-4 text-right shadow-sm transition-all hover:-translate-y-0.5 hover:border-[var(--brand-gold)] hover:shadow-md";
 
   return (
     <AnimatePresence mode="wait">
@@ -79,13 +84,13 @@ export function ProviderTypePicker() {
               className={cn(cardClass, "flex-col items-stretch gap-0 p-4")}
             >
               <button type="button" onClick={() => chooseCategory(cfg.key)} className="text-right">
-                <span className="mb-2.5 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary/15 to-accent-bg text-primary shadow-inner">
+                <span className={cn(ICON_TILE, "mb-2.5 h-10 w-10")}>
                   <cfg.icon className="h-5 w-5" />
                 </span>
                 {/* The title carries the card. Previously a 5xl-tall card was
                     filled with 11px text, which read as an empty box. */}
-                <span className="block text-base font-bold leading-tight text-slate-900">{cfg.label}</span>
-                <span className="mt-1 block text-[13px] leading-snug text-slate-600">{cfg.description}</span>
+                <span className="block text-base font-bold leading-tight text-[var(--brand-navy)]">{cfg.label}</span>
+                <span className="mt-1 block text-[13px] leading-snug text-[var(--brand-ink-soft)]">{cfg.description}</span>
               </button>
 
               {/* "עוד פרטים" — the concrete examples are useful but secondary,
@@ -94,7 +99,7 @@ export function ProviderTypePicker() {
               <button
                 type="button"
                 onClick={() => setExpandedCategory(expandedCategory === cfg.key ? null : cfg.key)}
-                className="mt-2.5 flex items-center gap-1 border-t border-dashed border-slate-200 pt-2 text-[11px] font-medium text-slate-500 hover:text-primary"
+                className="mt-2.5 flex items-center gap-1 border-t border-dashed border-[var(--brand-ivory-200)] pt-2 text-[11px] font-medium text-[var(--brand-ink-soft)] hover:text-[var(--brand-gold-deep)]"
                 aria-expanded={expandedCategory === cfg.key}
               >
                 {expandedCategory === cfg.key ? (
@@ -111,7 +116,7 @@ export function ProviderTypePicker() {
                     animate={{ opacity: 1, height: "auto" }}
                     exit={{ opacity: 0, height: 0 }}
                     transition={{ duration: 0.18 }}
-                    className="block overflow-hidden text-[11px] leading-relaxed text-slate-500"
+                    className="block overflow-hidden text-[11px] leading-relaxed text-[var(--brand-ink-soft)]"
                   >
                     <span className="block pt-1.5">{cfg.examples}</span>
                   </motion.span>
@@ -121,10 +126,10 @@ export function ProviderTypePicker() {
               <button
                 type="button"
                 onClick={() => chooseCategory(cfg.key)}
-                className="mt-2.5 flex items-center gap-1 text-xs font-semibold text-primary"
+                className="mt-2.5 flex items-center gap-1 text-xs font-semibold text-[var(--brand-navy)]"
               >
                 בחירה
-                <ChevronLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5" />
+                <ChevronLeft className="h-3.5 w-3.5 text-[var(--brand-gold-deep)] transition-transform group-hover:-translate-x-0.5" />
               </button>
             </motion.div>
           ))}
@@ -138,11 +143,11 @@ export function ProviderTypePicker() {
           transition={{ duration: 0.2 }}
         >
           <div className="mb-3 flex items-center justify-between gap-2">
-            <p className="text-sm font-semibold text-slate-700">{getCategory(category).label} — מה מתאים לך?</p>
+            <p className="text-sm font-semibold text-[var(--brand-navy)]">{getCategory(category).label} — מה מתאים לך?</p>
             <button
               type="button"
               onClick={() => setCategory(null)}
-              className="flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+              className="flex items-center gap-1 text-xs font-medium text-[var(--brand-gold-deep)] hover:text-[var(--brand-navy)]"
             >
               <ArrowRight className="h-3.5 w-3.5" />
               חזרה לקטגוריות
@@ -163,16 +168,16 @@ export function ProviderTypePicker() {
                   whileTap={{ scale: 0.985 }}
                   className={cardClass}
                 >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/15 to-accent-bg text-primary">
+                  <span className={cn(ICON_TILE, "h-10 w-10 shrink-0")}>
                     <Icon className="h-5 w-5" />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-semibold text-slate-900">{PROVIDER_TYPE_LABELS[type]}</span>
-                    <span className="mt-0.5 block text-xs leading-relaxed text-slate-500">
+                    <span className="block text-sm font-semibold text-[var(--brand-navy)]">{PROVIDER_TYPE_LABELS[type]}</span>
+                    <span className="mt-0.5 block text-xs leading-relaxed text-[var(--brand-ink-soft)]">
                       {PROVIDER_TYPE_DESCRIPTIONS[type]}
                     </span>
                   </span>
-                  <ChevronLeft className="mt-1 h-4 w-4 shrink-0 text-slate-300 transition-transform group-hover:-translate-x-0.5 group-hover:text-primary" />
+                  <ChevronLeft className="mt-1 h-4 w-4 shrink-0 text-slate-300 transition-transform group-hover:-translate-x-0.5 group-hover:text-[var(--brand-gold-deep)]" />
                 </motion.button>
               );
             })}
@@ -180,15 +185,15 @@ export function ProviderTypePicker() {
           {/* Units are missing from this list on purpose — say so, rather than
               leaving a מכון רפואי wondering why their type isn't offered. */}
           {manuallyOnboardedTypes(category).length > 0 && (
-            <p className="mt-3 flex items-start gap-1.5 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2.5 text-xs leading-relaxed text-slate-500">
-              <Building2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <p className="mt-3 flex items-start gap-1.5 rounded-xl border border-[var(--brand-ivory-200)] bg-[var(--brand-gold)]/[0.06] px-3 py-2.5 text-xs leading-relaxed text-[var(--brand-ink-soft)]">
+              <Building2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--brand-gold-deep)]" />
               <span>
                 {manuallyOnboardedTypes(category)
                   .map((t) => PROVIDER_TYPE_LABELS[t])
                   .join(" ו")}{" "}
                 מצטרפים בתהליך מלווה — ההסכמים נחתמים מול צוות Healson, ואנחנו פותחים לכם את המשתמש עם המבנה
                 הארגוני מוכן.{" "}
-                <a href="mailto:onboarding@healson.co.il" className="font-medium text-primary hover:underline">
+                <a href="mailto:onboarding@healson.co.il" className="font-medium text-[var(--brand-gold-deep)] hover:text-[var(--brand-navy)] hover:underline">
                   דברו איתנו
                 </a>
                 .
