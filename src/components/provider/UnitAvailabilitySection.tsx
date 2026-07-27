@@ -1,11 +1,9 @@
 "use client";
 
 import { ReactNode, useMemo, useState } from "react";
-import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs";
 import { EmptyState } from "@/components/ui/Misc";
-import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/Dialog";
@@ -18,8 +16,8 @@ import {
   hasAnyAvailability,
   totalWeeklyHours,
 } from "@/lib/schedule";
-import { UnitResource, buildUnitOverview, getUnitResources } from "@/lib/unit-resources";
-import { UnitCoverageCalendar } from "@/components/provider/UnitCoverageCalendar";
+import { UnitResource, getUnitResources } from "@/lib/unit-resources";
+import { UnitScheduleCalendar } from "@/components/provider/schedule/UnitScheduleCalendar";
 import {
   AffiliatedDoctor,
   ConsultationType,
@@ -31,7 +29,6 @@ import {
   emptyWeeklySchedule,
 } from "@/types";
 import {
-  AlertCircle,
   CalendarClock,
   CalendarDays,
   ChevronDown,
@@ -86,7 +83,6 @@ export function UnitAvailabilitySection({
     () => getUnitResources(provider, doctorInfo, unitArrays),
     [provider, doctorInfo, unitArrays]
   );
-  const overview = useMemo(() => buildUnitOverview(provider, resources), [provider, resources]);
 
   const facilities = provider.facilities ?? [];
   const affiliations = provider.affiliated_doctors ?? [];
@@ -108,17 +104,16 @@ export function UnitAvailabilitySection({
         <TabsTrigger value="shared" icon={<CopyPlus className="h-4 w-4" />}>
           לו״זים משותפים
         </TabsTrigger>
-        <TabsTrigger value="general" icon={<CalendarClock className="h-4 w-4" />}>
-          תמונת מצב
-        </TabsTrigger>
       </TabsList>
 
       <TabsContent value="calendar">
-        <UnitCoverageCalendar
+        <UnitScheduleCalendar
+          provider={provider}
           resources={resources}
-          arrays={unitArrays}
-          branchNames={new Map(unitBranches.map((b) => [b.id, b.name]))}
+          unitArrays={unitArrays}
+          unitBranches={unitBranches}
           appointments={appointments.filter((a) => a.provider_id === provider.id)}
+          onChange={onChange}
         />
       </TabsContent>
 
@@ -139,10 +134,6 @@ export function UnitAvailabilitySection({
 
       <TabsContent value="shared">
         <SharedSchedulesView unitId={provider.id} resources={resources} services={services} sharedSchedules={sharedSchedules} />
-      </TabsContent>
-
-      <TabsContent value="general">
-        <GeneralAvailability provider={provider} overview={overview} onChange={onChange} />
       </TabsContent>
     </Tabs>
   );
@@ -433,188 +424,6 @@ function ArraysView({
           })}
         </div>
       ))}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// "תמונת מצב" — the whole unit at a glance
-// ---------------------------------------------------------------------------
-
-function GeneralAvailability({
-  provider,
-  overview,
-  onChange,
-}: {
-  provider: ProviderProfile;
-  overview: ReturnType<typeof buildUnitOverview>;
-  onChange: (data: Partial<ProviderProfile>) => void;
-}) {
-  // A unit has exactly one location record — the unit IS the site.
-  const unit = provider.clinic_locations[0];
-  const allResources = [...overview.facilities, ...overview.doctors];
-
-  return (
-    <div className="flex flex-col gap-4">
-      <Card className="p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Layers className="h-4 w-4 text-slate-400" />
-            <div>
-              <p className="text-sm font-medium text-slate-900">תמונת מצב — כל היחידה</p>
-              <p className="text-xs text-slate-500">
-                {overview.facilities.length} עמדות ציוד · {overview.doctors.length} נותני שירות ·{" "}
-                {overview.activeDays} ימי פעילות בשבוע · {overview.totalWeeklyHours.toFixed(1)} שעות משאב נטו
-              </p>
-            </div>
-          </div>
-          {allResources.length === 0 && <Badge tone="warning">לא הוגדרו עמדות</Badge>}
-        </div>
-
-        {/* How many resources are open on each weekday. */}
-        <div className="mt-4 grid grid-cols-7 gap-1.5">
-          {DAY_KEYS.map((day) => {
-            const open = overview.openResourcesByDay[day] ?? 0;
-            return (
-              <div
-                key={day}
-                className={cn(
-                  "rounded-lg border px-1 py-2 text-center",
-                  open > 0 ? "border-success-border bg-success-bg" : "border-slate-200 bg-slate-50"
-                )}
-              >
-                <p className={cn("text-[11px] font-medium", open > 0 ? "text-success-text" : "text-slate-400")}>
-                  {DAY_LABELS[day]}
-                </p>
-                <p className={cn("text-sm font-semibold", open > 0 ? "text-success-text" : "text-slate-300")}>
-                  {open}
-                </p>
-              </div>
-            );
-          })}
-        </div>
-        <p className="mt-2 text-[11px] text-slate-400">מספר העמדות (ציוד + נותני שירות) הפעילות בכל יום.</p>
-      </Card>
-
-      {/* Warnings — the two ways a unit's schedule ends up not bookable. */}
-      {overview.resourcesWithoutAvailability.length > 0 && (
-        <WarningRow>
-          {overview.resourcesWithoutAvailability.length} עמדות ללא לו״ז:{" "}
-          {overview.resourcesWithoutAvailability.map((r) => r.name).join(", ")}. עד שיוגדר להם לוח זמנים לא ייווצרו
-          תורים.
-        </WarningRow>
-      )}
-      {overview.servicesWithoutResource.length > 0 && (
-        <WarningRow>
-          {overview.servicesWithoutResource.length} פריטים אינם מקושרים לעמדה:{" "}
-          {overview.servicesWithoutResource
-            .slice(0, 4)
-            .map((s) => s.name)
-            .join(", ")}
-          {overview.servicesWithoutResource.length > 4 ? " ועוד" : ""}. הם ייבנו לפי שעות הפעילות הכלליות של
-          היחידה עד שישויכו לעמדה.
-        </WarningRow>
-      )}
-
-      {/* Every resource's week, read-only — editing happens in the מערכים tab. */}
-      {allResources.length > 0 && (
-        <Card className="p-4">
-          <p className="mb-3 text-sm font-medium text-slate-800">השבוע של כל עמדה</p>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[46rem] border-collapse text-xs">
-              <thead>
-                <tr className="text-slate-500">
-                  <th className="p-2 text-right font-medium">עמדה</th>
-                  {DAY_KEYS.map((d) => (
-                    <th key={d} className="p-2 text-center font-medium">
-                      {DAY_LABELS[d]}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {allResources.map(({ resource }) => (
-                  <ResourceWeekRow key={resource.id} resource={resource} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      )}
-
-      {/* The unit's own opening hours — the fallback calendar. */}
-      <div>
-        <p className="mb-2 flex items-center gap-1.5 text-sm font-medium text-slate-800">
-          <CalendarClock className="h-4 w-4 text-slate-400" /> שעות הפעילות של היחידה
-        </p>
-        <p className="mb-3 text-xs text-slate-500">
-          שעות הפתיחה של היחידה כולה — מוצגות למטופלים, ומשמשות כברירת מחדל לפריטים שעדיין לא שויכו לעמדה. הן
-          אינן מגבילות את לוחות הזמנים של העמדות.
-        </p>
-        {unit ? (
-          <ScheduleEditor
-            holder={unit}
-            title={unit.name}
-            subtitle="שעות פעילות היחידה"
-            emptyLabel="לא הוגדרו שעות פעילות"
-            services={provider.consultation_types}
-            onChange={(next) => onChange({ clinic_locations: [next, ...provider.clinic_locations.slice(1)] })}
-          />
-        ) : (
-          <EmptyState
-            icon={<CalendarClock className="h-10 w-10" />}
-            title="טרם הוגדרו פרטי היחידה"
-            description='השלימו את כתובת היחידה בלשונית "פרטי היחידה" כדי להגדיר שעות פעילות.'
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ResourceWeekRow({ resource }: { resource: UnitResource }) {
-  const schedule = getWeeklySchedule(resource);
-  return (
-    <tr className="border-t border-slate-100">
-      <td className="p-2 align-top">
-        <p className="font-medium text-slate-800">{resource.name}</p>
-        <p className="text-[10px] text-slate-400">
-          {resource.kind === "facility" ? "ציוד" : "נותן/ת שירות"}
-          {resource.service_array ? ` · ${resource.service_array}` : ""}
-          {resource.service_ids.length > 0 ? ` · ${resource.service_ids.length} פריטים` : ""}
-        </p>
-      </td>
-      {DAY_KEYS.map((day) => {
-        const shifts = schedule[day] ?? [];
-        return (
-          <td key={day} className="p-1.5 text-center align-top">
-            {shifts.length === 0 ? (
-              <span className="text-slate-300">—</span>
-            ) : (
-              <div className="flex flex-col gap-0.5">
-                {shifts.map((s) => (
-                  <span
-                    key={s.id}
-                    dir="ltr"
-                    className="rounded bg-primary/10 px-1 py-0.5 text-[10px] font-medium text-primary"
-                  >
-                    {formatShift(s)}
-                  </span>
-                ))}
-              </div>
-            )}
-          </td>
-        );
-      })}
-    </tr>
-  );
-}
-
-function WarningRow({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex items-start gap-2 rounded-lg border border-warning-border bg-warning-bg px-3 py-2 text-sm text-warning-text">
-      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-      <span>{children}</span>
     </div>
   );
 }

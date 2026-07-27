@@ -526,7 +526,7 @@ const DAY_END_MINUTES = 23 * 60 + 59;
  * day, otherwise a slot that starts after the last existing shift ends. It
  * must never overlap what's already there — an overlapping default would make
  * the very first save fail validation. */
-function newShift(existing: ScheduleShift[]): ScheduleShift {
+export function newShift(existing: ScheduleShift[]): ScheduleShift {
   const lastEnd = existing.reduce((max, s) => Math.max(max, timeToMinutes(s.end)), -1);
   const start = lastEnd < 0 ? timeToMinutes("09:00") : Math.min(lastEnd + 60, DAY_END_MINUTES - 30);
   const end = Math.min(start + 4 * 60, DAY_END_MINUTES);
@@ -643,16 +643,18 @@ function ShiftDialog({
   );
 }
 
-function ShiftForm({
+export function ShiftForm({
   initial,
   services,
   serviceScopeLabel,
   onSave,
+  saveLabel = "שמור משמרת",
 }: {
   initial: ScheduleShift;
   services: ConsultationType[];
   serviceScopeLabel?: string;
   onSave: (shift: ScheduleShift) => void;
+  saveLabel?: string;
 }) {
   const [start, setStart] = useState(initial.start);
   const [end, setEnd] = useState(initial.end);
@@ -829,7 +831,7 @@ function ShiftForm({
           })
         }
       >
-        שמור משמרת
+        {saveLabel}
       </Button>
     </div>
   );
