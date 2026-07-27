@@ -43,6 +43,22 @@
   --color-indigo-border: #c7d2fe;
   --color-indigo-text: #4338ca;
 
+  /* ── HEALSON brand palette (navy + gold + warm ivory) ──────────────
+     Extracted from the brand marketing. Scoped for the provider
+     onboarding "signature moment" surfaces; the rest of the app still
+     uses the teal --color-primary tokens above. */
+  --brand-navy: #142a4f;
+  --brand-navy-700: #1d3961;
+  --brand-navy-800: #0f2140;
+  --brand-navy-900: #0a1730;
+  --brand-gold: #c6a15b;
+  --brand-gold-soft: #dcc188;
+  --brand-gold-deep: #a8823c;
+  --brand-ivory: #f7f3ec;
+  --brand-ivory-200: #ece3d2;
+  --brand-ink: #14243f;
+  --brand-ink-soft: #5b6a82;
+
   /* Elevation scale */
   --shadow-sm: 0 1px 2px 0 rgb(15 23 42 / 0.05);
   --shadow-md: 0 4px 12px -2px rgb(15 23 42 / 0.08), 0 2px 4px -2px rgb(15 23 42 / 0.04);
@@ -164,4 +180,33 @@ body {
 
 .no-scrollbar::-webkit-scrollbar {
   display: none;
+}
+
+/* ── HEALSON brand — onboarding signature surfaces ─────────────────── */
+.font-display {
+  font-family: var(--font-display), "Frank Ruhl Libre", Georgia, "Times New Roman", serif;
+  font-feature-settings: "kern" 1;
+}
+
+@keyframes brandFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-9px); }
+}
+.animate-brand-float {
+  animation: brandFloat 5s ease-in-out infinite;
+}
+
+@keyframes brandDrift {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(-2%, 2%, 0) scale(1.05); }
+}
+.animate-brand-drift {
+  animation: brandDrift 14s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-brand-float,
+  .animate-brand-drift {
+    animation: none;
+  }
 }

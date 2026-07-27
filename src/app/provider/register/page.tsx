@@ -573,20 +573,33 @@ function RegisterShell({
   );
   return (
     <ProviderLayout>
-      <div className="mx-auto flex w-full max-w-5xl flex-col items-center">
+      {/* Rebrand the whole application flow in one move: remap the primary/accent
+          design tokens to the HEALSON navy + gold for this subtree, so every
+          Button, stepper, tile and focus ring picks up the brand colours without
+          touching each class individually. */}
+      <div
+        className="mx-auto flex w-full max-w-5xl flex-col items-center"
+        style={
+          {
+            "--color-primary": "var(--brand-navy)",
+            "--color-primary-dark": "var(--brand-navy-900)",
+            "--color-accent": "var(--brand-gold)",
+          } as React.CSSProperties
+        }
+      >
         {phase !== "otp" && phase !== "success" && (
-          <div className="mb-5 w-full rounded-xl border border-info-border bg-info-bg px-4 py-3 text-sm text-info-text">
+          <div className="mb-5 w-full rounded-xl border border-[var(--brand-gold)]/30 bg-[var(--brand-gold)]/[0.07] px-4 py-3 text-sm text-[var(--brand-ink)]">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <p className="font-medium">שלב 2 בהצטרפות · פרטי הבקשה</p>
               <Link
                 href="/provider/dashboard"
-                className="flex items-center gap-1 text-xs font-medium hover:underline"
+                className="flex items-center gap-1 text-xs font-medium text-[var(--brand-gold-deep)] hover:underline"
               >
                 <ArrowRight className="h-3.5 w-3.5" />
                 חזרה ללוח ההצטרפות
               </Link>
             </div>
-            <p className="mt-0.5 text-xs text-info-text/80">
+            <p className="mt-0.5 text-xs text-[var(--brand-ink-soft)]">
               החשבון שלך כבר נוצר ואת/ה בתוך הפורטל. אין צורך למלא הכול עכשיו — מה שתמלא/י נשמר, ואפשר לחזור
               ולהמשיך מתי שנוח. רק בסיום נשלחת הבקשה לבדיקת הרישיון של צוות Healson.
             </p>
@@ -1069,7 +1082,7 @@ export default function ProviderRegisterPage() {
     return (
       <RegisterShell phase={phase} wide>
         <div className="mb-4">
-          <h1 className="text-lg font-semibold text-slate-900">ברוך/ה הבא/ה, {fullName || user.full_name}</h1>
+          <h1 className="font-display text-xl font-bold text-[var(--brand-navy)]">ברוך/ה הבא/ה, {fullName || user.full_name}</h1>
           <p className="text-xs text-slate-500 mt-1">בחר/י את סוג הספק כדי להמשיך — לכל סוג יש פרטים שונים שנדרשים לאישור ראשוני</p>
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
@@ -1121,7 +1134,7 @@ export default function ProviderRegisterPage() {
             <CategoryIcon className="h-5 w-5" />
           </button>
           <div className="min-w-0 flex-1">
-            <h1 className="text-lg font-semibold text-slate-900">{getCategory(category).label}</h1>
+            <h1 className="font-display text-xl font-bold text-[var(--brand-navy)]">{getCategory(category).label}</h1>
             <p className="text-xs text-slate-500">בחר/י את סוג הספק המדויק כדי להמשיך</p>
           </div>
           <button
@@ -1174,7 +1187,7 @@ export default function ProviderRegisterPage() {
           <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
             <ShieldCheck className="h-6 w-6" />
           </div>
-          <h1 className="text-lg font-semibold text-slate-900">אימות מספר טלפון</h1>
+          <h1 className="font-display text-xl font-bold text-[var(--brand-navy)]">אימות מספר טלפון</h1>
           <p className="text-sm text-slate-500 mt-1">
             שלחנו קוד אימות בן 6 ספרות למספר <bdi className="font-medium text-slate-700">{accountPhone}</bdi>
           </p>
@@ -1227,7 +1240,7 @@ export default function ProviderRegisterPage() {
 
           {rejected ? (
             <>
-              <h1 className="text-lg font-semibold text-slate-900">הבקשה נדחתה</h1>
+              <h1 className="font-display text-xl font-bold text-[var(--brand-navy)]">הבקשה נדחתה</h1>
               <p className="text-sm text-slate-600 leading-relaxed max-w-md">
                 {provider?.rejection_reason ??
                   "נמצאו פערים במסמכים שצורפו. אנא בדקו את ההודעה שנשלחה לאימייל שלכם להתעדכנות וניתן לנסות שוב."}
@@ -1238,14 +1251,14 @@ export default function ProviderRegisterPage() {
             </>
           ) : approved ? (
             <>
-              <h1 className="text-lg font-semibold text-slate-900">הרישיון אומת — ברוכים הבאים! 🎉</h1>
+              <h1 className="font-display text-xl font-bold text-[var(--brand-navy)]">הרישיון אומת — ברוכים הבאים! 🎉</h1>
               <p className="text-sm text-slate-600 leading-relaxed max-w-md">
                 הרישיון שלך אומת בהצלחה. כעת תוכל/י להשלים את חתימת ההסכם, הגדרת הקטלוג והמחירים שלך.
               </p>
             </>
           ) : (
             <>
-              <h1 className="text-lg font-semibold text-slate-900">הבקשה נשלחה בהצלחה</h1>
+              <h1 className="font-display text-xl font-bold text-[var(--brand-navy)]">הבקשה נשלחה בהצלחה</h1>
               <p className="text-sm text-slate-600 leading-relaxed max-w-md">
                 צוות Healson בודק כעת את הרישיון והמסמכים שצירפת — בדרך כלל תוך 24 שעות. נעדכן אותך ברגע
                 שהבדיקה תסתיים, ואז ניתן יהיה להמשיך לחתימת ההסכם ולהגדרת הקטלוג.
@@ -1411,7 +1424,7 @@ export default function ProviderRegisterPage() {
           <TypeIcon className="h-5 w-5" />
         </button>
         <div className="min-w-0 flex-1">
-          <h1 className="text-lg font-bold text-slate-900">הצטרפות כ{config.label}</h1>
+          <h1 className="font-display text-xl font-bold text-[var(--brand-navy)]">הצטרפות כ{config.label}</h1>
           <p className="text-xs text-slate-500">אלה הפרטים שצוות Healson צריך כדי לאמת את הרישיון שלך</p>
         </div>
         <button

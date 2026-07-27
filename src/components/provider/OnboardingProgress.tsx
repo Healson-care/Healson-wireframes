@@ -130,6 +130,15 @@ export function OnboardingProgress({ provider, className }: { provider: Provider
         "relative overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-l from-primary/5 via-white to-accent-bg/40 p-5 sm:p-6 shadow-sm",
         className
       )}
+      // Speak the HEALSON navy + gold across the whole setup meter — remap the
+      // primary/accent tokens for this subtree (chips, ring, CTA all follow).
+      style={
+        {
+          "--color-primary": "var(--brand-navy)",
+          "--color-primary-dark": "var(--brand-navy-900)",
+          "--color-accent": "var(--brand-gold)",
+        } as React.CSSProperties
+      }
     >
       {/* requestProviderChanges drops the provider back to onboarding and stores
           the reviewer's reason — until now it surfaced only in the notifications
