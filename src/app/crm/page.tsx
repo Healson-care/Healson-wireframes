@@ -156,8 +156,7 @@ function PatientsTab({
       gender: values.gender || undefined,
       kupah: values.kupah || undefined,
       k_level: values.k_level || undefined,
-      b_insurance_company: values.has_b_insurance ? values.b_insurance_company : undefined,
-      b_policy_number: values.has_b_insurance ? values.b_policy_number : undefined,
+      b_insurances: values.b_insurances.length > 0 ? values.b_insurances : undefined,
       address: values.address || undefined,
     };
     if (editPatient) {
@@ -332,9 +331,7 @@ function PatientsTab({
                 parent_name: editPatient.parent_name ?? "",
                 kupah: editPatient.kupah ?? "",
                 k_level: editPatient.k_level ?? "",
-                has_b_insurance: editPatient.has_b_insurance ?? false,
-                b_insurance_company: editPatient.b_insurance_company ?? "",
-                b_policy_number: editPatient.b_policy_number ?? "",
+                b_insurances: editPatient.b_insurances ?? [],
                 address: editPatient.address ?? "",
                 status: editPatient.status,
               }

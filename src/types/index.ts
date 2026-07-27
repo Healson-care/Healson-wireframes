@@ -358,6 +358,11 @@ export interface OtpIssueReport {
   reported_at: string;
 }
 
+export interface PatientInsurance {
+  company: string;
+  policy_number?: string;
+}
+
 export interface Patient {
   id: string;
   full_name: string;
@@ -376,9 +381,10 @@ export interface Patient {
   // k_level (שב"ן) is possible, since that's sold per-kupah.
   kupah?: Kupah;
   k_level?: KLevel;
-  has_b_insurance?: boolean;
-  b_insurance_company?: string;
-  b_policy_number?: string;
+  // A patient can hold several private policies at once (unlike kupah,
+  // which is single by law) — "has private insurance" is just
+  // (b_insurances?.length ?? 0) > 0, not a separate stored flag.
+  b_insurances?: PatientInsurance[];
   communication_language?: CommunicationLanguage;
   notification_channel?: NotificationChannel;
   status: PatientStatus;

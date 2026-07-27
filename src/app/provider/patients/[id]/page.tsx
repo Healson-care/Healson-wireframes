@@ -119,7 +119,10 @@ export default function ProviderPatientChartPage() {
               <InfoRow label="טלפון" value={patient.phone || "—"} />
               <InfoRow label="קופת חולים" value={patient.kupah ?? "ללא קופה (תייר)"} />
               {patient.k_level && <InfoRow label="מסלול השב״ן" value={patient.k_level} />}
-              <InfoRow label="ביטוח פרטי (שכבה B)" value={patient.has_b_insurance ? patient.b_insurance_company || "כן" : "אין"} />
+              <InfoRow
+                label="ביטוח פרטי (שכבה B)"
+                value={patient.b_insurances?.length ? patient.b_insurances.map((ins) => ins.company || "כן").join(", ") : "אין"}
+              />
               <InfoRow label="כתובת" value={patient.address || "—"} />
               {patient.parent_name && <InfoRow label="שם הורה/אפוטרופוס" value={patient.parent_name} />}
             </CardContent>

@@ -5,7 +5,7 @@ import { Dialog } from "@/components/ui/Dialog";
 import { Input, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { InsuranceProfileForm, InsuranceProfileValue } from "@/components/patient/InsuranceProfileForm";
-import { GENDERS, Gender, KLevel, Kupah, PATIENT_STATUSES, Patient } from "@/types";
+import { GENDERS, Gender, KLevel, Kupah, PATIENT_STATUSES, Patient, PatientInsurance } from "@/types";
 
 export interface PatientFormValues {
   full_name: string;
@@ -18,9 +18,7 @@ export interface PatientFormValues {
   parent_name: string;
   kupah: Kupah | "";
   k_level: KLevel | "";
-  has_b_insurance: boolean;
-  b_insurance_company: string;
-  b_policy_number: string;
+  b_insurances: PatientInsurance[];
   address: string;
   status: Patient["status"];
 }
@@ -36,9 +34,7 @@ const EMPTY: PatientFormValues = {
   parent_name: "",
   kupah: "כללית",
   k_level: "",
-  has_b_insurance: false,
-  b_insurance_company: "",
-  b_policy_number: "",
+  b_insurances: [],
   address: "",
   status: "פעיל",
 };
@@ -67,9 +63,7 @@ export function PatientForm({
   const insuranceValue: InsuranceProfileValue = {
     kupah: form.kupah,
     k_level: form.k_level,
-    has_b_insurance: form.has_b_insurance,
-    b_insurance_company: form.b_insurance_company,
-    b_policy_number: form.b_policy_number,
+    b_insurances: form.b_insurances,
     address: form.address,
   };
 

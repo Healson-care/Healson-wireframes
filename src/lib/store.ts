@@ -23,6 +23,7 @@ import {
   OtpIssueReport,
   Patient,
   PatientDocument,
+  PatientInsurance,
   ProviderProfile,
   ProviderType,
   ResourceSchedule,
@@ -144,9 +145,7 @@ interface PendingPasswordReset {
 export interface InsuranceProfileInput {
   kupah?: Kupah;
   k_level?: KLevel;
-  has_b_insurance?: boolean;
-  b_insurance_company?: string;
-  b_policy_number?: string;
+  b_insurances?: PatientInsurance[];
   address?: string;
 }
 
@@ -930,9 +929,7 @@ export const useStore = create<Store>()(
           address: data.address,
           kupah: data.kupah,
           k_level: data.k_level,
-          has_b_insurance: data.has_b_insurance,
-          b_insurance_company: data.b_insurance_company,
-          b_policy_number: data.b_policy_number,
+          b_insurances: data.b_insurances,
           status: "פעיל",
           user_id: userId,
         });

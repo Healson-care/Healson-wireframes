@@ -14,7 +14,7 @@ export function getPatientLayers(patient?: Patient | null): InsuranceLayer[] {
   const layers: InsuranceLayer[] = [];
   if (patient?.kupah) layers.push("S");
   if (patient?.k_level) layers.push("K");
-  if (patient?.has_b_insurance) layers.push("B");
+  if (patient?.b_insurances?.length) layers.push("B");
   layers.push("H");
   return layers;
 }
@@ -29,7 +29,7 @@ export function resolveProviderPrice(
   prices: PriceByLayer[],
   agreements: ProviderAgreement[] | undefined,
   patient: Patient | null | undefined
-): { layer: InsuranceLayer; price: number } | null {
+): { layer: InsuranceLayer; price: number; matchedInsuranceCompany?: string } | null {
   if (!patient) return null;
   const heldLayers = new Set(getPatientLayers(patient));
 
@@ -56,9 +56,14 @@ export function resolveProviderPrice(
     }
     if (layer === "B") {
       const companies = agreement.insurance_companies ?? [];
-      if (companies.length > 0 && patient.b_insurance_company && !companies.includes(patient.b_insurance_company)) {
-        continue;
-      }
+      const patientCompanies = (patient.b_insurances ?? []).map((ins) => ins.company);
+      // No agreement.insurance_companies list at all = the provider takes
+      // any private insurer, so any held policy matches (first one, since
+      // there's only one "B" price tier regardless of which company).
+      const matchedInsuranceCompany =
+        companies.length === 0 ? patientCompanies[0] : patientCompanies.find((c) => companies.includes(c));
+      if (companies.length > 0 && !matchedInsuranceCompany) continue;
+      return { layer, price: entry.price, matchedInsuranceCompany };
     }
     return { layer, price: entry.price };
   }
@@ -105,18 +110,18 @@ export function resolvePriceBreakdown(
         ? "מחיר סל קופה"
         : resolved.layer === "K"
         ? `מחיר הסדר · ${patient.k_level}`
-        : `מחיר הסדר · ${patient.b_insurance_company}`;
+        : `מחיר הסדר · ${resolved.matchedInsuranceCompany}`;
     return { privatePrice, arrangement: { price: resolved.price, layer: resolved.layer, label } };
   }
 
   // No arrangement matched this patient specifically — but if the provider
   // still declares that layer (just gated to other kupot/insurers), the
-  // patient's own plan can still be claimed back from directly.
+  // patient's own plan(s) can still be claimed back from directly.
   const providerLayers = new Set((agreements ?? []).map((a) => a.layer));
   const reimbursementSources: string[] = [];
   if (patient.k_level && providerLayers.has("K")) reimbursementSources.push(patient.k_level);
-  if (patient.has_b_insurance && providerLayers.has("B") && patient.b_insurance_company) {
-    reimbursementSources.push(patient.b_insurance_company);
+  if (patient.b_insurances?.length && providerLayers.has("B")) {
+    reimbursementSources.push(...patient.b_insurances.map((ins) => ins.company));
   }
   if (reimbursementSources.length > 0) return { privatePrice, reimbursementSources };
 
@@ -133,7 +138,7 @@ export function resolveCatalogPrice(
   basePrice: number,
   patient: Patient | null | undefined
 ): { layer: InsuranceLayer; price: number } {
-  if (patient?.has_b_insurance) return { layer: "B", price: Math.round(basePrice * 0.15) };
+  if (patient?.b_insurances?.length) return { layer: "B", price: Math.round(basePrice * 0.15) };
   if (patient?.k_level) return { layer: "K", price: Math.round(basePrice * 0.25) };
   return { layer: "H", price: basePrice };
 }

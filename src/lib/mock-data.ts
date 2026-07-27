@@ -1734,9 +1734,9 @@ export const SEED_PATIENTS: Patient[] = PATIENT_NAMES.map((name, i) => {
     id_number: `${200000000 + i * 37}`,
     kupah,
     k_level: hasK ? kLevels[i % kLevels.length] : undefined,
-    has_b_insurance: hasB,
-    b_insurance_company: hasB ? B_INSURANCE_COMPANIES[i % B_INSURANCE_COMPANIES.length] : undefined,
-    b_policy_number: hasB ? `POL-${100000 + i * 91}` : undefined,
+    b_insurances: hasB
+      ? [{ company: B_INSURANCE_COMPANIES[i % B_INSURANCE_COMPANIES.length], policy_number: `POL-${100000 + i * 91}` }]
+      : undefined,
     status: i % 5 === 0 ? "לא פעיל" : i % 7 === 0 ? "ממתין" : "פעיל",
     // Every seeded patient is assigned to one of the three demo providers —
     // the medical unit used to get none, which left its "מטופלים" tab empty on
@@ -1754,9 +1754,12 @@ SEED_PATIENTS[0].email = DEMO_PATIENT_USER.email;
 SEED_PATIENTS[0].status = "פעיל";
 SEED_PATIENTS[0].kupah = "מכבי";
 SEED_PATIENTS[0].k_level = "מכבי שלי";
-SEED_PATIENTS[0].has_b_insurance = true;
-SEED_PATIENTS[0].b_insurance_company = "מגדל ביטוח";
-SEED_PATIENTS[0].b_policy_number = "POL-100000";
+// Two policies — demonstrates that a patient can hold more than one private
+// insurance at once, unlike kupah which stays single.
+SEED_PATIENTS[0].b_insurances = [
+  { company: "מגדל ביטוח", policy_number: "POL-100000" },
+  { company: "הראל ביטוח", policy_number: "POL-100001" },
+];
 
 // ---------------------------------------------------------------------------
 // Consent records (§4.2, §11.1) — required consents granted at signup for
