@@ -8,6 +8,7 @@ import { AuthLayout } from "@/components/layouts/AuthLayout";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { useStore } from "@/lib/store";
+import { useOtpAttemptGuard, ResendControl, BlockedPanel, WrongAttemptsLockoutNotice } from "@/components/shared/OtpAttemptGuard";
 
 type Step = "request" | "otp-sms" | "otp-email";
 
@@ -21,15 +22,19 @@ function ForgotPasswordPageContent() {
   const loginPath = searchParams.get("from") === "client" ? "/client/login" : "/login";
   const forgotPassword = useStore((s) => s.forgotPassword);
   const verifyPasswordResetSmsOtp = useStore((s) => s.verifyPasswordResetSmsOtp);
-  const verifyPasswordResetEmailOtp = useStore((s) => s.verifyPasswordResetEmailOtp);
+  const verifyPasswordResetEmailLink = useStore((s) => s.verifyPasswordResetEmailLink);
   const resendPasswordResetOtp = useStore((s) => s.resendPasswordResetOtp);
   const maskedPhone = useStore((s) => s.pendingPasswordReset?.maskedPhone);
   const showToast = useStore((s) => s.showToast);
+  // Separate instances (not shared) — SMS and email are two sequential
+  // steps of the *same* flow here (like registration), so a resend/report
+  // on one shouldn't reset the other's count.
+  const smsGuard = useOtpAttemptGuard("password-reset");
+  const emailGuard = useOtpAttemptGuard("password-reset");
 
   const [step, setStep] = useState<Step>("request");
   const [email, setEmail] = useState("");
   const [smsCode, setSmsCode] = useState("");
-  const [emailCode, setEmailCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -51,6 +56,7 @@ function ForgotPasswordPageContent() {
 
   function handleVerifySms(e: React.FormEvent) {
     e.preventDefault();
+    if (smsGuard.verifyLockSecondsLeft > 0) return;
     setError("");
     setLoading(true);
     setTimeout(() => {
@@ -58,20 +64,25 @@ function ForgotPasswordPageContent() {
       setLoading(false);
       if (!result.ok) {
         setError(result.error ?? "שגיאה באימות");
+        smsGuard.noteWrongAttempt();
         return;
       }
       setStep("otp-email");
-      const hint = resendPasswordResetOtp("email");
-      showToast("קוד אימות נשלח באימייל", { description: `קוד הדגמה: ${hint}`, variant: "success" });
+      // No code to show a "demo hint" for — the confirmation card on the
+      // next screen *is* the simulated email, so there's nothing to send
+      // separately here.
+      resendPasswordResetOtp("email");
+      showToast("שלחנו לך מייל עם קישור לאיפוס הסיסמה", { variant: "success" });
     }, 300);
   }
 
-  function handleVerifyEmail(e: React.FormEvent) {
-    e.preventDefault();
+  // Clicking the (simulated) link in the confirmation card below is the
+  // entire "verification" for this step — no code to type or check.
+  function handleConfirmEmailLink() {
     setError("");
     setLoading(true);
     setTimeout(() => {
-      const result = verifyPasswordResetEmailOtp(emailCode);
+      const result = verifyPasswordResetEmailLink();
       setLoading(false);
       if (!result.ok) {
         setError(result.error ?? "שגיאה באימות");
@@ -82,10 +93,21 @@ function ForgotPasswordPageContent() {
   }
 
   function handleResend(channel: "sms" | "email") {
+    const guard = channel === "sms" ? smsGuard : emailGuard;
+    if (guard.secondsLeft > 0 || guard.blocked) return;
     const otp = resendPasswordResetOtp(channel);
-    if (otp) {
-      showToast(channel === "sms" ? "קוד חדש נשלח ב-SMS" : "קוד חדש נשלח באימייל", { description: `קוד הדגמה: ${otp}` });
+    if (!otp) return;
+    if (channel === "sms") {
+      showToast("קוד חדש נשלח ב-SMS", { description: `קוד הדגמה: ${otp}` });
+    } else {
+      showToast("שלחנו שוב מייל עם קישור לאיפוס הסיסמה");
     }
+    guard.noteResend();
+  }
+
+  function handleReportIssue(channel: "sms" | "email") {
+    const guard = channel === "sms" ? smsGuard : emailGuard;
+    guard.reportIssue(channel, channel === "sms" ? maskedPhone ?? "" : email);
   }
 
   return (
@@ -129,54 +151,69 @@ function ForgotPasswordPageContent() {
               {error}
             </div>
           )}
-          <form onSubmit={handleVerifySms} className="flex flex-col gap-3">
-            <Input
-              inputMode="numeric"
-              maxLength={6}
-              placeholder="123456"
-              label="קוד מ-SMS"
-              value={smsCode}
-              onChange={(e) => setSmsCode(e.target.value)}
-              className="text-center tracking-[0.4em] text-lg"
-              required
-            />
-            <Button type="submit" loading={loading} className="w-full">
-              אמת קוד SMS
-            </Button>
-            <button type="button" onClick={() => handleResend("sms")} className="text-sm text-primary hover:underline">
-              שלח קוד מחדש
-            </button>
-          </form>
+          {smsGuard.blocked ? (
+            <BlockedPanel />
+          ) : (
+            <form onSubmit={handleVerifySms} className="flex flex-col gap-3">
+              <Input
+                inputMode="numeric"
+                maxLength={6}
+                placeholder="123456"
+                label="קוד מ-SMS"
+                value={smsCode}
+                onChange={(e) => setSmsCode(e.target.value)}
+                className="text-center tracking-[0.4em] text-lg"
+                disabled={smsGuard.verifyLockSecondsLeft > 0}
+                required
+              />
+              <WrongAttemptsLockoutNotice secondsLeft={smsGuard.verifyLockSecondsLeft} />
+              <Button type="submit" loading={loading} disabled={smsGuard.verifyLockSecondsLeft > 0} className="w-full">
+                אמת קוד SMS
+              </Button>
+              <ResendControl
+                secondsLeft={smsGuard.secondsLeft}
+                onResend={() => handleResend("sms")}
+                resendCount={smsGuard.resendCount}
+                issueReported={smsGuard.issueReported}
+                onReportIssue={() => handleReportIssue("sms")}
+              />
+            </form>
+          )}
         </>
       )}
 
       {step === "otp-email" && (
         <>
           <h1 className="text-lg font-semibold text-slate-900 mb-1">אימות דו-שלבי (2/2)</h1>
-          <p className="text-sm text-slate-500 mb-5">שלחנו קוד אימות נוסף לכתובת האימייל שלכם</p>
+          <p className="text-sm text-slate-500 mb-5">שלחנו לך מייל עם קישור לאיפוס הסיסמה</p>
           {error && (
             <div className="mb-4 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
               {error}
             </div>
           )}
-          <form onSubmit={handleVerifyEmail} className="flex flex-col gap-3">
-            <Input
-              inputMode="numeric"
-              maxLength={6}
-              placeholder="123456"
-              label="קוד מהאימייל"
-              value={emailCode}
-              onChange={(e) => setEmailCode(e.target.value)}
-              className="text-center tracking-[0.4em] text-lg"
-              required
-            />
-            <Button type="submit" loading={loading} className="w-full">
-              אמת קוד והמשך לאיפוס
-            </Button>
-            <button type="button" onClick={() => handleResend("email")} className="text-sm text-primary hover:underline">
-              שלח קוד מחדש
-            </button>
-          </form>
+          {emailGuard.blocked ? (
+            <BlockedPanel />
+          ) : (
+            <div className="flex flex-col gap-3">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex items-center gap-2 mb-2 text-slate-500">
+                  <Mail className="h-4 w-4" />
+                  <span className="text-xs font-medium">מייל הדגמה מ-HEALSON</span>
+                </div>
+                <p className="text-sm text-slate-700 mb-3">לחצו על הקישור הבא כדי לאפס את הסיסמה שלכם.</p>
+                <Button type="button" onClick={handleConfirmEmailLink} loading={loading} className="w-full">
+                  איפוס הסיסמה שלי
+                </Button>
+              </div>
+              <ResendControl
+                secondsLeft={emailGuard.secondsLeft}
+                onResend={() => handleResend("email")}
+                resendCount={emailGuard.resendCount}
+                issueReported={emailGuard.issueReported}
+                onReportIssue={() => handleReportIssue("email")}
+              />
+            </div>
+          )}
         </>
       )}
 

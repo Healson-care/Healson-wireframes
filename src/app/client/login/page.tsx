@@ -19,6 +19,7 @@ import { homeForRole } from "@/lib/useRequireRole";
 import { cn } from "@/lib/utils";
 import { POST_REGISTER_REDIRECT_KEY, CITIES, STREETS_BY_CITY, DEFAULT_STREETS } from "@/lib/constants";
 import { Gender, GENDERS, UploadedFile } from "@/types";
+import { useOtpAttemptGuard, ResendControl, BlockedPanel, WrongAttemptsLockoutNotice } from "@/components/shared/OtpAttemptGuard";
 import {
   ConsentCheckboxes,
   ConsentValues,
@@ -57,71 +58,9 @@ function PasswordToggle({ show, onToggle }: { show: boolean; onToggle: () => voi
   );
 }
 
-/** Resend link with a countdown lock, plus an escalation option once the
- * user has resent enough times without success (see OTP_ISSUE_THRESHOLD). */
-function ResendControl({
-  secondsLeft,
-  onResend,
-  resendCount,
-  issueReported,
-  onReportIssue,
-}: {
-  secondsLeft: number;
-  onResend: () => void;
-  resendCount: number;
-  issueReported: boolean;
-  onReportIssue: () => void;
-}) {
-  return (
-    <div className="flex flex-col items-center gap-1.5">
-      <button
-        type="button"
-        onClick={onResend}
-        disabled={secondsLeft > 0}
-        className={cn(
-          "text-sm font-medium",
-          secondsLeft > 0 ? "text-slate-400 cursor-not-allowed" : "text-primary hover:underline"
-        )}
-      >
-        {secondsLeft > 0 ? `שליחה חוזרת בעוד 0:${String(secondsLeft).padStart(2, "0")}` : "שלח קוד מחדש"}
-      </button>
-      {resendCount >= OTP_ISSUE_THRESHOLD &&
-        (issueReported ? (
-          <p className="text-xs font-medium text-success-text">התקלה דווחה לצוות — ניצור קשר בהקדם</p>
-        ) : (
-          <button type="button" onClick={onReportIssue} className="text-xs font-medium text-danger-text hover:underline">
-            עדיין לא קיבלתי את הקוד — דווחו לצוות
-          </button>
-        ))}
-    </div>
-  );
-}
-
-/** Replaces the code form entirely once too many resends failed after a
- * report was already filed — endless retries don't help a broken channel,
- * and freezing the screen makes the "wait for staff" state unambiguous. */
-function BlockedPanel() {
-  return (
-    <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-3 text-sm text-amber-800">
-      התקלה דווחה לצוות ועדיין לא טופלה — לא ניתן להמשיך בשלב הזה עד לבדיקה. ניצור איתך קשר בהקדם, והמסך הזה ייפתח מחדש אוטומטית ברגע שהתקלה תטופל.
-    </div>
-  );
-}
-
-const RESEND_COOLDOWN_SECONDS = 30;
-// After this many resends without success, offer "לא קיבלתי" to flag a real
-// delivery problem (wrong carrier, blocked sender, etc.) instead of letting
-// the user resend forever.
-const OTP_ISSUE_THRESHOLD = 2;
-// Once reported, the user gets this many more resend attempts before the
-// screen locks entirely — endless retries don't help if the channel is
-// actually broken, and it's the signal that staff needs to step in.
-const MAX_RESENDS_AFTER_REPORT = 2;
-// Wrong-code guessing had no rate limit at all — unlike resend, "אמת קוד"
-// could be clicked with a bad guess as many times as you like. This caps it
-// so the code can't just be brute-forced (6-digit numeric code, no backend).
-const MAX_WRONG_ATTEMPTS = 5;
-const WRONG_ATTEMPTS_LOCKOUT_SECONDS = 60;
+// ResendControl/BlockedPanel/the attempt-guard mechanics live in
+// @/components/shared/OtpAttemptGuard now — shared by every OTP screen in
+// the app, not just this page's.
 
 // Verification sits right after credentials — email+phone are both
 // collected in that first step now, so identity is confirmed before asking
@@ -194,41 +133,22 @@ export default function ClientLoginPage() {
   const login = useStore((s) => s.login);
   const verifyLoginOtp = useStore((s) => s.verifyLoginOtp);
   const resendLoginOtp = useStore((s) => s.resendLoginOtp);
-  const reportOtpIssue = useStore((s) => s.reportOtpIssue);
 
   const [mode, setMode] = useState<Mode>("existing");
   const [phase, setPhase] = useState<Phase>("existing-form");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Registration's SMS step and existing-patient login's single OTP step
+  // share one guard instance — registration and login are never both
+  // active at once, so reusing it is safe and keeps their resend/lockout
+  // counts unified the way the old local state did. Registration's email
+  // step gets its own, independent instance.
+  const smsGuard = useOtpAttemptGuard(mode === "new" ? "registration" : "login");
+  const emailGuard = useOtpAttemptGuard("registration");
   // Also doubles as the login-OTP field's value (see handleVerifyLoginOtp) —
   // registration and login are never both active, so one field is enough.
   const [smsCode, setSmsCode] = useState("");
-  // Resend cooldown/reporting — only one OTP phase is ever visible at a
-  // time, so a single "unlock at" timestamp covers whichever one is active;
-  // resend counts are per-channel so switching from SMS to email starts a
-  // fresh count instead of inheriting the SMS screen's.
-  const [resendUnlockAt, setResendUnlockAt] = useState<number | null>(null);
-  const [secondsLeft, setSecondsLeft] = useState(0);
-  const [smsResendCount, setSmsResendCount] = useState(0);
-  const [emailResendCount, setEmailResendCount] = useState(0);
-  const [smsIssueReported, setSmsIssueReported] = useState(false);
-  const [emailIssueReported, setEmailIssueReported] = useState(false);
-  // Tracks the specific report this screen filed, so it can watch (live,
-  // via the store) whether staff already resolved it — see the blocking
-  // logic below and the two useEffects that watch these.
-  const [smsIssueReportId, setSmsIssueReportId] = useState<string | null>(null);
-  const [emailIssueReportId, setEmailIssueReportId] = useState<string | null>(null);
-  const smsIssueReport = useStore((s) => (smsIssueReportId ? s.otpIssueReports.find((r) => r.id === smsIssueReportId) : undefined));
-  const emailIssueReport = useStore((s) =>
-    emailIssueReportId ? s.otpIssueReports.find((r) => r.id === emailIssueReportId) : undefined
-  );
-  // Wrong-code lockout — same "one active phase at a time" reasoning as
-  // resendUnlockAt above, so a single pair covers whichever OTP screen is
-  // showing. Resending clears it too (a fresh code deserves a fresh count).
-  const [smsWrongAttempts, setSmsWrongAttempts] = useState(0);
-  const [emailWrongAttempts, setEmailWrongAttempts] = useState(0);
-  const [verifyLockUntil, setVerifyLockUntil] = useState<number | null>(null);
-  const [verifyLockSecondsLeft, setVerifyLockSecondsLeft] = useState(0);
 
   // New-patient form fields
   const [email, setEmail] = useState("");
@@ -330,27 +250,6 @@ export default function ClientLoginPage() {
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [mode, phase]);
-
-  useEffect(() => {
-    // resendUnlockAt starts null and is only ever set forward, so there is
-    // nothing to reset here — secondsLeft already starts (and counts down to) 0.
-    if (!resendUnlockAt) return;
-    const tick = () => setSecondsLeft(Math.max(0, Math.ceil((resendUnlockAt - Date.now()) / 1000)));
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [resendUnlockAt]);
-
-  useEffect(() => {
-    if (!verifyLockUntil) {
-      setVerifyLockSecondsLeft(0);
-      return;
-    }
-    const tick = () => setVerifyLockSecondsLeft(Math.max(0, Math.ceil((verifyLockUntil - Date.now()) / 1000)));
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [verifyLockUntil]);
 
   function fillGoogleDemo() {
     if (mode === "new") {
@@ -464,11 +363,7 @@ export default function ClientLoginPage() {
     setError("");
     beginRegistrationVerification();
     setPhase("otp-sms");
-    setSmsResendCount(0);
-    setSmsIssueReported(false);
-    setSmsWrongAttempts(0);
-    setVerifyLockUntil(null);
-    setResendUnlockAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
+    smsGuard.start();
     const hint = resendRegistrationOtp("sms");
     showToast("קוד אימות נשלח ב-SMS", { description: `קוד הדגמה: ${hint}`, variant: "success" });
   }
@@ -517,11 +412,7 @@ export default function ClientLoginPage() {
       }
       if (result.requiresOtp) {
         setPhase("otp-login");
-        setSmsResendCount(0);
-        setSmsIssueReported(false);
-        setSmsWrongAttempts(0);
-        setVerifyLockUntil(null);
-        setResendUnlockAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
+        smsGuard.start();
         const hint = resendLoginOtp();
         showToast("קוד אימות נשלח ב-SMS ובמייל", { description: `קוד הדגמה: ${hint}`, variant: "success" });
         return;
@@ -535,30 +426,18 @@ export default function ClientLoginPage() {
   function handleVerifySms(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    if (verifyLockSecondsLeft > 0) return;
+    if (smsGuard.verifyLockSecondsLeft > 0) return;
     setLoading(true);
     setTimeout(() => {
       const result = verifyRegistrationSmsOtp(smsCode);
       setLoading(false);
       if (!result.ok) {
         setError(result.error ?? "שגיאה באימות");
-        setSmsWrongAttempts((c) => {
-          const next = c + 1;
-          if (next >= MAX_WRONG_ATTEMPTS) {
-            setVerifyLockUntil(Date.now() + WRONG_ATTEMPTS_LOCKOUT_SECONDS * 1000);
-            return 0;
-          }
-          return next;
-        });
+        smsGuard.noteWrongAttempt();
         return;
       }
-      setSmsWrongAttempts(0);
       setPhase("otp-email");
-      setEmailResendCount(0);
-      setEmailIssueReported(false);
-      setEmailWrongAttempts(0);
-      setVerifyLockUntil(null);
-      setResendUnlockAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
+      emailGuard.start();
       // No code to show a "demo hint" for — the confirmation card on the
       // next screen *is* the simulated email, so there's nothing to send
       // separately here.
@@ -586,30 +465,21 @@ export default function ClientLoginPage() {
   }
 
   // Existing-patient login only — true 2FA, single OTP (see the store-level
-  // comment on PendingLoginVerification). Reuses the sms* resend/lockout
-  // state slots below since registration and login are never active at the
-  // same time — no need for a separate parallel set of counters.
+  // comment on PendingLoginVerification). Reuses smsGuard since registration
+  // and login are never active at the same time.
   function handleVerifyLoginOtp(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    if (verifyLockSecondsLeft > 0) return;
+    if (smsGuard.verifyLockSecondsLeft > 0) return;
     setLoading(true);
     setTimeout(() => {
       const result = verifyLoginOtp(smsCode);
       setLoading(false);
       if (!result.ok) {
         setError(result.error ?? "שגיאה באימות");
-        setSmsWrongAttempts((c) => {
-          const next = c + 1;
-          if (next >= MAX_WRONG_ATTEMPTS) {
-            setVerifyLockUntil(Date.now() + WRONG_ATTEMPTS_LOCKOUT_SECONDS * 1000);
-            return 0;
-          }
-          return next;
-        });
+        smsGuard.noteWrongAttempt();
         return;
       }
-      setSmsWrongAttempts(0);
       const user = useStore.getState().currentUser;
       goAfterAuth(user ? homeForRole(user.role) : "/login");
     }, 300);
@@ -617,38 +487,29 @@ export default function ClientLoginPage() {
 
   // Registration only.
   function handleResendSms() {
-    if (secondsLeft > 0 || smsBlocked) return;
+    if (smsGuard.secondsLeft > 0 || smsGuard.blocked) return;
     const otp = resendRegistrationOtp("sms");
     if (otp) {
       showToast("קוד חדש נשלח ב-SMS", { description: `קוד הדגמה: ${otp}` });
-      setSmsResendCount((c) => c + 1);
-      setSmsWrongAttempts(0);
-      setVerifyLockUntil(null);
-      setResendUnlockAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
+      smsGuard.noteResend();
     }
   }
 
   // Registration only.
   function handleResendEmail() {
-    if (secondsLeft > 0 || emailBlocked) return;
+    if (emailGuard.secondsLeft > 0 || emailGuard.blocked) return;
     if (!resendRegistrationOtp("email")) return;
     showToast("שלחנו שוב מייל עם קישור לאישור החשבון");
-    setEmailResendCount((c) => c + 1);
-    setEmailWrongAttempts(0);
-    setVerifyLockUntil(null);
-    setResendUnlockAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
+    emailGuard.noteResend();
   }
 
   // Existing-patient login only.
   function handleResendLoginOtp() {
-    if (secondsLeft > 0 || smsBlocked) return;
+    if (smsGuard.secondsLeft > 0 || smsGuard.blocked) return;
     const otp = resendLoginOtp();
     if (otp) {
       showToast("קוד חדש נשלח ב-SMS ובמייל", { description: `קוד הדגמה: ${otp}` });
-      setSmsResendCount((c) => c + 1);
-      setSmsWrongAttempts(0);
-      setVerifyLockUntil(null);
-      setResendUnlockAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
+      smsGuard.noteResend();
     }
   }
 
@@ -656,40 +517,8 @@ export default function ClientLoginPage() {
   // problem — filed for the team to look into, not just another resend.
   function handleReportOtpIssue(channel: "sms" | "email") {
     const contact = channel === "sms" ? phoneForOtpDisplay : mode === "new" ? email : existingEmail;
-    const record = reportOtpIssue(channel, contact, mode === "new" ? "registration" : "login");
-    if (channel === "sms") {
-      setSmsIssueReported(true);
-      setSmsIssueReportId(record.id);
-    } else {
-      setEmailIssueReported(true);
-      setEmailIssueReportId(record.id);
-    }
-    showToast("התקלה דווחה לצוות", { description: "ניצור איתך קשר בהקדם לבירור העניין", variant: "success" });
+    (channel === "sms" ? smsGuard : emailGuard).reportIssue(channel, contact);
   }
-
-  const smsBlocked = smsIssueReported && smsResendCount >= OTP_ISSUE_THRESHOLD + MAX_RESENDS_AFTER_REPORT;
-  const emailBlocked = emailIssueReported && emailResendCount >= OTP_ISSUE_THRESHOLD + MAX_RESENDS_AFTER_REPORT;
-
-  // Once staff marks the report "טופל" (resolved), lift the block
-  // automatically instead of making the user refresh — the store update is
-  // live, so this fires as soon as that happens on the staff side.
-  useEffect(() => {
-    if (smsIssueReport?.status === "טופל") {
-      showToast("התקלה טופלה על ידי הצוות — אפשר לנסות שוב", { variant: "success" });
-      setSmsIssueReported(false);
-      setSmsIssueReportId(null);
-      setSmsResendCount(0);
-    }
-  }, [smsIssueReport?.status]);
-
-  useEffect(() => {
-    if (emailIssueReport?.status === "טופל") {
-      showToast("התקלה טופלה על ידי הצוות — אפשר לנסות שוב", { variant: "success" });
-      setEmailIssueReported(false);
-      setEmailIssueReportId(null);
-      setEmailResendCount(0);
-    }
-  }, [emailIssueReport?.status]);
 
   const modeToggle = (
     <div className="mb-5 grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1">
@@ -742,7 +571,7 @@ export default function ClientLoginPage() {
               שלחנו קוד אימות ב-SMS{phoneForOtpDisplay ? ` למספר ${phoneForOtpDisplay}` : ""}
             </p>
             {errorBox}
-            {smsBlocked ? (
+            {smsGuard.blocked ? (
               <BlockedPanel />
             ) : (
               <form onSubmit={handleVerifySms} className="flex flex-col gap-3">
@@ -754,22 +583,18 @@ export default function ClientLoginPage() {
                   value={smsCode}
                   onChange={(e) => setSmsCode(e.target.value)}
                   className="text-center tracking-[0.4em] text-lg"
-                  disabled={verifyLockSecondsLeft > 0}
+                  disabled={smsGuard.verifyLockSecondsLeft > 0}
                   required
                 />
-                {verifyLockSecondsLeft > 0 && (
-                  <p className="-mt-1.5 text-center text-xs font-medium text-danger-text">
-                    יותר מדי ניסיונות שגויים — ניתן לנסות שוב בעוד 0:{String(verifyLockSecondsLeft).padStart(2, "0")}, או לשלוח קוד חדש
-                  </p>
-                )}
-                <Button type="submit" loading={loading} disabled={verifyLockSecondsLeft > 0} className="w-full">
+                <WrongAttemptsLockoutNotice secondsLeft={smsGuard.verifyLockSecondsLeft} />
+                <Button type="submit" loading={loading} disabled={smsGuard.verifyLockSecondsLeft > 0} className="w-full">
                   אמת קוד SMS
                 </Button>
                 <ResendControl
-                  secondsLeft={secondsLeft}
+                  secondsLeft={smsGuard.secondsLeft}
                   onResend={handleResendSms}
-                  resendCount={smsResendCount}
-                  issueReported={smsIssueReported}
+                  resendCount={smsGuard.resendCount}
+                  issueReported={smsGuard.issueReported}
                   onReportIssue={() => handleReportOtpIssue("sms")}
                 />
               </form>
@@ -780,7 +605,7 @@ export default function ClientLoginPage() {
             <h1 className="text-lg font-semibold text-slate-900 mb-1">אימות דו-שלבי (2/2)</h1>
             <p className="text-sm text-slate-500 mb-5">שלחנו לך מייל עם קישור לאישור החשבון</p>
             {errorBox}
-            {emailBlocked ? (
+            {emailGuard.blocked ? (
               <BlockedPanel />
             ) : (
               <div className="flex flex-col gap-3">
@@ -795,10 +620,10 @@ export default function ClientLoginPage() {
                   </Button>
                 </div>
                 <ResendControl
-                  secondsLeft={secondsLeft}
+                  secondsLeft={emailGuard.secondsLeft}
                   onResend={handleResendEmail}
-                  resendCount={emailResendCount}
-                  issueReported={emailIssueReported}
+                  resendCount={emailGuard.resendCount}
+                  issueReported={emailGuard.issueReported}
                   onReportIssue={() => handleReportOtpIssue("email")}
                 />
               </div>
@@ -820,7 +645,7 @@ export default function ClientLoginPage() {
           זהה בשני הערוצים, מספיק להזין אותו פעם אחת.
         </p>
         {errorBox}
-        {smsBlocked ? (
+        {smsGuard.blocked ? (
           <BlockedPanel />
         ) : (
           <form onSubmit={handleVerifyLoginOtp} className="flex flex-col gap-3">
@@ -832,22 +657,18 @@ export default function ClientLoginPage() {
               value={smsCode}
               onChange={(e) => setSmsCode(e.target.value)}
               className="text-center tracking-[0.4em] text-lg"
-              disabled={verifyLockSecondsLeft > 0}
+              disabled={smsGuard.verifyLockSecondsLeft > 0}
               required
             />
-            {verifyLockSecondsLeft > 0 && (
-              <p className="-mt-1.5 text-center text-xs font-medium text-danger-text">
-                יותר מדי ניסיונות שגויים — ניתן לנסות שוב בעוד 0:{String(verifyLockSecondsLeft).padStart(2, "0")}, או לשלוח קוד חדש
-              </p>
-            )}
-            <Button type="submit" loading={loading} disabled={verifyLockSecondsLeft > 0} className="w-full">
+            <WrongAttemptsLockoutNotice secondsLeft={smsGuard.verifyLockSecondsLeft} />
+            <Button type="submit" loading={loading} disabled={smsGuard.verifyLockSecondsLeft > 0} className="w-full">
               אמת קוד וכניסה
             </Button>
             <ResendControl
-              secondsLeft={secondsLeft}
+              secondsLeft={smsGuard.secondsLeft}
               onResend={handleResendLoginOtp}
-              resendCount={smsResendCount}
-              issueReported={smsIssueReported}
+              resendCount={smsGuard.resendCount}
+              issueReported={smsGuard.issueReported}
               onReportIssue={() => handleReportOtpIssue("sms")}
             />
           </form>

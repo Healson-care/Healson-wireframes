@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/Button";
 import { useStore } from "@/lib/store";
 import { homeForRole } from "@/lib/useRequireRole";
 import { cn } from "@/lib/utils";
+import { useOtpAttemptGuard, ResendControl, BlockedPanel, WrongAttemptsLockoutNotice } from "@/components/shared/OtpAttemptGuard";
 
 type Phase = "credentials" | "otp";
 
@@ -23,6 +24,7 @@ export default function LoginPage() {
   const resendLoginOtp = useStore((s) => s.resendLoginOtp);
   const showToast = useStore((s) => s.showToast);
   const currentUser = useStore((s) => s.currentUser);
+  const guard = useOtpAttemptGuard("login");
   // If this page is reached with a 2FA verification already queued (e.g.
   // redirected here from the landing page's demo role cards, or a refresh
   // mid-flow), resume at the OTP step instead of showing a blank
@@ -105,6 +107,7 @@ export default function LoginPage() {
 
   function handleVerifyOtp(e: React.FormEvent) {
     e.preventDefault();
+    if (guard.verifyLockSecondsLeft > 0) return;
     setError("");
     setLoading(true);
     setTimeout(() => {
@@ -112,6 +115,7 @@ export default function LoginPage() {
       setLoading(false);
       if (!result.ok) {
         setError(result.error ?? "שגיאה באימות");
+        guard.noteWrongAttempt();
         return;
       }
       goHome();
@@ -119,8 +123,12 @@ export default function LoginPage() {
   }
 
   function handleResendOtp() {
+    if (guard.secondsLeft > 0 || guard.blocked) return;
     const otp = resendLoginOtp();
-    if (otp) showToast("קוד חדש נשלח ב-SMS ובמייל", { description: `קוד הדגמה: ${otp}` });
+    if (otp) {
+      showToast("קוד חדש נשלח ב-SMS ובמייל", { description: `קוד הדגמה: ${otp}` });
+      guard.noteResend();
+    }
   }
 
   if (phase === "otp") {
@@ -138,24 +146,34 @@ export default function LoginPage() {
             {error}
           </div>
         )}
-        <form onSubmit={handleVerifyOtp} className="flex flex-col gap-3">
-          <Input
-            inputMode="numeric"
-            maxLength={6}
-            placeholder="123456"
-            label="קוד אימות"
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            className="text-center tracking-[0.4em] text-lg"
-            required
-          />
-          <Button type="submit" loading={loading} className="w-full">
-            אמת קוד וכניסה
-          </Button>
-          <button type="button" onClick={handleResendOtp} className="text-sm text-primary hover:underline">
-            שלח קוד מחדש
-          </button>
-        </form>
+        {guard.blocked ? (
+          <BlockedPanel />
+        ) : (
+          <form onSubmit={handleVerifyOtp} className="flex flex-col gap-3">
+            <Input
+              inputMode="numeric"
+              maxLength={6}
+              placeholder="123456"
+              label="קוד אימות"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              className="text-center tracking-[0.4em] text-lg"
+              disabled={guard.verifyLockSecondsLeft > 0}
+              required
+            />
+            <WrongAttemptsLockoutNotice secondsLeft={guard.verifyLockSecondsLeft} />
+            <Button type="submit" loading={loading} disabled={guard.verifyLockSecondsLeft > 0} className="w-full">
+              אמת קוד וכניסה
+            </Button>
+            <ResendControl
+              secondsLeft={guard.secondsLeft}
+              onResend={handleResendOtp}
+              resendCount={guard.resendCount}
+              issueReported={guard.issueReported}
+              onReportIssue={() => guard.reportIssue("sms", email)}
+            />
+          </form>
+        )}
       </AuthLayout>
     );
   }

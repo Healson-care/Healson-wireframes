@@ -112,12 +112,15 @@ interface PendingRegistrationVerification {
   smsVerified: boolean;
 }
 
-// Same double SMS+email OTP as registration/login (see
+// Same SMS-code-then-email-link double verification as registration (see
 // PendingRegistrationVerification above) — password reset is an
 // account-takeover vector, arguably the most sensitive of the three flows,
-// so it shouldn't be weaker than plain login. `verified` only flips to true
-// once both steps pass; resetPassword() refuses to run otherwise, so
-// /reset-password can't be reached by just navigating to the URL.
+// so it shouldn't be weaker than registration's identity-proofing. No
+// emailOtp field: like registration, the email step is a link to click, not
+// a code to type — nothing to check but whether SMS was verified first.
+// `verified` only flips to true once both steps pass; resetPassword()
+// refuses to run otherwise, so /reset-password can't be reached by just
+// navigating to the URL.
 interface PendingPasswordReset {
   contact: string;
   // /forgot-password is shared by two different login screens (patient
@@ -134,7 +137,6 @@ interface PendingPasswordReset {
   // as forgotPassword() itself never confirming a match either way.
   maskedPhone?: string;
   smsOtp: string;
-  emailOtp: string;
   smsVerified: boolean;
   verified: boolean;
 }
@@ -210,7 +212,9 @@ interface AuthState {
   pendingPasswordReset: PendingPasswordReset | null;
   forgotPassword: (contact: string, loginPath?: string) => { ok: boolean; otpHint?: string; error?: string };
   verifyPasswordResetSmsOtp: (code: string) => { ok: boolean; error?: string };
-  verifyPasswordResetEmailOtp: (code: string) => { ok: boolean; error?: string };
+  // No code param — clicking the (simulated) email link is itself the proof,
+  // same as verifyRegistrationEmailLink above.
+  verifyPasswordResetEmailLink: () => { ok: boolean; error?: string };
   resendPasswordResetOtp: (channel: "sms" | "email") => string | null;
   resetPassword: (newPassword: string) => { ok: boolean; error?: string };
   logout: () => void;
@@ -864,7 +868,6 @@ export const useStore = create<Store>()(
             loginPath,
             maskedPhone: maskPhone(phone),
             smsOtp,
-            emailOtp: "654321",
             smsVerified: false,
             verified: false,
           },
@@ -878,19 +881,22 @@ export const useStore = create<Store>()(
         set({ pendingPasswordReset: { ...pending, smsVerified: true } });
         return { ok: true };
       },
-      verifyPasswordResetEmailOtp: (code) => {
+      // Called when the user clicks the (simulated) confirmation link — no
+      // code to check, so the only failure mode is skipping ahead of SMS.
+      verifyPasswordResetEmailLink: () => {
         const pending = get().pendingPasswordReset;
         if (!pending || !pending.smsVerified) {
           return { ok: false, error: "יש לאמת קודם את הקוד שנשלח ב-SMS" };
         }
-        if (code !== pending.emailOtp) return { ok: false, error: "קוד שגוי, נסה שנית" };
         set({ pendingPasswordReset: { ...pending, verified: true } });
         return { ok: true };
       },
       resendPasswordResetOtp: (channel) => {
         const pending = get().pendingPasswordReset;
         if (!pending) return null;
-        return channel === "sms" ? pending.smsOtp : pending.emailOtp;
+        // "email" has no code to hand back — the non-null return is just a
+        // sent-successfully signal for the caller's toast.
+        return channel === "sms" ? pending.smsOtp : "sent";
       },
       resetPassword: (newPassword) => {
         void newPassword; // mocked — no real password storage anywhere in this app (see login())

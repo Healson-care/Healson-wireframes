@@ -10,6 +10,8 @@ import { Input, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/Tabs";
+import { StepUpReauthDialog } from "@/components/shared/StepUpReauthDialog";
+import { useOtpAttemptGuard, ResendControl, BlockedPanel, WrongAttemptsLockoutNotice } from "@/components/shared/OtpAttemptGuard";
 import {
   EMPTY_INSURANCE_PROFILE,
   InsuranceProfileForm,
@@ -112,7 +114,10 @@ const CONTACT_FIELD_LABELS: Record<ContactField, string> = { email: "אימיי�
 // Step-up re-auth before a contact-detail change takes effect — password,
 // then one OTP (see PendingReauth in store.ts) sent to the *new* value
 // specifically, so saving also proves the patient actually controls the
-// new email/phone, not just that they're still signed in.
+// new email/phone, not just that they're still signed in. Thin wrapper
+// around the shared StepUpReauthDialog — only the copy differs (it names
+// the new value being verified), the password/otp/lockout mechanics are
+// identical to every other step-up dialog on this page.
 function ContactFieldVerifyDialog({
   open,
   onClose,
@@ -126,119 +131,15 @@ function ContactFieldVerifyDialog({
   newValue: string;
   onVerified: () => void;
 }) {
-  const beginReauth = useStore((s) => s.beginReauth);
-  const verifyReauthOtp = useStore((s) => s.verifyReauthOtp);
-  const resendReauthOtp = useStore((s) => s.resendReauthOtp);
-  const showToast = useStore((s) => s.showToast);
-
-  const [phase, setPhase] = useState<"password" | "otp">("password");
-  const [password, setPassword] = useState("");
-  const [code, setCode] = useState("");
-  const [error, setError] = useState("");
-
-  // Reset the wizard when the dialog opens — done during render (React's
-  // documented "adjust state when props change" pattern) rather than in an
-  // effect, so it doesn't trigger a second cascading render pass.
-  const [prevOpen, setPrevOpen] = useState(false);
-  if (open !== prevOpen) {
-    setPrevOpen(open);
-    if (open) {
-      setPhase("password");
-      setPassword("");
-      setCode("");
-      setError("");
-    }
-  }
-
-  function handlePasswordSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    // This dialog is portaled out of the DOM, but React bubbles synthetic
-    // events along the component tree — this form is still a React
-    // descendant of the page's own <form>, so without stopPropagation()
-    // submitting here would also trigger the page-level save.
-    e.stopPropagation();
-    setError("");
-    if (!password) {
-      setError("יש להזין סיסמה");
-      return;
-    }
-    const otp = beginReauth();
-    showToast(field === "email" ? "קוד אימות נשלח לכתובת המייל החדשה" : "קוד אימות נשלח ב-SMS למספר החדש", {
-      description: `קוד הדגמה: ${otp}`,
-      variant: "success",
-    });
-    setPhase("otp");
-  }
-
-  function handleOtpSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    setError("");
-    const result = verifyReauthOtp(code);
-    if (!result.ok) {
-      setError(result.error ?? "שגיאה באימות");
-      return;
-    }
-    onVerified();
-    onClose();
-  }
-
-  function handleResend() {
-    const otp = resendReauthOtp();
-    if (otp) showToast("קוד חדש נשלח", { description: `קוד הדגמה: ${otp}` });
-  }
-
   return (
-    <Dialog
+    <StepUpReauthDialog
       open={open}
       onClose={onClose}
       title={`אימות שינוי ${CONTACT_FIELD_LABELS[field]}`}
-      description={
-        phase === "password"
-          ? "לאימות זהותכם לפני השמירה, הזינו את הסיסמה שלכם"
-          : field === "email"
-          ? `שלחנו קוד אימות לכתובת ${newValue}`
-          : `שלחנו קוד אימות ב-SMS למספר ${newValue}`
-      }
-    >
-      {error && (
-        <div className="mb-3 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
-          {error}
-        </div>
-      )}
-      {phase === "password" ? (
-        <form onSubmit={handlePasswordSubmit} className="flex flex-col gap-3">
-          <Input type="password" label="סיסמה" value={password} onChange={(e) => setPassword(e.target.value)} required />
-          <div className="flex justify-end gap-2 mt-2">
-            <Button type="button" variant="outline" onClick={onClose}>
-              ביטול
-            </Button>
-            <Button type="submit">המשך</Button>
-          </div>
-        </form>
-      ) : (
-        <form onSubmit={handleOtpSubmit} className="flex flex-col gap-3">
-          <Input
-            label="קוד אימות"
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            inputMode="numeric"
-            maxLength={6}
-            className="text-center tracking-[0.4em] text-lg"
-            required
-          />
-          <button type="button" onClick={handleResend} className="self-start text-sm font-medium text-primary hover:underline">
-            שלח קוד מחדש
-          </button>
-          <div className="flex justify-end gap-2 mt-2">
-            <Button type="button" variant="outline" onClick={onClose}>
-              ביטול
-            </Button>
-            <Button type="submit">אשר שינוי</Button>
-          </div>
-        </form>
-      )}
-    </Dialog>
+      otpDescription={field === "email" ? `שלחנו קוד אימות לכתובת ${newValue}` : `שלחנו קוד אימות ב-SMS למספר ${newValue}`}
+      otpToastTitle={field === "email" ? "קוד אימות נשלח לכתובת המייל החדשה" : "קוד אימות נשלח ב-SMS למספר החדש"}
+      onVerified={onVerified}
+    />
   );
 }
 
@@ -349,111 +250,7 @@ function InsuranceVerifyDialog({
   onClose: () => void;
   onVerified: () => void;
 }) {
-  const beginReauth = useStore((s) => s.beginReauth);
-  const verifyReauthOtp = useStore((s) => s.verifyReauthOtp);
-  const resendReauthOtp = useStore((s) => s.resendReauthOtp);
-  const showToast = useStore((s) => s.showToast);
-
-  const [phase, setPhase] = useState<"password" | "otp">("password");
-  const [password, setPassword] = useState("");
-  const [code, setCode] = useState("");
-  const [error, setError] = useState("");
-
-  const [prevOpen, setPrevOpen] = useState(false);
-  if (open !== prevOpen) {
-    setPrevOpen(open);
-    if (open) {
-      setPhase("password");
-      setPassword("");
-      setCode("");
-      setError("");
-    }
-  }
-
-  function handlePasswordSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    setError("");
-    if (!password) {
-      setError("יש להזין סיסמה");
-      return;
-    }
-    const otp = beginReauth();
-    showToast("קוד אימות נשלח ב-SMS ובמייל", {
-      description: `קוד הדגמה: ${otp}`,
-      variant: "success",
-    });
-    setPhase("otp");
-  }
-
-  function handleOtpSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    setError("");
-    const result = verifyReauthOtp(code);
-    if (!result.ok) {
-      setError(result.error ?? "שגיאה באימות");
-      return;
-    }
-    onVerified();
-    onClose();
-  }
-
-  function handleResend() {
-    const otp = resendReauthOtp();
-    if (otp) showToast("קוד חדש נשלח", { description: `קוד הדגמה: ${otp}` });
-  }
-
-  return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title="אימות שמירת שינויים"
-      description={
-        phase === "password"
-          ? "לאימות זהותכם לפני השמירה, הזינו את הסיסמה שלכם"
-          : "שלחנו קוד אימות גם ב-SMS וגם למייל שלכם — הקוד זהה בשני הערוצים"
-      }
-    >
-      {error && (
-        <div className="mb-3 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
-          {error}
-        </div>
-      )}
-      {phase === "password" ? (
-        <form onSubmit={handlePasswordSubmit} className="flex flex-col gap-3">
-          <Input type="password" label="סיסמה" value={password} onChange={(e) => setPassword(e.target.value)} required />
-          <div className="flex justify-end gap-2 mt-2">
-            <Button type="button" variant="outline" onClick={onClose}>
-              ביטול
-            </Button>
-            <Button type="submit">המשך</Button>
-          </div>
-        </form>
-      ) : (
-        <form onSubmit={handleOtpSubmit} className="flex flex-col gap-3">
-          <Input
-            label="קוד אימות"
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            inputMode="numeric"
-            maxLength={6}
-            className="text-center tracking-[0.4em] text-lg"
-            required
-          />
-          <button type="button" onClick={handleResend} className="self-start text-sm font-medium text-primary hover:underline">
-            שלח קוד מחדש
-          </button>
-          <div className="flex justify-end gap-2 mt-2">
-            <Button type="button" variant="outline" onClick={onClose}>
-              ביטול
-            </Button>
-            <Button type="submit">אשר שינוי</Button>
-          </div>
-        </form>
-      )}
-    </Dialog>
-  );
+  return <StepUpReauthDialog open={open} onClose={onClose} title="אימות שמירת שינויים" onVerified={onVerified} />;
 }
 
 export default function ClientProfilePage() {
@@ -752,6 +549,39 @@ export default function ClientProfilePage() {
   );
 }
 
+type PrivacyAction = "export" | "erasure";
+const PRIVACY_ACTION_LABELS: Record<PrivacyAction, string> = {
+  export: "ייצוא הנתונים שלי",
+  erasure: "בקשת מחיקת חשבון",
+};
+
+// Same password + single OTP (SMS+email) step-up as login — one shared
+// dialog gates both data export and the erasure request, since these are
+// one-off actions (not per-field edits like contact details), and export in
+// particular hands over the full personal/medical record in one click
+// otherwise.
+function PrivacyActionVerifyDialog({
+  open,
+  onClose,
+  action,
+  onVerified,
+}: {
+  open: boolean;
+  onClose: () => void;
+  action: PrivacyAction | null;
+  onVerified: () => void;
+}) {
+  return (
+    <StepUpReauthDialog
+      open={open}
+      onClose={onClose}
+      title={action ? `אימות זהות — ${PRIVACY_ACTION_LABELS[action]}` : "אימות זהות"}
+      passwordDescription="לאימות זהותכם לפני ביצוע הפעולה, הזינו את הסיסמה שלכם"
+      onVerified={onVerified}
+    />
+  );
+}
+
 function DataRightsSection({ patientId }: { patientId: string }) {
   const exportPatientData = useStore((s) => s.exportPatientData);
   const addDsrRequest = useStore((s) => s.addDsrRequest);
@@ -760,6 +590,8 @@ function DataRightsSection({ patientId }: { patientId: string }) {
   const revokeConsent = useStore((s) => s.revokeConsent);
   const showToast = useStore((s) => s.showToast);
   const consentRecords = useStore((s) => s.consentRecords);
+
+  const [pendingAction, setPendingAction] = useState<PrivacyAction | null>(null);
 
   const consents = getPatientConsents(patientId);
 
@@ -798,6 +630,11 @@ function DataRightsSection({ patientId }: { patientId: string }) {
     showToast("בקשת המחיקה נשלחה", { description: "נטפל בבקשה תוך 30 יום", variant: "success" });
   }
 
+  function handleVerifiedPrivacyAction() {
+    if (pendingAction === "export") handleExport();
+    else if (pendingAction === "erasure") handleErasureRequest();
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -806,13 +643,19 @@ function DataRightsSection({ patientId }: { patientId: string }) {
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={handleExport}>
+          <Button type="button" variant="outline" size="sm" onClick={() => setPendingAction("export")}>
             <FileDown className="h-4 w-4" /> ייצוא הנתונים שלי
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={handleErasureRequest}>
+          <Button type="button" variant="outline" size="sm" onClick={() => setPendingAction("erasure")}>
             <ShieldOff className="h-4 w-4" /> בקשת מחיקת חשבון
           </Button>
         </div>
+        <PrivacyActionVerifyDialog
+          open={pendingAction !== null}
+          onClose={() => setPendingAction(null)}
+          action={pendingAction}
+          onVerified={handleVerifiedPrivacyAction}
+        />
 
         <div className="flex flex-col gap-2">
           <p className="text-sm font-medium text-slate-700">ניהול הסכמות</p>
@@ -888,6 +731,8 @@ function RectifyDetailsDialog({
   const verifyReauthOtp = useStore((s) => s.verifyReauthOtp);
   const resendReauthOtp = useStore((s) => s.resendReauthOtp);
   const showToast = useStore((s) => s.showToast);
+  const currentUser = useStore((s) => s.currentUser);
+  const guard = useOtpAttemptGuard("reauth");
 
   const [phase, setPhase] = useState<RectifyPhase>("form");
   const [values, setValues] = useState({
@@ -918,6 +763,7 @@ function RectifyDetailsDialog({
       setReauthPassword("");
       setReauthCode("");
       setError("");
+      guard.reset();
     }
   }
 
@@ -948,6 +794,7 @@ function RectifyDetailsDialog({
   // before issuing the OTP, same as every other password field here.
   function handlePasswordSubmit(e: React.FormEvent) {
     e.preventDefault();
+    e.stopPropagation();
     setError("");
     if (!reauthPassword) {
       setError("יש להזין סיסמה");
@@ -960,10 +807,13 @@ function RectifyDetailsDialog({
 
   function handleOtpSubmit(e: React.FormEvent) {
     e.preventDefault();
+    e.stopPropagation();
+    if (guard.verifyLockSecondsLeft > 0) return;
     setError("");
     const result = verifyReauthOtp(reauthCode);
     if (!result.ok) {
       setError(result.error ?? "שגיאה באימות");
+      guard.noteWrongAttempt();
       return;
     }
     addDsrRequest({ patient_id: patient.id, type: "rectification", notes: pendingDiffs.join("; ") });
@@ -972,8 +822,12 @@ function RectifyDetailsDialog({
   }
 
   function handleResendReauthOtp() {
+    if (guard.secondsLeft > 0 || guard.blocked) return;
     const otp = resendReauthOtp();
-    if (otp) showToast("קוד חדש נשלח ב-SMS ובמייל", { description: `קוד הדגמה: ${otp}` });
+    if (otp) {
+      showToast("קוד חדש נשלח ב-SMS ובמייל", { description: `קוד הדגמה: ${otp}` });
+      guard.noteResend();
+    }
   }
 
   const DESCRIPTION_BY_PHASE: Record<RectifyPhase, string> = {
@@ -1041,29 +895,40 @@ function RectifyDetailsDialog({
           </div>
         </form>
       )}
-      {phase === "otp" && (
-        <form onSubmit={handleOtpSubmit} className="flex flex-col gap-3">
-          <Input
-            inputMode="numeric"
-            maxLength={6}
-            placeholder="123456"
-            label="קוד אימות"
-            value={reauthCode}
-            onChange={(e) => setReauthCode(e.target.value)}
-            className="text-center tracking-[0.4em] text-lg"
-            required
-          />
-          <button type="button" onClick={handleResendReauthOtp} className="self-start text-sm text-primary hover:underline">
-            שלח קוד מחדש
-          </button>
-          <div className="flex justify-end gap-2 mt-2">
-            <Button type="button" variant="outline" onClick={onClose}>
-              ביטול
-            </Button>
-            <Button type="submit">שלח בקשה</Button>
-          </div>
-        </form>
-      )}
+      {phase === "otp" &&
+        (guard.blocked ? (
+          <BlockedPanel />
+        ) : (
+          <form onSubmit={handleOtpSubmit} className="flex flex-col gap-3">
+            <Input
+              inputMode="numeric"
+              maxLength={6}
+              placeholder="123456"
+              label="קוד אימות"
+              value={reauthCode}
+              onChange={(e) => setReauthCode(e.target.value)}
+              className="text-center tracking-[0.4em] text-lg"
+              disabled={guard.verifyLockSecondsLeft > 0}
+              required
+            />
+            <WrongAttemptsLockoutNotice secondsLeft={guard.verifyLockSecondsLeft} />
+            <div className="flex justify-end gap-2 mt-2">
+              <Button type="button" variant="outline" onClick={onClose}>
+                ביטול
+              </Button>
+              <Button type="submit" disabled={guard.verifyLockSecondsLeft > 0}>
+                שלח בקשה
+              </Button>
+            </div>
+            <ResendControl
+              secondsLeft={guard.secondsLeft}
+              onResend={handleResendReauthOtp}
+              resendCount={guard.resendCount}
+              issueReported={guard.issueReported}
+              onReportIssue={() => guard.reportIssue("sms", currentUser?.email ?? "")}
+            />
+          </form>
+        ))}
     </Dialog>
   );
 }
