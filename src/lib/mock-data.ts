@@ -1869,10 +1869,12 @@ SEED_PATIENTS[0].status = "פעיל";
 SEED_PATIENTS[0].kupah = "מכבי";
 SEED_PATIENTS[0].k_level = "מכבי שלי";
 // Two policies — demonstrates that a patient can hold more than one private
-// insurance at once, unlike kupah which stays single.
+// insurance at once, unlike kupah which stays single. The second is
+// deliberately not in B_INSURANCE_COMPANIES, to demonstrate the "אחר"
+// free-text company flow in InsuranceProfileForm right away.
 SEED_PATIENTS[0].b_insurances = [
   { company: "מגדל ביטוח", policy_number: "POL-100000" },
-  { company: "הראל ביטוח", policy_number: "POL-100001" },
+  { company: "ביטוח ישיר", policy_number: "POL-100001" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -2212,7 +2214,54 @@ export const SEED_LAB_REFERRALS: LabReferral[] = Array.from({ length: 10 }).map(
       results: status === "הושלם" ? "תקין, ללא ממצאים חריגים" : undefined,
     };
   }
-);
+).concat([
+  // The generated batch above only lands the demo patient (SEED_PATIENTS[0])
+  // on a single referral (i=0, status "ממתין לעיבוד") — not enough to demo
+  // all 4 ReferralStatus tones on /client/documents for the account you're
+  // actually logged in as.
+  {
+    id: generateId("lab"),
+    provider_id: provider1.id,
+    provider_name: provider1.display_name,
+    patient_id: SEED_PATIENTS[0].id,
+    patient_name: SEED_PATIENTS[0].full_name,
+    test_types: ["בדיקת דם כללית"],
+    lab_code: "GEN-01",
+    status: "בעיבוד",
+    created_date: isoDateDaysFromNow(-4),
+    completed_date: undefined,
+    notes: "",
+    results: undefined,
+  },
+  {
+    id: generateId("lab"),
+    provider_id: provider2.id,
+    provider_name: provider2.display_name,
+    patient_id: SEED_PATIENTS[0].id,
+    patient_name: SEED_PATIENTS[0].full_name,
+    test_types: ["פרופיל שומנים בדם"],
+    lab_code: "LIP-02",
+    status: "הושלם",
+    created_date: isoDateDaysFromNow(-9),
+    completed_date: isoDateDaysFromNow(-7),
+    notes: "",
+    results: "תקין, ללא ממצאים חריגים",
+  },
+  {
+    id: generateId("lab"),
+    provider_id: provider1.id,
+    provider_name: provider1.display_name,
+    patient_id: SEED_PATIENTS[0].id,
+    patient_name: SEED_PATIENTS[0].full_name,
+    test_types: ["בדיקת תפקודי כליה"],
+    lab_code: "REN-03",
+    status: "שגיאה",
+    created_date: isoDateDaysFromNow(-2),
+    completed_date: undefined,
+    notes: "הדגימה נפסלה במעבדה — נדרשת דגימה חוזרת",
+    results: undefined,
+  },
+]);
 
 // ---------------------------------------------------------------------------
 // Visit records — a provider's own clinical notes on a patient. Deliberately
@@ -2391,6 +2440,23 @@ export const SEED_DOCUMENTS: PatientDocument[] = [
     status: "זמין",
     created_date: isoDateDaysFromNow(-20),
     file: { file_name: "שאלון_הרדמה.pdf", uploaded_at: isoDateDaysFromNow(-19), data_url: "data:application/pdf;base64," },
+  },
+  // Demonstrates the new multi-appointment linking (DocumentUploadDialog /
+  // appointment_ids) — a patient-uploaded doc relevant to two separate
+  // visits, rendered as "קשור ל-2 תורים" instead of a single appointment.
+  {
+    id: generateId("doc"),
+    patient_id: demoPatient.id,
+    category: "other",
+    title: "סיכום מצב רפואי כללי",
+    uploaded_by: "patient",
+    appointment_ids: [demoDocAppointments[2]?.id, demoDocAppointments[3]?.id].filter((id): id is string => !!id),
+    created_date: isoDateDaysFromNow(-8),
+    file: {
+      file_name: "סיכום_מצב_רפואי.pdf",
+      uploaded_at: isoDateDaysFromNow(-8),
+      data_url: "data:application/pdf;base64,",
+    },
   },
   // Spread a few documents across other patients too, so the tab isn't
   // demo-patient-only.
