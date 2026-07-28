@@ -1354,6 +1354,21 @@ function ClientAppointmentsPageContent() {
         onClose={() => setPayDepositAppointment(null)}
         onPaid={(id) => {
           updateAppointment(id, { status: "מאושר", deposit_paid_at: new Date().toISOString() });
+          const patientId = patient?.id ?? currentUser?.id;
+          if (patientId && payDepositAppointment) {
+            addDocument({
+              patient_id: patientId,
+              category: "receipt",
+              title: `קבלה על מקדמה - ${payDepositAppointment.service_name}`,
+              uploaded_by: "system",
+              appointment_id: id,
+              file: {
+                file_name: "קבלה.pdf",
+                uploaded_at: new Date().toISOString(),
+                data_url: "data:application/pdf;base64,",
+              },
+            });
+          }
           showToast("התשלום התקבל, התור אושר", { variant: "success" });
           setPayDepositAppointment(null);
         }}
