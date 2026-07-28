@@ -16,8 +16,16 @@
 // provider": a מכון has several independent queues (MRI 1, CT 1, each doctor),
 // so its slots are built per resource and a time stays available while ANY
 // resource that offers the service is still free — see src/lib/unit-resources.ts.
-import { Appointment, Clinic, ProviderProfile } from "@/types";
-import { slotTimesForDate } from "./schedule";
+import {
+  Appointment,
+  Clinic,
+  DEFAULT_SLOT_MINUTES,
+  ProviderAffiliation,
+  ProviderProfile,
+  isPractitionerProviderType,
+} from "@/types";
+import { slotTimesForDate, timeToMinutes } from "./schedule";
+import { practitionerFreeAt } from "./practitioner-availability";
 import {
   ResourceSlot,
   UnitResource,
@@ -67,7 +75,12 @@ export function buildMonth(
   appointments: Appointment[],
   monthDate: Date,
   clinic: Clinic | undefined = primaryLocation(provider),
-  opts: { serviceId?: string; durationMinutes?: number } = {}
+  opts: { serviceId?: string; durationMinutes?: number } = {},
+  // §PRV-10 — the affiliations slice, so a unit's human resources (and their
+  // cross-context availability) are derived from the first-class links. Omit it
+  // and unit doctors fall back to the deprecated embedded array; the
+  // cross-context guard for units then has no practitioner mapping to key on.
+  affiliations?: ProviderAffiliation[]
 ): MonthDay[] {
   const location = clinic;
   // A service the chosen location doesn't offer has no slots there at all,
@@ -79,15 +92,24 @@ export function buildMonth(
   const occupied = new Set(
     providerAppointments.filter((a) => a.status !== "בוטל").map((a) => `${a.date}T${a.time}`)
   );
+  // §PRV-10 — booking length used by the cross-context human guard (defaults to
+  // one standard slot when the caller didn't scope to a specific service).
+  const bookingMinutes = opts.durationMinutes ?? DEFAULT_SLOT_MINUTES;
+  // For a solo HUMAN provider, the person's time is also consumed by any unit
+  // they deliver in — so their own calendar's free slots must exclude times
+  // they're booked elsewhere. Entity providers (store/lab/…) have no such axis.
+  const soloHuman = !usesUnitResources(provider, opts.serviceId, affiliations) && isPractitionerProviderType(provider.provider_type);
 
   // Unit mode: the queues are the resources, not the site. `resources` is
   // empty for every other provider type, which keeps the classic path below.
-  const unitMode = usesUnitResources(provider, opts.serviceId);
+  const unitMode = usesUnitResources(provider, opts.serviceId, affiliations);
   const unitResources: UnitResource[] = unitMode
     ? opts.serviceId
-      ? resourcesForService(getUnitResources(provider), opts.serviceId)
-      : getUnitResources(provider)
+      ? resourcesForService(getUnitResources(provider, undefined, undefined, affiliations), opts.serviceId)
+      : getUnitResources(provider, undefined, undefined, affiliations)
     : [];
+  // resource id → delivering person's profile id, for the cross-context guard.
+  const practitionerByResource = new Map(unitResources.map((r) => [r.id, r.practitioner_id]));
 
   const year = monthDate.getFullYear();
   const month = monthDate.getMonth();
@@ -110,12 +132,23 @@ export function buildMonth(
         ? []
         : unitSlotTimesForDate(unitResources, date, opts);
       slots = resourceSlots.map((slot) => {
-        const free = freeResourceIds(slot, providerAppointments, date);
+        const free = freeResourceIds(slot, appointments, date, {
+          durationMinutes: bookingMinutes,
+          practitionerByResource,
+        });
         return { time: slot.time, available: free.length > 0, resourceId: free[0] };
       });
     } else {
       const times = closed || !offeredHere ? [] : slotTimesForDate(location, date, opts);
-      slots = times.map((time) => ({ time, available: !occupied.has(`${date}T${time}`) }));
+      slots = times.map((time) => {
+        // Own-calendar occupancy (as before) plus, for a human, the
+        // cross-context guard: booked in a unit ⇒ unavailable in the private
+        // clinic too, even though nothing here occupies the slot.
+        const takenHere = occupied.has(`${date}T${time}`);
+        const busyElsewhere =
+          soloHuman && !practitionerFreeAt(provider.id, date, timeToMinutes(time), bookingMinutes, appointments);
+        return { time, available: !takenHere && !busyElsewhere };
+      });
     }
 
     days.push({ date, dayOfMonth, weekday: d.getDay(), isPast, slots });

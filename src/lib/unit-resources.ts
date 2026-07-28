@@ -26,14 +26,17 @@ import {
   AffiliatedDoctor,
   Appointment,
   FACILITY_KIND_LABELS,
+  ProviderAffiliation,
   ProviderFacility,
   ProviderProfile,
   ResourceSchedule,
   ScheduleException,
   ServiceArray,
   WeeklySchedule,
+  isAffiliationBookable,
   isUnitProviderType,
 } from "@/types";
+import { practitionerFreeAt } from "./practitioner-availability";
 import {
   DAY_KEYS,
   ScheduleHolder,
@@ -67,6 +70,10 @@ export interface UnitResource extends ScheduleHolder {
   /** How many identical stations this one עמדה represents (concurrent capacity
    * per slot). A doctor is always 1; a facility can stand for several machines. */
   capacity: number;
+  /** §PRV-10 — for a human resource (kind "doctor"), the delivering person's
+   * OWN ProviderProfile id. This is what the cross-context double-booking guard
+   * keys on (never the affiliation/unit id). Undefined for facilities. */
+  practitioner_id?: string;
   /** The shared ResourceSchedule this resource follows, if any — its effective
    * `schedule` below is already resolved from it (see resolveResourceSchedule). */
   schedule_id?: string;
@@ -154,6 +161,9 @@ export function facilityToResource(
   };
 }
 
+/** @deprecated legacy embedded AffiliatedDoctor → resource. Superseded by
+ * affiliationToResource (ProviderAffiliation). Kept for the read fallback in
+ * getUnitResources when no affiliations slice is supplied. */
 export function doctorToResource(
   affiliation: AffiliatedDoctor,
   doctorName: string,
@@ -174,6 +184,38 @@ export function doctorToResource(
     service_array_id: arr.service_array_id,
     service_array: arr.service_array,
     capacity: 1,
+    practitioner_id: affiliation.doctor_provider_id,
+    schedule_id: affiliation.schedule_id,
+    schedule: resolved.schedule,
+    schedule_exceptions: resolved.schedule_exceptions,
+  };
+}
+
+/** §PRV-10 — a first-class ProviderAffiliation → bookable unit resource. The
+ * resource id stays the affiliation id (so Appointment.resource_id keeps
+ * pointing at the working relationship), while `practitioner_id` carries the
+ * delivering person's own profile id for the cross-context conflict guard. */
+export function affiliationToResource(
+  affiliation: ProviderAffiliation,
+  providerName: string,
+  subtitle?: string,
+  schedules?: Map<string, ResourceSchedule>,
+  arrays?: Map<string, ServiceArray>
+): UnitResource {
+  const resolved = resolveResourceSchedule(affiliation, schedules);
+  const arr = resolveResourceArray(affiliation, arrays);
+  return {
+    id: affiliation.id,
+    kind: "doctor",
+    name: providerName,
+    subtitle: [affiliation.role, subtitle].filter(Boolean).join(" · ") || undefined,
+    service_ids: affiliation.service_ids ?? [],
+    is_active: true,
+    branch_id: arr.branch_id,
+    service_array_id: arr.service_array_id,
+    service_array: arr.service_array,
+    capacity: 1,
+    practitioner_id: affiliation.provider_id,
     schedule_id: affiliation.schedule_id,
     schedule: resolved.schedule,
     schedule_exceptions: resolved.schedule_exceptions,
@@ -189,7 +231,14 @@ export function doctorToResource(
 export function getUnitResources(
   provider: ProviderProfile,
   doctorNames?: Map<string, { name: string; specialty?: string }>,
-  serviceArrays?: ServiceArray[]
+  serviceArrays?: ServiceArray[],
+  // §PRV-10 — the first-class affiliations slice. Human resources are derived
+  // from THIS unit's bookable affiliations when it has any (the source of
+  // truth); a unit with none falls back to the deprecated embedded
+  // provider.affiliated_doctors, so pre-migration units (and callers that don't
+  // pass the slice) keep working exactly as before. This per-unit fallback lets
+  // the two models coexist without either double-counting or dropping doctors.
+  affiliations?: ProviderAffiliation[]
 ): UnitResource[] {
   if (!isUnitProvider(provider)) return [];
   const schedules = new Map((provider.resource_schedules ?? []).map((s) => [s.id, s]));
@@ -197,10 +246,19 @@ export function getUnitResources(
   const facilities = (provider.facilities ?? []).map((f) =>
     facilityToResource(f, FACILITY_KIND_LABELS[f.kind] ?? "", schedules, arrays)
   );
-  const doctors = (provider.affiliated_doctors ?? []).map((a) => {
-    const info = doctorNames?.get(a.doctor_provider_id);
-    return doctorToResource(a, info?.name ?? "נותן/ת שירות", info?.specialty, schedules, arrays);
-  });
+  const unitAffiliations = (affiliations ?? []).filter(
+    (a) => a.unit_id === provider.id && isAffiliationBookable(a.status)
+  );
+  const doctors: UnitResource[] =
+    unitAffiliations.length > 0
+      ? unitAffiliations.map((a) => {
+          const info = doctorNames?.get(a.provider_id);
+          return affiliationToResource(a, info?.name ?? "נותן/ת שירות", info?.specialty, schedules, arrays);
+        })
+      : (provider.affiliated_doctors ?? []).map((a) => {
+          const info = doctorNames?.get(a.doctor_provider_id);
+          return doctorToResource(a, info?.name ?? "נותן/ת שירות", info?.specialty, schedules, arrays);
+        });
   return [...facilities, ...doctors];
 }
 
@@ -223,9 +281,13 @@ export function resolveServiceAvailability(
 
 /** True when this provider's slots must be computed from resources rather than
  * from the unit's single location schedule. */
-export function usesUnitResources(provider: ProviderProfile, serviceId?: string): boolean {
+export function usesUnitResources(
+  provider: ProviderProfile,
+  serviceId?: string,
+  affiliations?: ProviderAffiliation[]
+): boolean {
   if (!isUnitProvider(provider)) return false;
-  const resources = getUnitResources(provider).filter((r) => r.is_active);
+  const resources = getUnitResources(provider, undefined, undefined, affiliations).filter((r) => r.is_active);
   if (resources.length === 0) return false;
   if (!serviceId) return true;
   return resourcesForService(resources, serviceId).length > 0;
@@ -281,11 +343,29 @@ export function unitSlotTimesForDate(
 /** Which of a slot's resources are actually free, given the day's
  * appointments. An appointment with no `resource_id` (a unit appointment
  * predating the resource model) can't be attributed to a resource, so it is
- * counted against the unit rather than blocking a specific machine. */
+ * counted against the unit rather than blocking a specific machine.
+ *
+ * Two independent freedom axes must both hold:
+ *   • capacity   — the resource's own queue isn't full at this time (facilities
+ *                  and human resources alike);
+ *   • §PRV-10 practitioner — for a HUMAN resource, the delivering person is also
+ *                  free in EVERY other context (their private clinic, another
+ *                  unit) for [slot, slot+duration). This needs the GLOBAL
+ *                  appointments list and each resource's practitioner_id, so
+ *                  pass them via `opts`; omit them and only capacity is checked
+ *                  (legacy behaviour). */
 export function freeResourceIds(
   slot: ResourceSlot,
   appointments: Appointment[],
-  date: string
+  date: string,
+  opts?: {
+    durationMinutes?: number;
+    /** resource id → the delivering person's ProviderProfile id (human only). */
+    practitionerByResource?: Map<string, string | undefined>;
+    /** All appointments across every context, for the cross-context guard.
+     * Defaults to `appointments` when omitted. */
+    allAppointments?: Appointment[];
+  }
 ): string[] {
   // How many bookings each resource id already holds at this time. A עמדה with
   // capacity N appears N times in slot.resourceIds, and can absorb N bookings
@@ -296,10 +376,23 @@ export function freeResourceIds(
     .forEach((a) => takenCount.set(a.resource_id!, (takenCount.get(a.resource_id!) ?? 0) + 1));
 
   const remaining = new Map(takenCount);
+  const global = opts?.allAppointments ?? appointments;
+  const slotStart = timeToMinutes(slot.time);
+  const durationMin = opts?.durationMinutes;
   return slot.resourceIds.filter((id) => {
     const left = remaining.get(id);
     if (left && left > 0) {
       remaining.set(id, left - 1); // this opening is consumed by an existing booking
+      return false;
+    }
+    // Cross-context human guard: a person already booked elsewhere at this time
+    // isn't available here, even though this resource's own queue is open.
+    const practitionerId = opts?.practitionerByResource?.get(id);
+    if (
+      practitionerId &&
+      durationMin != null &&
+      !practitionerFreeAt(practitionerId, date, slotStart, durationMin, global)
+    ) {
       return false;
     }
     return true;

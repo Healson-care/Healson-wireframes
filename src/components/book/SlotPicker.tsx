@@ -6,6 +6,7 @@ import { ConfirmDialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
 import { buildMonth, MonthDay, serviceOfferedAt } from "@/lib/scheduling";
 import { cn } from "@/lib/utils";
+import { useStore } from "@/lib/store";
 import { Appointment, ProviderProfile } from "@/types";
 
 const WEEKDAY_LABELS = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
@@ -46,6 +47,10 @@ export function SlotPicker({
     [provider, serviceId]
   );
   const service = serviceId ? provider.consultation_types.find((s) => s.id === serviceId) : undefined;
+  // §PRV-10 — unit doctors are derived from the first-class affiliations, and the
+  // cross-context guard keys on them; read globally so the person's other
+  // contexts are visible.
+  const affiliations = useStore((s) => s.affiliations);
 
   // Skipped entirely when there's only one bookable location — no need to
   // make patients pick between clinics that don't exist.
@@ -75,14 +80,21 @@ export function SlotPicker({
   const monthDays = useMemo(
     () =>
       selectedClinic
-        ? buildMonth(provider, appointments, monthDate, selectedClinic, {
-            serviceId,
-            // Size slots to the service itself, so a 90-minute procedure is
-            // never offered in the last hour before the shift closes.
-            durationMinutes: service?.duration_minutes,
-          })
+        ? buildMonth(
+            provider,
+            appointments,
+            monthDate,
+            selectedClinic,
+            {
+              serviceId,
+              // Size slots to the service itself, so a 90-minute procedure is
+              // never offered in the last hour before the shift closes.
+              durationMinutes: service?.duration_minutes,
+            },
+            affiliations
+          )
         : [],
-    [provider, appointments, monthDate, selectedClinic, serviceId, service?.duration_minutes]
+    [provider, appointments, monthDate, selectedClinic, serviceId, service?.duration_minutes, affiliations]
   );
 
   // Naturally resets when the month changes — a selected date string from a

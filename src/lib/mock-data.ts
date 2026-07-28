@@ -20,6 +20,7 @@ import {
   PatientDocument,
   PriceByLayer,
   OrganizationBranch,
+  ProviderAffiliation,
   ServiceArray,
   ServiceArrayType,
   ProviderProfile,
@@ -122,6 +123,7 @@ const provider2ClinicId = generateId("clinic");
 
 const provider2: ProviderProfile = {
   id: "prov_2",
+  provider_type: "doctor",
   user_id: undefined,
   display_name: "ד\"ר מיכל ברק",
   title: "ד\"ר",
@@ -237,6 +239,7 @@ const provider1ClinicId2 = generateId("clinic");
 
 const provider1: ProviderProfile = {
   id: "prov_1",
+  provider_type: "doctor",
   user_id: DEMO_PROVIDER_USER.id,
   display_name: "ד\"ר אבי לוי",
   title: "ד\"ר",
@@ -1281,11 +1284,39 @@ const demoUnitInstitute = demoUnit({
     },
   ],
 });
+// §PRV-10 demo — the מרפאת חוץ staffs a cardiology consult delivered by an
+// AFFILIATED external doctor (ד"ר מיכל ברק / prov_2) who ALSO runs her own
+// private clinic. This is the scenario that exercises the unified calendar and
+// the cross-context double-booking guard: her time is shared between the unit
+// and her private practice, and a booking in one blocks the same hour in the
+// other (see SEED_AFFILIATIONS + the two demo appointments below).
+const demoClinicCardioId = "ct_demo_clinic_cardio";
+const demoAffiliationId = "affil_demo_clinic_michal";
+const demoAffiliationSchedule: WeeklySchedule = {
+  ...emptyWeeklySchedule(),
+  sunday: [{ id: generateId("shift"), start: "09:00", end: "14:00", slot_minutes: 30 }],
+  monday: [{ id: generateId("shift"), start: "09:00", end: "14:00", slot_minutes: 30 }],
+  wednesday: [{ id: generateId("shift"), start: "09:00", end: "14:00", slot_minutes: 30 }],
+};
 const demoUnitClinic = demoUnit({
   id: demoUnitClinicId,
   display_name: "מרפאות חוץ המאוחדת",
   provider_type: "outpatient_clinic",
   specialty: "רב-תחומי",
+  consultation_types: [
+    {
+      id: demoClinicCardioId,
+      name: "ייעוץ קרדיולוגי",
+      duration_minutes: 30,
+      prices: [
+        { layer: "K", price: 140 },
+        { layer: "B", price: 70 },
+        { layer: "H", price: 440 },
+      ],
+      service_type: "consultation",
+      service_array_ids: ["sarr_clinic_consult"],
+    },
+  ],
 });
 
 // ---------------------------------------------------------------------------
@@ -1472,6 +1503,89 @@ export const SEED_SERVICE_ARRAYS: ServiceArray[] = [
     type: "treatments",
     name: "מערך טיפולים",
     created_date: isoDateDaysFromNow(-58),
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Provider ⇄ unit affiliations (§PRV-10) — first-class, bidirectionally-
+// consented links. The one seeded affiliation puts the solo doctor ד"ר מיכל
+// ברק (prov_2) under the demo מרפאת חוץ as an active נותנת שירות: the unit owns
+// her in-unit weekly schedule, while she keeps her own private clinic — the
+// two contexts share one person, so the cross-context guard keeps her from
+// being booked twice at once. Every other unit still uses the deprecated
+// embedded affiliated_doctors (getUnitResources falls back per-unit), so this
+// slice can grow one unit at a time without disturbing the rest.
+// Migrate the standalone units' embedded affiliated_doctors (§PRV-07 legacy)
+// into first-class affiliations (§PRV-10). The affdoc id is REUSED as the
+// affiliation id, so any resource_id already pointing at it stays valid, and
+// the embedded array is cleared so each unit has a single source of truth.
+// Runs after buildUnitHierarchy() populated branch_id/service_array_id above.
+function migrateEmbeddedDoctors(unit: ProviderProfile): ProviderAffiliation[] {
+  const out = (unit.affiliated_doctors ?? []).map(
+    (ad): ProviderAffiliation => ({
+      id: ad.id,
+      provider_id: ad.doctor_provider_id,
+      unit_id: unit.id,
+      branch_id: ad.branch_id,
+      service_array_id: ad.service_array_id,
+      role: ad.role,
+      service_ids: ad.service_ids,
+      status: "active",
+      initiated_by: "unit",
+      requested_at: ad.added_at,
+      decided_at: ad.added_at,
+      schedule_id: ad.schedule_id,
+      schedule: ad.schedule,
+      schedule_exceptions: ad.schedule_exceptions,
+      created_at: ad.added_at,
+      updated_at: ad.added_at,
+    })
+  );
+  unit.affiliated_doctors = [];
+  return out;
+}
+
+export const SEED_AFFILIATIONS: ProviderAffiliation[] = [
+  // The two loginable demo units (institute@ / clinic@) — their doctors now
+  // live in the slice, so the new "נותני שירות" management screen lists them.
+  ...migrateEmbeddedDoctors(providerInstitute),
+  ...migrateEmbeddedDoctors(providerOutpatient),
+  // ד"ר אבי לוי (prov_1 — the provider@ demo login) affiliated to the מרפאת
+  // חוץ, so the provider SIDE (ProviderUnitsCard + the unified-calendar unit
+  // reflection) is visible on a real login. See the seeded unit appointment.
+  {
+    id: "affil_out_avi",
+    provider_id: "prov_1",
+    unit_id: "prov_outpatient",
+    role: "יועץ אורתופדי",
+    service_ids: [outpatientServiceIds.consult],
+    status: "active",
+    initiated_by: "unit",
+    requested_at: isoDateDaysFromNow(-30),
+    decided_at: isoDateDaysFromNow(-29),
+    schedule: weekly({
+      tuesday: [shift("sh_avi_out_tue", "09:00", "12:00", { label: "מרפאת אורתופדיה", slot_minutes: 30 })],
+    }),
+    created_at: isoDateDaysFromNow(-30),
+    updated_at: isoDateDaysFromNow(-29),
+  },
+  // The org demo unit (no login) — kept so the seed also exercises the guard on
+  // ד"ר מיכל ברק, who runs a private clinic AND works here (see the two appts).
+  {
+    id: demoAffiliationId,
+    provider_id: "prov_2",
+    unit_id: demoUnitClinicId,
+    branch_id: demoBranchClinicId,
+    service_array_id: "sarr_clinic_consult",
+    role: "רופאה בכירה",
+    service_ids: [demoClinicCardioId],
+    status: "active",
+    initiated_by: "unit",
+    requested_at: isoDateDaysFromNow(-40),
+    decided_at: isoDateDaysFromNow(-39),
+    schedule: demoAffiliationSchedule,
+    created_at: isoDateDaysFromNow(-40),
+    updated_at: isoDateDaysFromNow(-39),
   },
 ];
 
@@ -1952,6 +2066,77 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
     kupah: SEED_PATIENTS[0].kupah,
     notes: "",
     created_by_id: SEED_PATIENTS[0].id,
+  },
+  // §PRV-10 — ד"ר מיכל ברק's two contexts on the SAME day at different hours, so
+  // her unified calendar shows both and neither collides. Booking her in the
+  // unit at 10:00 (her private-clinic hour) is what the cross-context guard
+  // blocks; 12:00 (her unit hour) blocks a new private booking there. Both
+  // carry practitioner_id = prov_2 (the person), with distinct owners.
+  {
+    id: generateId("appt"),
+    client_name: SEED_PATIENTS[2].full_name,
+    client_phone: SEED_PATIENTS[2].phone,
+    provider_id: provider2.id,
+    provider_name: provider2.display_name,
+    service_name: "ייעוץ קרדיולוגי כללי",
+    clinic_id: provider2ClinicId,
+    practitioner_id: provider2.id,
+    owner_context_id: provider2.id,
+    date: isoDateDaysFromNow(2),
+    time: "10:00",
+    duration_minutes: 30,
+    status: "מאושר",
+    price: 420,
+    deposit_amount: 126,
+    deposit_paid_at: isoTimestampHoursFromNow(-30),
+    kupah: SEED_PATIENTS[2].kupah,
+    notes: "",
+    created_by_id: SEED_PATIENTS[2].id,
+  },
+  {
+    id: generateId("appt"),
+    client_name: SEED_PATIENTS[3].full_name,
+    client_phone: SEED_PATIENTS[3].phone,
+    provider_id: demoUnitClinicId,
+    provider_name: "מרפאות חוץ המאוחדת",
+    service_name: "ייעוץ קרדיולוגי",
+    resource_id: demoAffiliationId,
+    practitioner_id: provider2.id,
+    owner_context_id: demoAffiliationId,
+    date: isoDateDaysFromNow(2),
+    time: "12:00",
+    duration_minutes: 30,
+    status: "מאושר",
+    price: 440,
+    deposit_amount: 132,
+    deposit_paid_at: isoTimestampHoursFromNow(-30),
+    kupah: SEED_PATIENTS[3].kupah,
+    notes: "",
+    created_by_id: SEED_PATIENTS[3].id,
+  },
+  // §PRV-10 — a unit booking delivered by ד"ר אבי לוי (prov_1, the provider@
+  // login) inside the מרפאת חוץ. It shows on HIS unified calendar as a
+  // read-only reflection (owned by the unit), demonstrating the provider side.
+  {
+    id: generateId("appt"),
+    client_name: SEED_PATIENTS[4].full_name,
+    client_phone: SEED_PATIENTS[4].phone,
+    provider_id: "prov_outpatient",
+    provider_name: "מרפאות חוץ הדסה קהילה",
+    service_name: "ייעוץ אורתופדי",
+    resource_id: "affil_out_avi",
+    practitioner_id: "prov_1",
+    owner_context_id: "affil_out_avi",
+    date: isoDateDaysFromNow(3),
+    time: "09:00",
+    duration_minutes: 30,
+    status: "מאושר",
+    price: 300,
+    deposit_amount: 90,
+    deposit_paid_at: isoTimestampHoursFromNow(-20),
+    kupah: SEED_PATIENTS[4].kupah,
+    notes: "",
+    created_by_id: SEED_PATIENTS[4].id,
   },
 ]);
 

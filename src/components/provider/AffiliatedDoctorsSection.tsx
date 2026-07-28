@@ -11,10 +11,12 @@ import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { fileToDataUrl } from "@/lib/file";
 import {
-  AffiliatedDoctor,
+  AFFILIATION_STATUS_LABELS,
+  AffiliationStatus,
   Clinic,
   ConsultationType,
   OrganizationBranch,
+  ProviderAffiliation,
   ProviderProfile,
   ServiceArray,
   UploadedFile,
@@ -24,19 +26,36 @@ import { hasAnyAvailability, totalWeeklyHours } from "@/lib/schedule";
 import {
   AlertCircle,
   BadgeCheck,
+  Ban,
   CalendarClock,
+  Check,
   Layers,
   Link2,
   MapPin,
   MapPinned,
+  Pause,
   Pencil,
+  Play,
   Plus,
   Search,
   Stethoscope,
   Trash2,
   Upload,
   UserPlus,
+  X,
 } from "lucide-react";
+
+// Status → Badge tone. Pending states read as "waiting", active as success,
+// suspended as muted, unclaimed as a distinct "not yet on the platform" purple.
+const STATUS_TONE: Record<AffiliationStatus, "success" | "warning" | "info" | "slate" | "purple"> = {
+  active: "success",
+  invited_by_unit: "warning",
+  requested_by_provider: "info",
+  suspended: "slate",
+  unclaimed: "purple",
+  declined: "slate",
+  ended: "slate",
+};
 
 const TITLES = ['ד"ר', "פרופ'"];
 
@@ -64,18 +83,35 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
   const providers = useStore((s) => s.providers);
   const organizationBranches = useStore((s) => s.organizationBranches);
   const serviceArrays = useStore((s) => s.serviceArrays);
+  const affiliationsAll = useStore((s) => s.affiliations);
   const findMatchingDoctors = useStore((s) => s.findMatchingDoctors);
-  const addAffiliatedDoctor = useStore((s) => s.addAffiliatedDoctor);
-  const linkExistingDoctorToOrganization = useStore((s) => s.linkExistingDoctorToOrganization);
-  const updateAffiliatedDoctor = useStore((s) => s.updateAffiliatedDoctor);
-  const removeAffiliatedDoctor = useStore((s) => s.removeAffiliatedDoctor);
+  const inviteProviderToUnit = useStore((s) => s.inviteProviderToUnit);
+  const createAndInviteProvider = useStore((s) => s.createAndInviteProvider);
+  const updateAffiliation = useStore((s) => s.updateAffiliation);
+  const endAffiliation = useStore((s) => s.endAffiliation);
+  const acceptAffiliation = useStore((s) => s.acceptAffiliation);
+  const declineAffiliation = useStore((s) => s.declineAffiliation);
+  const suspendAffiliation = useStore((s) => s.suspendAffiliation);
+  const reactivateAffiliation = useStore((s) => s.reactivateAffiliation);
   const showToast = useStore((s) => s.showToast);
 
   const [addOpen, setAddOpen] = useState(false);
-  const [editing, setEditing] = useState<AffiliatedDoctor | null>(null);
-  const [removing, setRemoving] = useState<AffiliatedDoctor | null>(null);
+  const [editing, setEditing] = useState<ProviderAffiliation | null>(null);
+  const [removing, setRemoving] = useState<ProviderAffiliation | null>(null);
 
-  const affiliations = provider.affiliated_doctors ?? [];
+  // Every non-terminal affiliation of this unit — active + unclaimed (bookable),
+  // plus pending invites/requests and suspended ones so the unit can act on
+  // them. Terminal (declined/ended) records are hidden.
+  const affiliations = useMemo(
+    () =>
+      affiliationsAll.filter(
+        (a) => a.unit_id === provider.id && a.status !== "ended" && a.status !== "declined"
+      ),
+    [affiliationsAll, provider.id]
+  );
+  // Provider-initiated requests waiting for THIS unit to approve — need an
+  // explicit accept/decline, so they're surfaced with their own actions.
+  const pendingRequests = affiliations.filter((a) => a.status === "requested_by_provider");
   const doctorById = useMemo(() => new Map(providers.map((p) => [p.id, p])), [providers]);
   const services = provider.consultation_types;
 
@@ -83,7 +119,7 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
   const unitBranches = organizationBranches.filter((b) => b.unit_id === provider.id);
   const unitArrays = serviceArrays.filter((a) => unitBranches.some((b) => b.id === a.branch_id));
   const arrayById = new Map(unitArrays.map((a) => [a.id, a]));
-  const resolveArray = (a: AffiliatedDoctor) => {
+  const resolveArray = (a: ProviderAffiliation) => {
     const arr = a.service_array_id ? arrayById.get(a.service_array_id) : undefined;
     return {
       key: arr?.id ?? "__none__",
@@ -125,6 +161,59 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
         </Button>
       </Card>
 
+      {pendingRequests.length > 0 && (
+        <div className="rounded-xl border border-info-border bg-info-bg p-3">
+          <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-info-text">
+            <AlertCircle className="h-4 w-4" /> {pendingRequests.length} בקשות הצטרפות ממתינות לאישורך
+          </p>
+          <div className="flex flex-col gap-1.5">
+            {pendingRequests.map((a) => {
+              const d = doctorById.get(a.provider_id);
+              return (
+                <div
+                  key={a.id}
+                  className="flex flex-wrap items-center gap-2 rounded-lg border border-info-border bg-white px-3 py-2"
+                >
+                  <Avatar name={d?.display_name ?? ""} src={d?.image_url} className="h-8 w-8 text-[11px]" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-slate-900">
+                      {d?.title} {d?.display_name ?? "נותן/ת שירות"}
+                    </p>
+                    <p className="truncate text-[11px] text-slate-500">
+                      {d?.specialty}
+                      {a.role ? ` · ${a.role}` : ""}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      const r = acceptAffiliation(a.id);
+                      showToast(r.ok ? "השיוך אושר" : r.error ?? "שגיאה", {
+                        variant: r.ok ? "success" : "destructive",
+                      });
+                    }}
+                  >
+                    <Check className="h-3.5 w-3.5" /> אשר
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      const r = declineAffiliation(a.id);
+                      showToast(r.ok ? "הבקשה נדחתה" : r.error ?? "שגיאה", {
+                        variant: r.ok ? "success" : "destructive",
+                      });
+                    }}
+                  >
+                    <X className="h-3.5 w-3.5" /> דחה
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {affiliations.length > 0 && unstaffedServices.length > 0 && (
         <div className="flex items-start gap-2 rounded-lg border border-warning-border bg-warning-bg px-3 py-2 text-sm text-warning-text">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -147,10 +236,12 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
             type Grp = {
               branchId: string;
               branchName: string;
-              arrays: { key: string; name: string; items: AffiliatedDoctor[] }[];
+              arrays: { key: string; name: string; items: ProviderAffiliation[] }[];
             };
             const groups: Grp[] = [];
-            affiliations.forEach((aff) => {
+            affiliations
+              .filter((a) => a.status !== "requested_by_provider")
+              .forEach((aff) => {
               const r = resolveArray(aff);
               let bg = groups.find((g) => g.branchId === r.branchId);
               if (!bg) {
@@ -177,10 +268,15 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
                     </p>
                     <div className="grid gap-3 sm:grid-cols-2">
                       {ag.items.map((affiliation) => {
-            const doctor = doctorById.get(affiliation.doctor_provider_id);
+            const doctor = doctorById.get(affiliation.provider_id);
             if (!doctor) return null;
             const linkedServices = services.filter((s) => affiliation.service_ids.includes(s.id));
-            const otherOrgs = (doctor.organization_provider_ids ?? []).filter((id) => id !== provider.id);
+            const otherUnits = affiliationsAll.filter(
+              (x) =>
+                x.provider_id === affiliation.provider_id &&
+                x.unit_id !== provider.id &&
+                (x.status === "active" || x.status === "unclaimed")
+            ).length;
             return (
               <Card key={affiliation.id} className="p-4">
                 <div className="flex items-start justify-between gap-2">
@@ -192,33 +288,72 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
                       </p>
                       <p className="truncate text-xs text-slate-500">{doctor.specialty}</p>
                       <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                        <Badge tone={STATUS_TONE[affiliation.status]}>
+                          {AFFILIATION_STATUS_LABELS[affiliation.status]}
+                        </Badge>
                         {affiliation.role && <Badge tone="info">{affiliation.role}</Badge>}
                         {doctor.license_number && (
                           <span className="flex items-center gap-1 text-[11px] text-slate-400">
                             <BadgeCheck className="h-3 w-3" /> {doctor.license_number}
                           </span>
                         )}
-                        {otherOrgs.length > 0 && (
-                          <Badge tone="purple">משויך/ת ל-{otherOrgs.length} ארגונים נוספים</Badge>
+                        {otherUnits > 0 && (
+                          <Badge tone="purple">משויך/ת ל-{otherUnits} יחידות נוספות</Badge>
                         )}
                       </div>
                     </div>
                   </div>
                   <div className="flex shrink-0 gap-1">
-                    <button
-                      onClick={() => setEditing(affiliation)}
-                      className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"
-                      aria-label="עריכת שיוך"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      onClick={() => setRemoving(affiliation)}
-                      className="rounded-md p-1.5 text-red-500 hover:bg-red-50"
-                      aria-label="הסרת שיוך"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    {affiliation.status === "invited_by_unit" ? (
+                      <button
+                        onClick={() => setRemoving(affiliation)}
+                        className="rounded-md p-1.5 text-red-500 hover:bg-red-50"
+                        aria-label="ביטול הזמנה"
+                      >
+                        <Ban className="h-3.5 w-3.5" />
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => setEditing(affiliation)}
+                          className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"
+                          aria-label="עריכת שיוך"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        {affiliation.status === "active" && (
+                          <button
+                            onClick={() => {
+                              suspendAffiliation(affiliation.id);
+                              showToast("השיוך הושהה", { variant: "success" });
+                            }}
+                            className="rounded-md p-1.5 text-amber-600 hover:bg-amber-50"
+                            aria-label="השהיית שיוך"
+                          >
+                            <Pause className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        {affiliation.status === "suspended" && (
+                          <button
+                            onClick={() => {
+                              reactivateAffiliation(affiliation.id);
+                              showToast("השיוך הופעל מחדש", { variant: "success" });
+                            }}
+                            className="rounded-md p-1.5 text-emerald-600 hover:bg-emerald-50"
+                            aria-label="הפעלת שיוך"
+                          >
+                            <Play className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setRemoving(affiliation)}
+                          className="rounded-md p-1.5 text-red-500 hover:bg-red-50"
+                          aria-label="סיום שיוך"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -236,16 +371,6 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
                     </div>
                   )}
                 </div>
-
-                {clinics.length > 0 && (affiliation.clinic_ids?.length ?? 0) > 0 && (
-                  <p className="mt-2 flex items-center gap-1 text-[11px] text-slate-500">
-                    <MapPin className="h-3 w-3" />
-                    {clinics
-                      .filter((c) => affiliation.clinic_ids!.includes(c.id))
-                      .map((c) => c.name)
-                      .join(" · ")}
-                  </p>
-                )}
 
                 {/* In a unit the doctor is a bookable resource, so whether they
                     have a week of their own is the thing to surface here. */}
@@ -279,10 +404,12 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
         onClose={() => setAddOpen(false)}
         services={services}
         clinics={clinics}
-        alreadyAffiliatedIds={affiliations.map((a) => a.doctor_provider_id)}
+        alreadyAffiliatedIds={affiliations.map((a) => a.provider_id)}
         findMatchingDoctors={findMatchingDoctors}
         onCreate={(data) => {
-          const result = addAffiliatedDoctor(provider.id, data);
+          // A brand-new person isn't on the platform yet, so the affiliation is
+          // created "unclaimed" — live immediately, ratified when they claim it.
+          const result = createAndInviteProvider(provider.id, data);
           if (!result.ok) {
             showToast(result.error ?? "שגיאה בהוספת נותן/ת השירות", { variant: "destructive" });
             return false;
@@ -295,12 +422,20 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
           return true;
         }}
         onLink={(doctorId, data) => {
-          const result = linkExistingDoctorToOrganization(provider.id, doctorId, data);
+          // An existing provider must consent — so this sends an INVITE that
+          // stays pending until they accept.
+          const result = inviteProviderToUnit(provider.id, doctorId, {
+            role: data.role,
+            service_ids: data.service_ids,
+          });
           if (!result.ok) {
             showToast(result.error ?? "שגיאה בשיוך", { variant: "destructive" });
             return false;
           }
-          showToast("נותן/ת השירות הקיים/ת שויך/ה לארגון", { variant: "success" });
+          showToast("הזמנה נשלחה לנותן/ת השירות", {
+            description: "השיוך יופעל לאחר אישורו/ה",
+            variant: "success",
+          });
           setAddOpen(false);
           return true;
         }}
@@ -308,15 +443,14 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
 
       <EditAffiliationDialog
         affiliation={editing}
-        doctor={editing ? doctorById.get(editing.doctor_provider_id) : undefined}
+        doctor={editing ? doctorById.get(editing.provider_id) : undefined}
         services={services}
-        clinics={clinics}
         serviceArrays={unitArrays}
         branches={unitBranches}
         onClose={() => setEditing(null)}
         onSave={(data) => {
           if (editing) {
-            updateAffiliatedDoctor(provider.id, editing.id, data);
+            updateAffiliation(editing.id, data);
             showToast("פרטי השיוך עודכנו", { variant: "success" });
           }
           setEditing(null);
@@ -326,14 +460,36 @@ export function AffiliatedDoctorsSection({ provider }: { provider: ProviderProfi
       <ConfirmDialog
         open={!!removing}
         onClose={() => setRemoving(null)}
-        title="הסרת שיוך נותן/ת שירות"
-        description="נותן/ת השירות יוסר/תוסר מהארגון ומהפריטים המשויכים. רשומת נותן/ת השירות עצמה נשמרת במערכת."
+        title={
+          removing?.status === "invited_by_unit"
+            ? "ביטול הזמנה"
+            : removing?.status === "requested_by_provider"
+            ? "דחיית בקשת הצטרפות"
+            : "סיום שיוך נותן/ת שירות"
+        }
+        description={
+          removing?.status === "invited_by_unit" || removing?.status === "requested_by_provider"
+            ? "הבקשה תבוטל. אפשר תמיד לשלוח הזמנה חדשה בהמשך."
+            : "השיוך יסתיים ונותן/ת השירות יוסר/תוסר מהיחידה. פעולה זו חסומה כל עוד יש תורים עתידיים פעילים — יש לשבץ אותם מחדש או לבטלם תחילה. רשומת נותן/ת השירות עצמה נשמרת במערכת."
+        }
         destructive
-        confirmLabel="הסר שיוך"
+        confirmLabel={
+          removing?.status === "invited_by_unit" || removing?.status === "requested_by_provider"
+            ? "בטל בקשה"
+            : "סיים שיוך"
+        }
         onConfirm={() => {
-          if (removing) {
-            removeAffiliatedDoctor(provider.id, removing.id);
-            showToast("שיוך נותן/ת השירות הוסר", { variant: "success" });
+          if (!removing) return;
+          if (removing.status === "invited_by_unit" || removing.status === "requested_by_provider") {
+            const r = declineAffiliation(removing.id);
+            showToast(r.ok ? "הבקשה בוטלה" : r.error ?? "שגיאה", {
+              variant: r.ok ? "success" : "destructive",
+            });
+          } else {
+            const r = endAffiliation(removing.id);
+            showToast(r.ok ? "השיוך הסתיים" : r.error ?? "לא ניתן לסיים את השיוך", {
+              variant: r.ok ? "success" : "destructive",
+            });
           }
         }}
       />
@@ -372,7 +528,7 @@ function AddDoctorDialog({
     email?: string;
     full_name?: string;
   }) => ProviderProfile[];
-  onCreate: (data: Parameters<ReturnType<typeof useStore.getState>["addAffiliatedDoctor"]>[1]) => boolean;
+  onCreate: (data: Parameters<ReturnType<typeof useStore.getState>["createAndInviteProvider"]>[1]) => boolean;
   onLink: (doctorId: string, data: AffiliationInput) => boolean;
 }) {
   const skillDomains = useStore((s) => s.skillDomains);
@@ -466,7 +622,6 @@ function AddDoctorDialog({
       license_file: uploaded,
       role: role.trim() || undefined,
       service_ids: serviceIds,
-      clinic_ids: clinicIds,
     });
     setBusy(false);
     if (ok) reset();
@@ -792,23 +947,21 @@ function SearchExistingDoctor({
 }
 
 type AffiliationEdit = Partial<
-  Pick<AffiliatedDoctor, "role" | "service_ids" | "clinic_ids" | "service_array_id" | "branch_id">
+  Pick<ProviderAffiliation, "role" | "service_ids" | "service_array_id" | "branch_id">
 >;
 
 function EditAffiliationDialog({
   affiliation,
   doctor,
   services,
-  clinics,
   serviceArrays,
   branches,
   onClose,
   onSave,
 }: {
-  affiliation: AffiliatedDoctor | null;
+  affiliation: ProviderAffiliation | null;
   doctor?: ProviderProfile;
   services: ConsultationType[];
-  clinics: Clinic[];
   serviceArrays: ServiceArray[];
   branches: OrganizationBranch[];
   onClose: () => void;
@@ -819,7 +972,7 @@ function EditAffiliationDialog({
       open={!!affiliation}
       onClose={onClose}
       title={doctor ? `${doctor.title} ${doctor.display_name}` : "עריכת שיוך"}
-      description="מערך, תפקיד בארגון, פריטים ומיקומים"
+      description="מערך, תפקיד ביחידה ופריטים"
       className="max-w-lg"
     >
       {affiliation && (
@@ -827,7 +980,6 @@ function EditAffiliationDialog({
           key={affiliation.id}
           affiliation={affiliation}
           services={services}
-          clinics={clinics}
           serviceArrays={serviceArrays}
           branches={branches}
           onSave={onSave}
@@ -840,21 +992,18 @@ function EditAffiliationDialog({
 function EditAffiliationForm({
   affiliation,
   services,
-  clinics,
   serviceArrays,
   branches,
   onSave,
 }: {
-  affiliation: AffiliatedDoctor;
+  affiliation: ProviderAffiliation;
   services: ConsultationType[];
-  clinics: Clinic[];
   serviceArrays: ServiceArray[];
   branches: OrganizationBranch[];
   onSave: (data: AffiliationEdit) => void;
 }) {
   const [role, setRole] = useState(affiliation.role ?? "");
   const [serviceIds, setServiceIds] = useState<string[]>(affiliation.service_ids);
-  const [clinicIds, setClinicIds] = useState<string[]>(affiliation.clinic_ids ?? []);
   const [serviceArrayId, setServiceArrayId] = useState(affiliation.service_array_id ?? "");
 
   return (
@@ -884,16 +1033,14 @@ function EditAffiliationForm({
           );
         })}
       </Select>
-      <Input label="תפקיד בארגון" value={role} onChange={(e) => setRole(e.target.value)} />
+      <Input label="תפקיד ביחידה" value={role} onChange={(e) => setRole(e.target.value)} />
       <ServicePicker services={services} value={serviceIds} onChange={setServiceIds} />
-      <ClinicPicker clinics={clinics} value={clinicIds} onChange={setClinicIds} />
       <Button
         onClick={() => {
           const chosen = serviceArrayId ? serviceArrays.find((a) => a.id === serviceArrayId) : undefined;
           onSave({
             role: role.trim() || undefined,
             service_ids: serviceIds,
-            clinic_ids: clinicIds,
             service_array_id: serviceArrayId || undefined,
             branch_id: chosen?.branch_id ?? affiliation.branch_id,
           });

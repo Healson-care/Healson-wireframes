@@ -67,6 +67,7 @@ export function ServiceArraysManager({ provider }: { provider: ProviderProfile }
   const organizationBranches = useStore((s) => s.organizationBranches);
   const serviceArrays = useStore((s) => s.serviceArrays);
   const providers = useStore((s) => s.providers);
+  const affiliationsSlice = useStore((s) => s.affiliations);
   const addServiceArray = useStore((s) => s.addServiceArray);
   const updateServiceArray = useStore((s) => s.updateServiceArray);
   const deleteServiceArray = useStore((s) => s.deleteServiceArray);
@@ -90,9 +91,13 @@ export function ServiceArraysManager({ provider }: { provider: ProviderProfile }
       ),
     [providers]
   );
+  const unitAffiliations = useMemo(
+    () => affiliationsSlice.filter((a) => a.unit_id === provider.id),
+    [affiliationsSlice, provider.id]
+  );
   const resources = useMemo(
-    () => getUnitResources(provider, doctorInfo, arrays),
-    [provider, doctorInfo, arrays]
+    () => getUnitResources(provider, doctorInfo, arrays, unitAffiliations),
+    [provider, doctorInfo, arrays, unitAffiliations]
   );
 
   const [dialogOpen, setDialogOpen] = useState(false);

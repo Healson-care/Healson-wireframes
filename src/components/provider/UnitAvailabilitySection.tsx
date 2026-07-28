@@ -60,6 +60,13 @@ export function UnitAvailabilitySection({
   const organizationBranches = useStore((s) => s.organizationBranches);
   const serviceArrays = useStore((s) => s.serviceArrays);
   const appointments = useStore((s) => s.appointments);
+  const affiliationsSlice = useStore((s) => s.affiliations);
+  // §PRV-10 — this unit's affiliations, so the calendar derives its human
+  // resources from the first-class links (with per-unit embedded fallback).
+  const unitAffiliations = useMemo(
+    () => affiliationsSlice.filter((a) => a.unit_id === provider.id),
+    [affiliationsSlice, provider.id]
+  );
 
   const doctorInfo = useMemo(
     () =>
@@ -80,8 +87,8 @@ export function UnitAvailabilitySection({
   }, [serviceArrays, unitBranches]);
 
   const resources = useMemo(
-    () => getUnitResources(provider, doctorInfo, unitArrays),
-    [provider, doctorInfo, unitArrays]
+    () => getUnitResources(provider, doctorInfo, unitArrays, unitAffiliations),
+    [provider, doctorInfo, unitArrays, unitAffiliations]
   );
 
   const facilities = provider.facilities ?? [];

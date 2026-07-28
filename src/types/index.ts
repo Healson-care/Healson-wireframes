@@ -760,6 +760,12 @@ export function getProviderServiceCategories(type?: ProviderType): string[] | un
 // ProviderProfile (`doctor_provider_id`). Adding a doctor who already exists
 // in the platform links the existing record instead of creating a second one
 // — see linkExistingDoctorToOrganization / addAffiliatedDoctor in store.ts.
+//
+// @deprecated (§PRV-10) — superseded by `ProviderAffiliation`, a first-class,
+// bidirectionally-consented, provider-type-agnostic join entity living in its
+// own top-level store slice. This embedded shape (plus the inverse
+// `ProviderProfile.organization_provider_ids`) is kept only as a read fallback
+// during migration; new code must read/write `affiliations` instead.
 // ---------------------------------------------------------------------------
 export interface AffiliatedDoctor {
   id: string;
@@ -783,6 +789,101 @@ export interface AffiliatedDoctor {
   schedule?: WeeklySchedule;
   schedule_exceptions?: ScheduleException[];
   added_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Provider ⇄ unit affiliation (§PRV-10) — a first-class, bidirectionally-
+// consented working relationship between an individual service provider (a
+// רופא/אחות/מטפל ProviderProfile) and a medical unit. Replaces the embedded
+// AffiliatedDoctor + the inverse `organization_provider_ids` with ONE
+// indexable record per (provider, unit) pair, so both sides read the same
+// source of truth and consent state has somewhere to live.
+//
+// Two entry points, resolved by `initiated_by` (the OTHER side approves):
+//   • unit invites an existing provider  → status "invited_by_unit"
+//   • solo provider asks to join a unit  → status "requested_by_provider"
+// A brand-new provider the unit types in (not yet on the platform) starts
+// "unclaimed": bookable with implicit consent until that person claims their
+// account, then ratifies or leaves.
+//
+// The in-unit weekly schedule lives here and is owned by the UNIT ALWAYS — the
+// provider never edits it, only sees it as a read-only reflection. (There is
+// deliberately no schedule_governance flag: the rule is fixed.)
+// ---------------------------------------------------------------------------
+export type AffiliationStatus =
+  | "invited_by_unit"
+  | "requested_by_provider"
+  | "active"
+  | "suspended"
+  | "declined"
+  | "ended"
+  | "unclaimed";
+
+export const AFFILIATION_STATUSES: AffiliationStatus[] = [
+  "invited_by_unit",
+  "requested_by_provider",
+  "active",
+  "suspended",
+  "declined",
+  "ended",
+  "unclaimed",
+];
+
+export const AFFILIATION_STATUS_LABELS: Record<AffiliationStatus, string> = {
+  invited_by_unit: "ממתין לאישור נותן/ת השירות",
+  requested_by_provider: "ממתין לאישור היחידה",
+  active: "פעיל",
+  suspended: "מושהה",
+  declined: "נדחה",
+  ended: "הסתיים",
+  unclaimed: "טרם נתבע",
+};
+
+// Statuses in which the affiliation produces a live, bookable resource inside
+// the unit. Everything else (pending / suspended / terminal) does not.
+export const BOOKABLE_AFFILIATION_STATUSES: AffiliationStatus[] = ["active", "unclaimed"];
+
+export function isAffiliationBookable(status: AffiliationStatus): boolean {
+  return BOOKABLE_AFFILIATION_STATUSES.includes(status);
+}
+
+// Provider types delivered by a single human whose PERSONAL time is the
+// scheduling constraint — the axis the cross-context double-booking guard keys
+// on (see Appointment.practitioner_id / src/lib/practitioner-availability.ts).
+// Entity providers (store/pharmacy/lab/unit/…) book against the entity's own
+// calendar instead and are not on this list.
+export const PRACTITIONER_PROVIDER_TYPES: ProviderType[] = ["doctor", "caregiver"];
+export function isPractitionerProviderType(type?: ProviderType): boolean {
+  return !!type && PRACTITIONER_PROVIDER_TYPES.includes(type);
+}
+
+export interface ProviderAffiliation {
+  id: string;
+  // The individual service provider — a ProviderProfile of ANY human-delivered
+  // provider type (doctor/caregiver/…), not just "doctor".
+  provider_id: string;
+  // The medical unit — a ProviderProfile that isUnitProviderType().
+  unit_id: string;
+  // Placement inside the unit (a resource's branch is derived from its מערך).
+  branch_id?: string;
+  service_array_id?: string;
+  role?: string; // "רופא בכיר", "מנהל יחידה"… free text
+  // Which of the unit's catalog services this provider delivers.
+  service_ids: string[];
+  // Consent / lifecycle state machine.
+  status: AffiliationStatus;
+  initiated_by: "unit" | "provider";
+  requested_at: string;
+  decided_at?: string; // when accepted or declined
+  ended_at?: string;
+  // The provider's weekly grid INSIDE the unit — owned by the unit, edited only
+  // by the unit (the provider sees it read-only). Same shared-לו״ז mechanics as
+  // every other unit resource: `schedule_id` → a ResourceSchedule, else inline.
+  schedule_id?: string;
+  schedule?: WeeklySchedule;
+  schedule_exceptions?: ScheduleException[];
+  created_at: string;
+  updated_at: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -1221,6 +1322,20 @@ export interface Appointment {
   // legitimate. Undefined on unit appointments booked before the resource model
   // existed (and on every non-unit provider, which has a single calendar).
   resource_id?: string;
+  // §PRV-10 — the single human whose time this appointment consumes, if any.
+  // Independent of who OWNS the calendar: for a solo booking it equals
+  // provider_id; for a unit booking delivered by an affiliated provider it is
+  // that provider's OWN ProviderProfile id (not the unit, not the affiliation).
+  // Undefined for facility/room bookings (no person) and legacy records. This
+  // is the axis the cross-context double-booking guard keys on — a person is
+  // never bookable twice at once across ALL their contexts. See
+  // src/lib/practitioner-availability.ts.
+  practitioner_id?: string;
+  // §PRV-10 — the one calendar that OWNS this event (exactly one owner). For a
+  // unit resource it is the resource_id; for a solo provider it is that
+  // provider's id (optionally narrowed by clinic_id). Used to decide who may
+  // edit/cancel the event vs. who merely sees it as a read-only reflection.
+  owner_context_id?: string;
   date: string; // yyyy-MM-dd
   time: string; // HH:mm
   duration_minutes: number;
