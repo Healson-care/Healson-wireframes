@@ -11,6 +11,7 @@ import { Dialog, ConfirmDialog } from "@/components/ui/Dialog";
 import { EmptyState } from "@/components/ui/Misc";
 import { getUnitResources } from "@/lib/unit-resources";
 import { generateId } from "@/lib/utils";
+import { ScheduleEditor } from "@/components/provider/AvailabilitySection";
 import {
   FacilityKind,
   FACILITY_KINDS,
@@ -34,6 +35,7 @@ import {
   Stethoscope,
   TriangleAlert,
   Trash2,
+  X,
 } from "lucide-react";
 
 // A sensible default equipment kind per service line, so "הוספת עמדה" in the
@@ -72,6 +74,7 @@ export function ServiceArraysManager({ provider }: { provider: ProviderProfile }
   const updateServiceArray = useStore((s) => s.updateServiceArray);
   const deleteServiceArray = useStore((s) => s.deleteServiceArray);
   const updateProviderById = useStore((s) => s.updateProviderById);
+  const updateAffiliation = useStore((s) => s.updateAffiliation);
   const showToast = useStore((s) => s.showToast);
 
   const branches = useMemo(
@@ -152,6 +155,37 @@ export function ServiceArraysManager({ provider }: { provider: ProviderProfile }
   const [stationModel, setStationModel] = useState("");
   const [stationRoom, setStationRoom] = useState("");
   const [stationCapacity, setStationCapacity] = useState(1);
+
+  // --- לו״ז directly on the מערך ------------------------------------------
+  // Convenience for arrays where every עמדה just follows the same week — the
+  // per-resource editor (availability tab) still wins when a station keeps an
+  // independent schedule (schedule_id / its own schedule).
+  const [scheduleFor, setScheduleFor] = useState<ServiceArray | null>(null);
+
+  // --- unassigning a station/doctor from its מערך --------------------------
+  const [unassignTarget, setUnassignTarget] = useState<{ arrayId: string; resourceId: string; kind: "facility" | "doctor"; name: string } | null>(null);
+
+  const confirmUnassign = () => {
+    if (!unassignTarget) return;
+    if (unassignTarget.kind === "facility") {
+      updateProviderById(provider.id, {
+        facilities: (provider.facilities ?? []).map((f) =>
+          f.id === unassignTarget.resourceId ? { ...f, service_array_id: undefined } : f
+        ),
+      });
+    } else if (unitAffiliations.some((af) => af.id === unassignTarget.resourceId)) {
+      updateAffiliation(unassignTarget.resourceId, { service_array_id: undefined });
+    } else {
+      // Legacy embedded AffiliatedDoctor fallback (pre-migration units).
+      updateProviderById(provider.id, {
+        affiliated_doctors: (provider.affiliated_doctors ?? []).map((d) =>
+          d.id === unassignTarget.resourceId ? { ...d, service_array_id: undefined } : d
+        ),
+      });
+    }
+    showToast(`${unassignTarget.name} הוסר/ה מהמערך`, { variant: "success" });
+    setUnassignTarget(null);
+  };
 
   const openAddStation = (a: ServiceArray) => {
     setStationFor(a);
@@ -332,20 +366,50 @@ export function ServiceArraysManager({ provider }: { provider: ProviderProfile }
                     {equipment.map((m) => (
                       <span
                         key={m.id}
-                        className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700"
+                        className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-0.5 pr-1 pl-2 text-[11px] text-slate-700"
                       >
                         <MonitorCog className="h-3 w-3 text-slate-400" />
                         {m.name}
                         {(m.capacity ?? 1) > 1 && <span className="text-slate-400">×{m.capacity}</span>}
+                        <Link
+                          href="/provider/profile/availability"
+                          title="עריכת עמדה / לו״ז"
+                          className="rounded-full p-0.5 text-slate-400 hover:bg-slate-100 hover:text-primary"
+                        >
+                          <Pencil className="h-2.5 w-2.5" />
+                        </Link>
+                        <button
+                          type="button"
+                          title="הסרה מהמערך"
+                          onClick={() => setUnassignTarget({ arrayId: a.id, resourceId: m.id, kind: "facility", name: m.name })}
+                          className="rounded-full p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-500"
+                        >
+                          <X className="h-2.5 w-2.5" />
+                        </button>
                       </span>
                     ))}
                     {staff.map((m) => (
                       <span
                         key={m.id}
-                        className="inline-flex items-center gap-1 rounded-full border border-info-border bg-info-bg px-2 py-0.5 text-[11px] text-info-text"
+                        className="inline-flex items-center gap-1 rounded-full border border-info-border bg-info-bg py-0.5 pr-1 pl-2 text-[11px] text-info-text"
                       >
                         <Stethoscope className="h-3 w-3" />
                         {m.name}
+                        <Link
+                          href="/provider/profile/doctors"
+                          title="עריכת נותן/ת שירות"
+                          className="rounded-full p-0.5 text-info hover:bg-white/60"
+                        >
+                          <Pencil className="h-2.5 w-2.5" />
+                        </Link>
+                        <button
+                          type="button"
+                          title="הסרה מהמערך"
+                          onClick={() => setUnassignTarget({ arrayId: a.id, resourceId: m.id, kind: "doctor", name: m.name })}
+                          className="rounded-full p-0.5 text-info hover:bg-white/60 hover:text-red-500"
+                        >
+                          <X className="h-2.5 w-2.5" />
+                        </button>
                       </span>
                     ))}
                   </div>
@@ -359,12 +423,25 @@ export function ServiceArraysManager({ provider }: { provider: ProviderProfile }
                   >
                     <Plus className="h-3.5 w-3.5" /> הוספת עמדה
                   </button>
-                  <Link
-                    href="/provider/profile/availability"
-                    className="flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-primary hover:underline"
-                  >
-                    <CalendarClock className="h-3.5 w-3.5" /> לוחות הזמנים
-                  </Link>
+                  <div className="flex items-center gap-3">
+                    {/* Sets a schedule on the מערך itself — a shortcut for arrays
+                        where every עמדה should just follow the same week,
+                        without opening each one separately in זמינות. */}
+                    <button
+                      type="button"
+                      onClick={() => setScheduleFor(a)}
+                      className="flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-primary hover:underline"
+                    >
+                      <CalendarClock className="h-3.5 w-3.5" />
+                      {a.schedule ? "לו״ז המערך" : "הוספת לו״ז למערך"}
+                    </button>
+                    <Link
+                      href="/provider/profile/availability"
+                      className="flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-primary hover:underline"
+                    >
+                      <CalendarClock className="h-3.5 w-3.5" /> לוחות הזמנים
+                    </Link>
+                  </div>
                 </div>
               </Card>
             );
@@ -459,6 +536,36 @@ export function ServiceArraysManager({ provider }: { provider: ProviderProfile }
           </Button>
         </div>
       </Dialog>
+
+      <Dialog
+        open={!!scheduleFor}
+        onClose={() => setScheduleFor(null)}
+        title={`לו״ז המערך · ${scheduleFor?.name ?? ""}`}
+        description="הלו״ז הזה חל על כל עמדה במערך שאין לה לו״ז עצמאי משלה — עמדה עם לו״ז/שיוך ללו״ז משותף שהוגדר לה בנפרד תמשיך לפעול לפיו."
+      >
+        {scheduleFor && (
+          <ScheduleEditor
+            key={scheduleFor.id}
+            holder={scheduleFor}
+            title={scheduleFor.name}
+            services={[]}
+            onChange={(next) => {
+              updateServiceArray(next.id, { schedule: next.schedule, schedule_exceptions: next.schedule_exceptions });
+              setScheduleFor((prev) => (prev && prev.id === next.id ? next : prev));
+            }}
+          />
+        )}
+      </Dialog>
+
+      <ConfirmDialog
+        open={!!unassignTarget}
+        onClose={() => setUnassignTarget(null)}
+        title="הסרה מהמערך"
+        description={`${unassignTarget?.name ?? ""} תוסר מהמערך ותהפוך ל'ללא מערך' — לא תהיה ניתנת להזמנה עד ששויכה מחדש.`}
+        destructive
+        confirmLabel="הסר מהמערך"
+        onConfirm={confirmUnassign}
+      />
 
       <ConfirmDialog
         open={!!deleteId}

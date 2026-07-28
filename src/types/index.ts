@@ -975,6 +975,11 @@ export interface ServiceArray {
   type: ServiceArrayType; // from the predefined catalog
   name: string; // display name — defaults to the type label, editable
   created_date: string;
+  // A schedule set directly on the מערך — applies to every עמדה/doctor placed
+  // in it that doesn't keep its own independent week (see ScheduleHolder in
+  // src/lib/schedule.ts, which this structurally satisfies).
+  schedule?: WeeklySchedule;
+  schedule_exceptions?: ScheduleException[];
 }
 
 export type FacilityKind =
@@ -1107,6 +1112,7 @@ export interface ProviderProfile {
   // from provider_type (units are never self-registerable).
   onboarding_path?: "solo" | "unit";
   phone_verified_at?: string;
+  email_verified_at?: string;
   license_file?: UploadedFile;
   doctor_subtype?: DoctorSubtype;
   surgical_board_certificate?: UploadedFile;

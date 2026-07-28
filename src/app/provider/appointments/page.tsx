@@ -18,6 +18,16 @@ function isoDate(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
+// Sunday-start week, matching the Israeli convention used elsewhere (DAY_KEYS).
+function startOfWeek(d: Date) {
+  const date = new Date(d);
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() - date.getDay());
+  return date;
+}
+
+const WEEKDAY_SHORT = ["א", "ב", "ג", "ד", "ה", "ו", "ש"];
+
 export default function ProviderAppointmentsPage() {
   const provider = useCurrentProvider();
   const appointments = useStore((s) => s.appointments);
@@ -47,6 +57,24 @@ export default function ProviderAppointmentsPage() {
     const dayIso = isoDate(selectedDay);
     return myAppointments.filter((a) => a.date === dayIso).sort((a, b) => a.time.localeCompare(b.time));
   }, [myAppointments, selectedDay]);
+
+  // Week strip — lets you see the whole week at a glance (how many appointments
+  // per day) and jump straight to any of its days, instead of only stepping one
+  // day at a time.
+  const countByDate = useMemo(() => {
+    const m = new Map<string, number>();
+    myAppointments.forEach((a) => m.set(a.date, (m.get(a.date) ?? 0) + 1));
+    return m;
+  }, [myAppointments]);
+  const weekDays = useMemo(() => {
+    const start = startOfWeek(selectedDay);
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      return d;
+    });
+  }, [selectedDay]);
+  const todayIso = isoDate(new Date());
 
   function shiftDay(delta: number) {
     const next = new Date(selectedDay);
@@ -91,6 +119,53 @@ export default function ProviderAppointmentsPage() {
           <Button variant="outline" size="sm" onClick={() => setSelectedDay(new Date())}>
             היום
           </Button>
+        </div>
+
+        {/* Week view — the whole week at a glance, click any day to jump to it. */}
+        <div className="mt-2.5 flex items-center gap-1 border-t border-slate-100 pt-2.5">
+          <button
+            onClick={() => shiftDay(-7)}
+            aria-label="שבוע קודם"
+            className="focus-ring shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+          <div className="grid flex-1 grid-cols-7 gap-1">
+            {weekDays.map((d) => {
+              const dIso = isoDate(d);
+              const isSelected = dIso === isoDate(selectedDay);
+              const isToday = dIso === todayIso;
+              const count = countByDate.get(dIso) ?? 0;
+              return (
+                <button
+                  key={dIso}
+                  onClick={() => setSelectedDay(d)}
+                  className={`focus-ring flex flex-col items-center gap-0.5 rounded-lg px-1 py-1.5 text-xs transition-colors ${
+                    isSelected
+                      ? "bg-primary text-white"
+                      : isToday
+                      ? "bg-primary/10 text-primary"
+                      : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  <span className="text-[10px] font-medium opacity-80">{WEEKDAY_SHORT[d.getDay()]}</span>
+                  <span className="font-semibold">{d.getDate()}</span>
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      count === 0 ? "opacity-0" : isSelected ? "bg-white" : "bg-primary"
+                    }`}
+                  />
+                </button>
+              );
+            })}
+          </div>
+          <button
+            onClick={() => shiftDay(7)}
+            aria-label="שבוע הבא"
+            className="focus-ring shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </button>
         </div>
       </Card>
 
