@@ -12,6 +12,13 @@ import { Plus, Pencil, Trash2, FileText } from "lucide-react";
 
 const FIELD_TYPES: ReferralFormField["type"][] = ["text", "textarea", "date", "number"];
 
+const FIELD_TYPE_LABELS: Record<ReferralFormField["type"], string> = {
+  text: "טקסט",
+  textarea: "טקסט ארוך",
+  date: "תאריך",
+  number: "מספר",
+};
+
 export function ReferralFormsSection({
   forms,
   onChange,
@@ -84,7 +91,7 @@ export function ReferralFormsSection({
               <ul className="mt-2 text-xs text-slate-500 list-disc pr-4">
                 {f.fields.map((field) => (
                   <li key={field.id}>
-                    {field.name} ({field.type}) {field.required && "*"}
+                    {field.name} ({FIELD_TYPE_LABELS[field.type]}) {field.required && "*"}
                   </li>
                 ))}
               </ul>
@@ -119,7 +126,7 @@ export function ReferralFormsSection({
               >
                 {FIELD_TYPES.map((t) => (
                   <option key={t} value={t}>
-                    {t}
+                    {FIELD_TYPE_LABELS[t]}
                   </option>
                 ))}
               </Select>

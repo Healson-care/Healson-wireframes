@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useStore } from "@/lib/store";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/Tabs";
 import { Badge, ProviderStatusBadge, ProviderPublishedBadge } from "@/components/ui/Badge";
-import { Avatar, EmptyState, OpenDecisionNote } from "@/components/ui/Misc";
+import { Avatar, EmptyState } from "@/components/ui/Misc";
 import { Button } from "@/components/ui/Button";
 import { Input, Select } from "@/components/ui/Input";
 import { Dialog, ConfirmDialog } from "@/components/ui/Dialog";
@@ -499,9 +499,9 @@ export function AdminProviderProfile({
           </div>
 
           {allServices.length > 0 && (
-            <OpenDecisionNote>
-              <b>טרם הוחלט:</b> מדיניות תמחור סופית — הספק קבע את המחירים בעצמו; טרם הוחלט אם Healson מאשרת/מגבילה את הטווח.
-            </OpenDecisionNote>
+            <p className="text-xs leading-relaxed text-slate-500">
+              תעריפי K/B ומחיר הפריט P הוזנו על ידי הספק; מחירי S ו-H נקבעים לפי מחירון משרד הבריאות.
+            </p>
           )}
         </TabsContent>
 

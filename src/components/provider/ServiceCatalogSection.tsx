@@ -416,9 +416,9 @@ export function ServiceCatalogSection({
           <Search className="h-3.5 w-3.5 shrink-0 mt-0.5" />
           <span>
             {myOpenRequests.length === 1
-              ? "בקשה אחת להוספת פריט לקטלוג ממתינה לצוות הילסון"
-              : `${myOpenRequests.length} בקשות להוספת פריטים לקטלוג ממתינות לצוות הילסון`}
-            : {myOpenRequests.map((r) => r.requested_name).join(" · ")}
+              ? "בקשה אחת להוספת פריט לקטלוג ממתינה לצוות הילסון: "
+              : `${myOpenRequests.length} בקשות להוספת פריטים לקטלוג ממתינות לצוות הילסון: `}
+            {myOpenRequests.map((r) => r.requested_name).join(" · ")}
           </span>
         </div>
       )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { ProviderLayout } from "@/components/layouts/ProviderLayout";
 import { useStore } from "@/lib/store";
@@ -262,7 +262,19 @@ export default function ProviderDashboardPage() {
         )}
         {isOnboarding && <OnboardingProgress provider={provider} />}
         {(isOnboarding || (isPendingReview && applicationSubmitted)) && (
-          <ProviderApplicationSummary provider={provider} />
+          // Same navy/gold token remap as the two phase panels above it, so the
+          // whole onboarding journey reads in one brand voice (not teal-next-to-navy).
+          <div
+            style={
+              {
+                "--color-primary": "var(--brand-navy)",
+                "--color-primary-dark": "var(--brand-navy-900)",
+                "--color-accent": "var(--brand-gold)",
+              } as CSSProperties
+            }
+          >
+            <ProviderApplicationSummary provider={provider} />
+          </div>
         )}
 
         {/* Alerts & notifications. */}
