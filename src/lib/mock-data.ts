@@ -2229,7 +2229,9 @@ export const SEED_LAB_REFERRALS: LabReferral[] = Array.from({ length: 10 }).map(
     lab_code: "GEN-01",
     status: "בעיבוד",
     created_date: isoDateDaysFromNow(-4),
+    completed_date: undefined,
     notes: "",
+    results: undefined,
   },
   {
     id: generateId("lab"),
@@ -2255,7 +2257,9 @@ export const SEED_LAB_REFERRALS: LabReferral[] = Array.from({ length: 10 }).map(
     lab_code: "REN-03",
     status: "שגיאה",
     created_date: isoDateDaysFromNow(-2),
+    completed_date: undefined,
     notes: "הדגימה נפסלה במעבדה — נדרשת דגימה חוזרת",
+    results: undefined,
   },
 ]);
 
