@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import type { CSSProperties } from "react";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -19,10 +20,14 @@ import { PhaseHeader } from "@/components/provider/PhaseHeader";
 
 type StepState = "done" | "current" | "waiting";
 
-// A navy CTA that overrides Button's teal primary gradient — keeps the
-// component's sizing / loading / focus behaviour, only reskins the fill.
-const BRAND_BTN =
-  "!bg-none !bg-[var(--brand-navy)] text-white hover:!bg-[var(--brand-navy-700)] shadow-lg shadow-[var(--brand-navy)]/25";
+// Speak the HEALSON navy + gold across the whole registration panel — the same
+// token-remap technique OnboardingProgress uses, so Button/ProgressRing and any
+// primary-tinted child follow the brand without per-element overrides.
+const BRAND_TOKENS = {
+  "--color-primary": "var(--brand-navy)",
+  "--color-primary-dark": "var(--brand-navy-900)",
+  "--color-accent": "var(--brand-gold)",
+} as CSSProperties;
 
 /**
  * PHASE 1 — רישום. The solo path only.
@@ -131,7 +136,7 @@ export function RegistrationProgress({
   // picker (light cards) popping on top of it.
   if (!started) {
     return (
-      <div className={cn("flex flex-col gap-4", className)}>
+      <div className={cn("flex flex-col gap-4", className)} style={BRAND_TOKENS}>
         <div className="relative overflow-hidden rounded-3xl border border-[var(--brand-ivory-200)] bg-gradient-to-br from-white via-[var(--brand-ivory)] to-[var(--brand-ivory)] p-6 shadow-sm sm:p-8">
           <div aria-hidden className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-l from-transparent via-[var(--brand-gold)] to-transparent opacity-70" />
           <div aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_88%_-10%,rgba(198,161,91,0.14),transparent_45%)]" />
@@ -168,6 +173,7 @@ export function RegistrationProgress({
         "relative overflow-hidden rounded-3xl border border-[var(--brand-ivory-200)] bg-white p-5 shadow-sm sm:p-6",
         className
       )}
+      style={BRAND_TOKENS}
     >
       <PhaseHeader phase="registration" className="mb-4" />
       <div className="flex flex-wrap items-center gap-5">
@@ -196,7 +202,7 @@ export function RegistrationProgress({
           </p>
         </div>
         {!submitted && (
-          <Button className={cn("shrink-0", BRAND_BTN)} onClick={() => router.push("/provider/register")}>
+          <Button className="shrink-0" onClick={() => router.push("/provider/register")}>
             המשך במילוי הבקשה
             <ArrowLeft className="h-4 w-4" />
           </Button>

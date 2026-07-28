@@ -402,13 +402,13 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
     description: "מכון רפואי / מכון אבחוני",
     nameLabel: "שם המכון",
     showContactName: true,
-    contactNameLabel: " שם איש קשר ",
+    contactNameLabel: "שם איש קשר",
     specialtyLabel: "סוגי הפריטים במכון",
     specialtyOptions: INSTITUTE_SERVICE_TYPES,
     multiSpecialty: true,
     showBusinessRegNumber: true,
     licenseNumberLabel: "מספר רישיון מכון (משרד הבריאות)",
-    licenseFileLabel: " תעודת התאגדות  (PDF / JPG / PNG)",
+    licenseFileLabel: "תעודת התאגדות (PDF / JPG / PNG)",
     showKupot: true,
     showPrivateInsurance: true,
     showLocationCount: true,
@@ -1361,7 +1361,7 @@ export default function ProviderRegisterPage() {
             </>
           ) : approved ? (
             <>
-              <h1 className="font-display text-xl font-bold text-[var(--brand-navy)]">הרישיון אומת — ברוכים הבאים! 🎉</h1>
+              <h1 className="font-display text-xl font-bold text-[var(--brand-navy)]">הרישיון אומת — ברוכים הבאים!</h1>
               <p className="text-sm text-slate-600 leading-relaxed max-w-md">
                 הרישיון שלך אומת בהצלחה. כעת תוכל/י להשלים את חתימת ההסכם, הגדרת הקטלוג והמחירים שלך.
               </p>
@@ -1381,7 +1381,7 @@ export default function ProviderRegisterPage() {
           )}
 
           <div className="mt-4 w-full rounded-xl border border-slate-100 bg-slate-50/60 p-4 text-right">
-            <p className="mb-3 text-xs font-semibold text-slate-500 text-center">🗺️ מהלך ההצטרפות</p>
+            <p className="mb-3 text-xs font-semibold text-slate-500 text-center">מהלך ההצטרפות</p>
             <div className="flex flex-col gap-3">
               {roadmap.map((step, i) => (
                 <motion.div

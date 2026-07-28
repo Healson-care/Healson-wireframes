@@ -1,7 +1,6 @@
 "use client";
 
 import { ProfilePageFrame } from "@/components/provider/ProfilePageFrame";
-import { OpenDecisionNote } from "@/components/ui/Misc";
 import {
   ResourceTarget,
   ServiceArrayTarget,
@@ -48,10 +47,10 @@ export default function ProviderServicesPage() {
         }));
         return (
           <>
-            <OpenDecisionNote>
-              <b>טרם הוחלט:</b> מדיניות תמחור סופית עדיין לא נקבעה ע&quot;י הנהלת Healson — מחירי S ו-H נקבעים
-              תמיד לפי מחירון משרד הבריאות; תעריפי K/B (ומחיר הפריט P בקטלוג הילסון) מוזנים כרגע על ידיכם.
-            </OpenDecisionNote>
+            <p className="mb-4 -mt-3 text-xs leading-relaxed text-slate-500">
+              מחירי S ו-H נקבעים תמיד לפי מחירון משרד הבריאות ואינם ניתנים לעריכה; את תעריפי K/B ואת מחיר
+              הפריט P בקטלוג הילסון אתם מזינים.
+            </p>
             {setupConfig.useSkillTreeCatalog ? (
               <ServiceCatalogSection
                 items={provider.consultation_types}
