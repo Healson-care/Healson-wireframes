@@ -12,7 +12,7 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog, Dialog } from "@/components/ui/Dialog";
 import { Input, Textarea } from "@/components/ui/Input";
-import { Check, ChevronLeft, ChevronRight, FolderOpen, Pencil, X } from "lucide-react";
+import { Building2, Check, ChevronLeft, ChevronRight, FolderOpen, Pencil, X } from "lucide-react";
 
 function isoDate(d: Date) {
   return d.toISOString().slice(0, 10);
@@ -21,6 +21,7 @@ function isoDate(d: Date) {
 export default function ProviderAppointmentsPage() {
   const provider = useCurrentProvider();
   const appointments = useStore((s) => s.appointments);
+  const providers = useStore((s) => s.providers);
   const updateAppointment = useStore((s) => s.updateAppointment);
   const showToast = useStore((s) => s.showToast);
 
@@ -29,10 +30,18 @@ export default function ProviderAppointmentsPage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ date: "", time: "", duration_minutes: 30, notes: "" });
 
+  // §PRV-10 — the unified calendar: the provider's own appointments PLUS the
+  // ones they deliver inside a unit (practitioner_id === me, owned by the unit).
+  // The unit-owned ones are shown as a read-only reflection — the unit manages
+  // them — so a doctor sees their whole day across every context in one place.
   const myAppointments = useMemo(
-    () => appointments.filter((a) => a.provider_id === provider?.id),
+    () =>
+      provider
+        ? appointments.filter((a) => a.provider_id === provider.id || a.practitioner_id === provider.id)
+        : [],
     [appointments, provider]
   );
+  const unitNameById = useMemo(() => new Map(providers.map((p) => [p.id, p.display_name])), [providers]);
 
   const dayAppointments = useMemo(() => {
     const dayIso = isoDate(selectedDay);
@@ -54,7 +63,7 @@ export default function ProviderAppointmentsPage() {
 
   return (
     <ProviderLayout>
-      <PageHeader title="ניהול תורים" description="צפייה ועדכון התורים שלך" />
+      <PageHeader title="ניהול תורים" description="היומן המאוחד שלך — התורים במרפאות שלך ושיבוצי היחידה (לצפייה בלבד)" />
 
       {/* Full-width date toolbar — day nav on one side, a "היום" reset on the
           other, so the control anchors the page instead of floating stranded. */}
@@ -97,61 +106,85 @@ export default function ProviderAppointmentsPage() {
             <EmptyState title="אין תורים ביום זה" description="עבור ליום אחר כדי לראות תורים" />
           ) : (
             <div className="flex flex-col gap-3">
-              {dayAppointments.map((a, i) => (
+              {dayAppointments.map((a, i) => {
+                // Owned by a unit (delivered by me, but the unit's calendar) →
+                // read-only reflection: I can open the patient, but scheduling
+                // actions belong to the unit.
+                const reflected = !!provider && a.provider_id !== provider.id;
+                const unitName = reflected ? unitNameById.get(a.provider_id ?? "") : undefined;
+                return (
                 <motion.div key={a.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18, delay: i * 0.03 }}>
-                  <Card className="p-4" interactive>
+                  <Card className={`p-4 ${reflected ? "border-dashed bg-slate-50/60" : ""}`} interactive>
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <p className="text-sm font-semibold text-slate-900">{a.time} · {a.duration_minutes} דק׳</p>
                         <p className="text-sm text-slate-700 mt-1">{a.client_name}</p>
                         <p className="text-xs text-slate-500">{a.service_name}</p>
                         {a.client_phone && <p className="text-xs text-slate-400">{a.client_phone}</p>}
+                        {reflected && (
+                          <p className="mt-1 flex items-center gap-1 text-[11px] font-medium text-indigo-600">
+                            <Building2 className="h-3 w-3" /> {unitName ?? "יחידה"} · שיקוף — מנוהל על ידי היחידה
+                          </p>
+                        )}
                       </div>
                       <StatusBadge status={a.status} kind="appointment" />
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2 justify-end">
-                      {a.status === "ממתין לתשלום מקדמה" && (
-                        <Button
-                          size="sm"
-                          onClick={() => {
-                            updateAppointment(a.id, { status: "מאושר" });
-                            showToast("התור אושר", { variant: "success" });
-                          }}
-                        >
-                          <Check className="h-3.5 w-3.5" /> אשר
-                        </Button>
-                      )}
-                      {(a.status === "מאושר" || a.status === "שולם במלואו") && (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => {
-                            updateAppointment(a.id, { status: "בוצע" });
-                            showToast("התור סומן כבוצע", { variant: "success" });
-                          }}
-                        >
-                          סמן כבוצע
-                        </Button>
-                      )}
-                      {a.created_by_id && (
-                        <Link href={`/provider/patients/${a.created_by_id}`}>
-                          <Button size="sm" variant="outline">
-                            <FolderOpen className="h-3.5 w-3.5" /> פתח תיק מטופל
+                      {reflected ? (
+                        a.created_by_id && (
+                          <Link href={`/provider/patients/${a.created_by_id}`}>
+                            <Button size="sm" variant="outline">
+                              <FolderOpen className="h-3.5 w-3.5" /> פתח תיק מטופל
+                            </Button>
+                          </Link>
+                        )
+                      ) : (
+                        <>
+                          {a.status === "ממתין לתשלום מקדמה" && (
+                            <Button
+                              size="sm"
+                              onClick={() => {
+                                updateAppointment(a.id, { status: "מאושר" });
+                                showToast("התור אושר", { variant: "success" });
+                              }}
+                            >
+                              <Check className="h-3.5 w-3.5" /> אשר
+                            </Button>
+                          )}
+                          {(a.status === "מאושר" || a.status === "שולם במלואו") && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => {
+                                updateAppointment(a.id, { status: "בוצע" });
+                                showToast("התור סומן כבוצע", { variant: "success" });
+                              }}
+                            >
+                              סמן כבוצע
+                            </Button>
+                          )}
+                          {a.created_by_id && (
+                            <Link href={`/provider/patients/${a.created_by_id}`}>
+                              <Button size="sm" variant="outline">
+                                <FolderOpen className="h-3.5 w-3.5" /> פתח תיק מטופל
+                              </Button>
+                            </Link>
+                          )}
+                          <Button size="sm" variant="outline" onClick={() => openEdit(a.id)}>
+                            <Pencil className="h-3.5 w-3.5" /> עריכה
                           </Button>
-                        </Link>
-                      )}
-                      <Button size="sm" variant="outline" onClick={() => openEdit(a.id)}>
-                        <Pencil className="h-3.5 w-3.5" /> עריכה
-                      </Button>
-                      {a.status !== "בוטל" && a.status !== "בוצע" && (
-                        <Button size="sm" variant="destructive" onClick={() => setCancelId(a.id)}>
-                          <X className="h-3.5 w-3.5" /> בטל
-                        </Button>
+                          {a.status !== "בוטל" && a.status !== "בוצע" && (
+                            <Button size="sm" variant="destructive" onClick={() => setCancelId(a.id)}>
+                              <X className="h-3.5 w-3.5" /> בטל
+                            </Button>
+                          )}
+                        </>
                       )}
                     </div>
                   </Card>
                 </motion.div>
-              ))}
+                );
+              })}
             </div>
           )}
         </motion.div>

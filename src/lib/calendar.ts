@@ -65,14 +65,22 @@ export function findSchedulingConflict(
   date: string,
   time: string,
   durationMinutes: number,
-  excludeId?: string
+  excludeId?: string,
+  // §PRV-10 — when the booking is delivered by a person, pass their
+  // ProviderProfile id so an overlap in ANY other context (their private
+  // clinic, another unit) is also flagged, not just within this provider's
+  // calendar.
+  practitionerId?: string
 ): Appointment | undefined {
   if (!providerId || !date || !time) return undefined;
   const newStart = timeToMinutes(time);
   const newEnd = newStart + durationMinutes;
   return appointments.find((a) => {
     if (a.id === excludeId) return false;
-    if (a.provider_id !== providerId || a.date !== date || a.status === "בוטל") return false;
+    if (a.date !== date || a.status === "בוטל") return false;
+    const sameContext = a.provider_id === providerId;
+    const samePerson = !!practitionerId && a.practitioner_id === practitionerId;
+    if (!sameContext && !samePerson) return false;
     const existingStart = timeToMinutes(a.time);
     const existingEnd = existingStart + a.duration_minutes;
     return newStart < existingEnd && existingStart < newEnd;

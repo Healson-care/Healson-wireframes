@@ -24,8 +24,10 @@ import {
   Patient,
   PatientDocument,
   PatientInsurance,
+  ProviderAffiliation,
   ProviderProfile,
   ProviderType,
+  isPractitionerProviderType,
   ResourceSchedule,
   Role,
   ServiceArray,
@@ -45,6 +47,7 @@ import {
 import { DEFAULT_REMINDER_SETTINGS, ReminderSettings } from "@/lib/reminders";
 import {
   DEMO_NEW_PATIENT_USER,
+  SEED_AFFILIATIONS,
   SEED_APPOINTMENTS,
   SEED_BRANCHES,
   SEED_ORGANIZATION_BRANCHES,
@@ -262,6 +265,8 @@ interface EntitiesState {
   providers: ProviderProfile[];
   organizationBranches: OrganizationBranch[];
   serviceArrays: ServiceArray[];
+  // §PRV-10 — first-class provider⇄unit affiliations (see ProviderAffiliation).
+  affiliations: ProviderAffiliation[];
   catalog: CatalogItem[];
   catalogRequests: CatalogRequest[];
   skillDomains: SkillDomain[];
@@ -406,6 +411,74 @@ interface EntitiesState {
     data: Partial<Pick<AffiliatedDoctor, "role" | "service_ids" | "clinic_ids" | "service_array_id" | "branch_id">>
   ) => void;
   removeAffiliatedDoctor: (organizationId: string, affiliationId: string) => void;
+
+  // --- Provider ⇄ unit affiliations (§PRV-10) ------------------------------
+  // First-class, bidirectionally-consented links between an individual service
+  // provider (any human provider type) and a medical unit. Replaces the
+  // embedded AffiliatedDoctor path above. Consent direction is derived from
+  // `initiated_by`: the OTHER side accepts. Every mutation stamps updated_at.
+  //
+  // Unit invites a provider already on the platform → status invited_by_unit.
+  inviteProviderToUnit: (
+    unitId: string,
+    providerId: string,
+    data?: { role?: string; service_ids?: string[]; branch_id?: string; service_array_id?: string }
+  ) => { ok: boolean; error?: string; affiliationId?: string };
+  // Unit types in a brand-new provider not yet on the platform → creates the
+  // ProviderProfile and an affiliation in status "unclaimed" (bookable, implicit
+  // consent) that the person can later claim and ratify.
+  createAndInviteProvider: (
+    unitId: string,
+    data: {
+      provider_type?: ProviderType;
+      display_name: string;
+      title?: string;
+      specialty: string;
+      sub_specialties?: string[];
+      license_number?: string;
+      contact_phone?: string;
+      contact_email?: string;
+      license_file?: UploadedFile;
+      role?: string;
+      service_ids?: string[];
+      branch_id?: string;
+      service_array_id?: string;
+    }
+  ) => { ok: boolean; error?: string; providerId?: string; affiliationId?: string };
+  // Solo provider asks to join a unit → status requested_by_provider.
+  requestUnitAffiliation: (
+    providerId: string,
+    unitId: string,
+    data?: { role?: string; service_ids?: string[] }
+  ) => { ok: boolean; error?: string; affiliationId?: string };
+  // The receiving side responds to a pending invite/request.
+  acceptAffiliation: (affiliationId: string) => { ok: boolean; error?: string };
+  // Reject a pending invite/request, or the initiator revoking it → declined.
+  declineAffiliation: (affiliationId: string) => { ok: boolean; error?: string };
+  // Pause / resume an active affiliation (no new bookings while suspended).
+  suspendAffiliation: (affiliationId: string) => void;
+  reactivateAffiliation: (affiliationId: string) => void;
+  // Terminate an active affiliation — BLOCKED while it still has future,
+  // non-cancelled appointments (they must be reassigned/cancelled first).
+  endAffiliation: (affiliationId: string) => { ok: boolean; error?: string };
+  // An unclaimed provider claims their account, ratifying the affiliation.
+  claimAffiliation: (affiliationId: string, userId?: string) => { ok: boolean; error?: string };
+  // Edit placement / delivered services / the unit-owned in-unit schedule.
+  updateAffiliation: (
+    affiliationId: string,
+    data: Partial<
+      Pick<
+        ProviderAffiliation,
+        | "role"
+        | "service_ids"
+        | "branch_id"
+        | "service_array_id"
+        | "schedule_id"
+        | "schedule"
+        | "schedule_exceptions"
+      >
+    >
+  ) => void;
 
   // --- Shared resource schedules (§PRV-08, medical units) ------------------
   // A reusable weekly לו״ז defined once and applied to several resources at
@@ -959,6 +1032,7 @@ export const useStore = create<Store>()(
       providers: SEED_PROVIDERS,
       organizationBranches: SEED_ORGANIZATION_BRANCHES,
       serviceArrays: SEED_SERVICE_ARRAYS,
+      affiliations: SEED_AFFILIATIONS,
       catalog: SEED_CATALOG,
       catalogRequests: SEED_CATALOG_REQUESTS,
       skillDomains: SEED_SKILL_DOMAINS,
@@ -1266,6 +1340,232 @@ export const useStore = create<Store>()(
         }
       },
 
+      // --- Provider ⇄ unit affiliations (§PRV-10) -------------------------
+      inviteProviderToUnit: (unitId, providerId, data) => {
+        const unit = get().providers.find((p) => p.id === unitId);
+        const provider = get().providers.find((p) => p.id === providerId);
+        if (!unit || !provider) return { ok: false, error: "לא נמצאה יחידה או נותן/ת שירות לשיוך" };
+        const clash = get().affiliations.find(
+          (a) =>
+            a.provider_id === providerId &&
+            a.unit_id === unitId &&
+            a.status !== "declined" &&
+            a.status !== "ended"
+        );
+        if (clash) return { ok: false, error: `${provider.display_name} כבר משויך/ת ליחידה או ממתין/ה לאישור` };
+        const now = new Date().toISOString();
+        const affiliation: ProviderAffiliation = {
+          id: generateId("affil"),
+          provider_id: providerId,
+          unit_id: unitId,
+          role: data?.role,
+          service_ids: data?.service_ids ?? [],
+          branch_id: data?.branch_id,
+          service_array_id: data?.service_array_id,
+          status: "invited_by_unit",
+          initiated_by: "unit",
+          requested_at: now,
+          created_at: now,
+          updated_at: now,
+        };
+        set((s) => ({ affiliations: [...s.affiliations, affiliation] }));
+        return { ok: true, affiliationId: affiliation.id };
+      },
+
+      createAndInviteProvider: (unitId, data) => {
+        const unit = get().providers.find((p) => p.id === unitId);
+        if (!unit) return { ok: false, error: "היחידה לא נמצאה" };
+        if (data.license_number) {
+          const clash = get().providers.find(
+            (p) => p.license_number && p.license_number.trim() === data.license_number!.trim()
+          );
+          if (clash) {
+            return {
+              ok: false,
+              error: `מספר הרישיון ${data.license_number} כבר רשום במערכת עבור ${clash.display_name}. יש לשייך את נותן/ת השירות הקיים/ת במקום ליצור רשומה חדשה.`,
+            };
+          }
+        }
+        const now = new Date().toISOString();
+        const type = data.provider_type ?? "doctor";
+        const provider: ProviderProfile = {
+          id: generateId("prov"),
+          provider_type: type,
+          display_name: data.display_name,
+          title: data.title,
+          specialty: data.specialty,
+          sub_specialties: data.sub_specialties,
+          license_number: data.license_number,
+          contact_phone: data.contact_phone,
+          contact_email: data.contact_email,
+          license_file: data.license_file,
+          doctor_subtype: type === "doctor" ? "physician" : undefined,
+          is_published: false,
+          status: "pending_review",
+          agreements: [],
+          consultation_types: [],
+          exam_types: [],
+          clinic_locations: [],
+          referral_forms: [],
+          created_date: now,
+        };
+        const affiliation: ProviderAffiliation = {
+          id: generateId("affil"),
+          provider_id: provider.id,
+          unit_id: unitId,
+          role: data.role,
+          service_ids: data.service_ids ?? [],
+          branch_id: data.branch_id,
+          service_array_id: data.service_array_id,
+          // The person isn't on the platform yet, so no consent handshake is
+          // possible — the affiliation is live with implicit consent until they
+          // claim their account and ratify it.
+          status: "unclaimed",
+          initiated_by: "unit",
+          requested_at: now,
+          created_at: now,
+          updated_at: now,
+        };
+        set((s) => ({
+          providers: [...s.providers, provider],
+          affiliations: [...s.affiliations, affiliation],
+        }));
+        return { ok: true, providerId: provider.id, affiliationId: affiliation.id };
+      },
+
+      requestUnitAffiliation: (providerId, unitId, data) => {
+        const unit = get().providers.find((p) => p.id === unitId);
+        const provider = get().providers.find((p) => p.id === providerId);
+        if (!unit || !provider) return { ok: false, error: "לא נמצאה יחידה או נותן/ת שירות" };
+        const clash = get().affiliations.find(
+          (a) =>
+            a.provider_id === providerId &&
+            a.unit_id === unitId &&
+            a.status !== "declined" &&
+            a.status !== "ended"
+        );
+        if (clash) return { ok: false, error: "כבר קיימת בקשת שיוך או שיוך פעיל ליחידה זו" };
+        const now = new Date().toISOString();
+        const affiliation: ProviderAffiliation = {
+          id: generateId("affil"),
+          provider_id: providerId,
+          unit_id: unitId,
+          role: data?.role,
+          service_ids: data?.service_ids ?? [],
+          status: "requested_by_provider",
+          initiated_by: "provider",
+          requested_at: now,
+          created_at: now,
+          updated_at: now,
+        };
+        set((s) => ({ affiliations: [...s.affiliations, affiliation] }));
+        return { ok: true, affiliationId: affiliation.id };
+      },
+
+      acceptAffiliation: (affiliationId) => {
+        const a = get().affiliations.find((x) => x.id === affiliationId);
+        if (!a) return { ok: false, error: "השיוך לא נמצא" };
+        if (a.status !== "invited_by_unit" && a.status !== "requested_by_provider") {
+          return { ok: false, error: "אין בקשה ממתינה לאישור" };
+        }
+        const now = new Date().toISOString();
+        set((s) => ({
+          affiliations: s.affiliations.map((x) =>
+            x.id === affiliationId ? { ...x, status: "active", decided_at: now, updated_at: now } : x
+          ),
+        }));
+        return { ok: true };
+      },
+
+      declineAffiliation: (affiliationId) => {
+        const a = get().affiliations.find((x) => x.id === affiliationId);
+        if (!a) return { ok: false, error: "השיוך לא נמצא" };
+        if (a.status !== "invited_by_unit" && a.status !== "requested_by_provider") {
+          return { ok: false, error: "אין בקשה ממתינה לדחייה" };
+        }
+        const now = new Date().toISOString();
+        set((s) => ({
+          affiliations: s.affiliations.map((x) =>
+            x.id === affiliationId ? { ...x, status: "declined", decided_at: now, updated_at: now } : x
+          ),
+        }));
+        return { ok: true };
+      },
+
+      suspendAffiliation: (affiliationId) => {
+        const now = new Date().toISOString();
+        set((s) => ({
+          affiliations: s.affiliations.map((x) =>
+            x.id === affiliationId && x.status === "active"
+              ? { ...x, status: "suspended", updated_at: now }
+              : x
+          ),
+        }));
+      },
+
+      reactivateAffiliation: (affiliationId) => {
+        const now = new Date().toISOString();
+        set((s) => ({
+          affiliations: s.affiliations.map((x) =>
+            x.id === affiliationId && x.status === "suspended"
+              ? { ...x, status: "active", updated_at: now }
+              : x
+          ),
+        }));
+      },
+
+      endAffiliation: (affiliationId) => {
+        const a = get().affiliations.find((x) => x.id === affiliationId);
+        if (!a) return { ok: false, error: "השיוך לא נמצא" };
+        // Product rule (§PRV-10.5): can't end an affiliation that still owes the
+        // unit future work — a resource_id equal to this affiliation id is a
+        // booking delivered by this provider inside the unit.
+        const today = new Date().toISOString().slice(0, 10);
+        const future = get().appointments.filter(
+          (ap) =>
+            ap.resource_id === affiliationId &&
+            ap.status !== "בוטל" &&
+            ap.status !== "בוצע" &&
+            ap.date >= today
+        );
+        if (future.length > 0) {
+          return {
+            ok: false,
+            error: `לא ניתן לסיים את השיוך: קיימים ${future.length} תורים עתידיים. יש לשבץ אותם מחדש או לבטלם תחילה.`,
+          };
+        }
+        const now = new Date().toISOString();
+        set((s) => ({
+          affiliations: s.affiliations.map((x) =>
+            x.id === affiliationId ? { ...x, status: "ended", ended_at: now, updated_at: now } : x
+          ),
+        }));
+        return { ok: true };
+      },
+
+      claimAffiliation: (affiliationId, userId) => {
+        const a = get().affiliations.find((x) => x.id === affiliationId);
+        if (!a) return { ok: false, error: "השיוך לא נמצא" };
+        if (a.status !== "unclaimed") return { ok: false, error: "השיוך אינו במצב הממתין לתביעה" };
+        const now = new Date().toISOString();
+        set((s) => ({
+          affiliations: s.affiliations.map((x) =>
+            x.id === affiliationId ? { ...x, status: "active", decided_at: now, updated_at: now } : x
+          ),
+        }));
+        if (userId) get().updateProviderById(a.provider_id, { user_id: userId });
+        return { ok: true };
+      },
+
+      updateAffiliation: (affiliationId, data) => {
+        const now = new Date().toISOString();
+        set((s) => ({
+          affiliations: s.affiliations.map((x) =>
+            x.id === affiliationId ? { ...x, ...data, updated_at: now } : x
+          ),
+        }));
+      },
+
       addResourceSchedule: (unitId, data) => {
         const unit = get().providers.find((p) => p.id === unitId);
         if (!unit) return { ok: false, error: "היחידה לא נמצאה" };
@@ -1536,7 +1836,26 @@ export const useStore = create<Store>()(
       },
 
       addAppointment: (a) => {
-        const record: Appointment = { ...a, id: generateId("appt") };
+        // §PRV-10 — stamp the single event owner and the delivering person so
+        // the cross-context double-booking guard has data to key on, unless the
+        // caller already resolved them explicitly.
+        let practitioner_id = a.practitioner_id;
+        let owner_context_id = a.owner_context_id;
+        if (a.resource_id) {
+          // Unit booking against a specific resource (facility or a person).
+          owner_context_id = owner_context_id ?? a.resource_id;
+          if (practitioner_id === undefined) {
+            const aff = get().affiliations.find((x) => x.id === a.resource_id);
+            if (aff) practitioner_id = aff.provider_id; // a facility resource has no person
+          }
+        } else if (a.provider_id) {
+          owner_context_id = owner_context_id ?? a.provider_id;
+          if (practitioner_id === undefined) {
+            const prov = get().providers.find((p) => p.id === a.provider_id);
+            if (prov && isPractitionerProviderType(prov.provider_type)) practitioner_id = prov.id;
+          }
+        }
+        const record: Appointment = { ...a, id: generateId("appt"), practitioner_id, owner_context_id };
         set((s) => ({ appointments: [record, ...s.appointments] }));
         return record;
       },
@@ -1806,7 +2125,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 27,
+      version: 30,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
       // records), the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER seed
       // account, the v3 -> v4 AppointmentStatus rename ("ממתין לאישור" ->
@@ -1884,7 +2203,15 @@ export const useStore = create<Store>()(
       // paths (ProviderProfile.onboarding_path — see src/lib/provider-phases.ts),
       // renames the unit resource concept to עמדה, and assigns the demo מכון its
       // own patients — reseed clean so the demo accounts reflect all three.
-      migrate: (persistedState, version) => (version < 27 ? ({} as Store) : (persistedState as Store)),
+      // v27 -> v28 promotes the provider⇄unit link to a first-class, bidirectionally-
+      // consented `affiliations` slice (ProviderAffiliation, §PRV-10), moves the
+      // in-unit schedule onto it, and adds Appointment.practitioner_id/
+      // owner_context_id so a human is never double-booked across contexts.
+      // v28 -> v29 migrates the demo units' embedded doctors into the affiliations
+      // slice (single source of truth) and seeds a provider-side demo.
+      // v29 -> v30 stamps provider_type "doctor" on the legacy solo demo doctors
+      // (prov_1/prov_2) so they read as practitioners — reseed clean.
+      migrate: (persistedState, version) => (version < 30 ? ({} as Store) : (persistedState as Store)),
       // Uploaded files (photos/PDFs) are stored as base64 data URLs inside
       // this same persisted blob (no real backend — see file.ts). If a
       // single write ever still exceeds the browser's localStorage quota

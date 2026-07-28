@@ -91,6 +91,11 @@ export function UnitScheduleCalendar({
 }) {
   const showToast = useStore((s) => s.showToast);
   const updateResourceSchedule = useStore((s) => s.updateResourceSchedule);
+  const affiliations = useStore((s) => s.affiliations);
+  const updateAffiliation = useStore((s) => s.updateAffiliation);
+  // §PRV-10 — lane ids that are first-class affiliations (vs. embedded legacy
+  // doctors): their schedule is persisted onto the affiliation, not the unit.
+  const affiliationIds = useMemo(() => new Set(affiliations.map((a) => a.id)), [affiliations]);
   const services = provider.consultation_types;
 
   const [view, setView] = useState<CalendarView>("week");
@@ -230,6 +235,9 @@ export function UnitScheduleCalendar({
           f.id === lane.id ? { ...f, schedule: weekly } : f
         ),
       });
+    } else if (affiliationIds.has(lane.id)) {
+      // First-class affiliation — the unit owns this person's in-unit schedule.
+      updateAffiliation(lane.id, { schedule: weekly });
     } else {
       onChange({
         affiliated_doctors: (provider.affiliated_doctors ?? []).map((a) =>
@@ -246,6 +254,11 @@ export function UnitScheduleCalendar({
   function persistMany(updates: { laneId: string; weekly: WeeklySchedule }[]) {
     if (updates.length === 0) return;
     const byLane = new Map(updates.map((u) => [u.laneId, u.weekly]));
+    // Affiliation-backed lanes persist onto the affiliations slice individually;
+    // facilities + legacy embedded doctors go through the single provider write.
+    updates.forEach((u) => {
+      if (affiliationIds.has(u.laneId)) updateAffiliation(u.laneId, { schedule: u.weekly });
+    });
     onChange({
       facilities: (provider.facilities ?? []).map((f) =>
         byLane.has(f.id) ? { ...f, schedule: byLane.get(f.id) } : f
