@@ -86,15 +86,6 @@ interface PendingProviderSubmission {
   otp: string;
 }
 
-// Held between phone-OTP verification and the applicant clicking the
-// (simulated) link in the account-activation email — see
-// sendProviderActivationEmail / verifyProviderActivationEmail below. A link
-// click, not a code: same reasoning as PendingRegistrationVerification's
-// email step.
-interface PendingProviderEmailVerification {
-  providerId: string;
-}
-
 // True 2FA — password (factor 1) + one OTP (factor 2), not three factors.
 // The single code is sent to both SMS and email at once purely for delivery
 // redundancy (if one channel fails, the other still has it) — it's still
@@ -220,16 +211,11 @@ interface AuthState {
   beginProviderVerification: (providerId: string) => { ok: boolean; error?: string; otpHint?: string };
   verifyProviderPhoneOtp: (code: string) => { ok: boolean; error?: string; providerId?: string };
   resendProviderPhoneOtp: () => string | null;
-  // Provider signup step 3 — once the phone OTP clears, an activation email
-  // is "sent" to the account's personal email; clicking its (simulated) link
-  // both confirms the account and verifies that email address, mirroring the
-  // patient flow's final-sms → final-email pattern (see
-  // verifyRegistrationEmailLink above).
-  pendingProviderEmailVerification: PendingProviderEmailVerification | null;
-  sendProviderActivationEmail: (providerId: string) => void;
-  verifyProviderActivationEmail: () => { ok: boolean; error?: string; providerId?: string };
-  resendProviderActivationEmail: () => string | null;
-  // Provider signup step 4 — called once the applicant has filled out the
+  // NOTE: there is deliberately no provider email-verification action. The
+  // mail sent when a provider account is created is a welcome notification,
+  // not a gate — unlike the patient flow, nothing in the join journey waits
+  // on it being opened.
+  // Provider signup step 3 — called once the applicant has filled out the
   // rest of the application (license, catalog basics, etc. — already
   // persisted incrementally via upsertProviderProfile) and clicks "שליחת
   // בקשה". Phone + email are already verified by this point, so this just
@@ -621,7 +607,6 @@ export const useStore = create<Store>()(
       currentUser: null,
       pendingRegistration: null,
       pendingProviderSubmission: null,
-      pendingProviderEmailVerification: null,
       pendingLoginVerification: null,
       pendingReauth: null,
       pendingRegistrationVerification: null,
@@ -948,28 +933,6 @@ export const useStore = create<Store>()(
       resendProviderPhoneOtp: () => {
         const pending = get().pendingProviderSubmission;
         return pending ? pending.otp : null;
-      },
-
-      sendProviderActivationEmail: (providerId) => {
-        set({ pendingProviderEmailVerification: { providerId } });
-      },
-
-      // Called when the applicant clicks the (simulated) confirmation link —
-      // no code to check, so the only failure mode is there being no pending
-      // verification at all (e.g. a stale/expired link).
-      verifyProviderActivationEmail: () => {
-        const pending = get().pendingProviderEmailVerification;
-        if (!pending) return { ok: false, error: "לא נמצא תהליך אימות פעיל" };
-        get().updateProviderById(pending.providerId, { email_verified_at: new Date().toISOString() });
-        set({ pendingProviderEmailVerification: null });
-        return { ok: true, providerId: pending.providerId };
-      },
-
-      resendProviderActivationEmail: () => {
-        const pending = get().pendingProviderEmailVerification;
-        // No code to hand back — same "sent" sentinel as
-        // resendRegistrationOtp's email branch, just a fire-and-forget signal.
-        return pending ? "sent" : null;
       },
 
       finalizeProviderApplication: (providerId) => {
