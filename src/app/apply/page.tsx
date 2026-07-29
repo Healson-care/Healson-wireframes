@@ -7,7 +7,6 @@ import { motion } from "framer-motion";
 import {
   Mail,
   Lock,
-  Phone,
   User as UserIcon,
   ArrowLeft,
   ShieldCheck,
@@ -89,7 +88,6 @@ export default function ProviderApplyPage() {
   const registerProviderAccount = useStore((s) => s.registerProviderAccount);
 
   const [fullName, setFullName] = useState("");
-  const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -105,7 +103,9 @@ export default function ProviderApplyPage() {
     }
     setLoading(true);
     setTimeout(() => {
-      const result = registerProviderAccount(fullName, phone, email, password);
+      // No phone at signup — it's collected and OTP-verified later in the
+      // application form, the same for the Google path (which never has one).
+      const result = registerProviderAccount(fullName, "", email, password);
       setLoading(false);
       if (!result.ok) {
         setError(result.error ?? "שגיאה ביצירת החשבון");
@@ -252,23 +252,13 @@ export default function ProviderApplyPage() {
               )}
 
               <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Field
-                    label="שם מלא"
-                    icon={<UserIcon className="h-4 w-4" />}
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    required
-                  />
-                  <Field
-                    type="tel"
-                    label="טלפון"
-                    icon={<Phone className="h-4 w-4" />}
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    required
-                  />
-                </div>
+                <Field
+                  label="שם מלא"
+                  icon={<UserIcon className="h-4 w-4" />}
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  required
+                />
                 <Field
                   type="email"
                   label="אימייל"

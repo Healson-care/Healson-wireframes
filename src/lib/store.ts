@@ -696,12 +696,15 @@ export const useStore = create<Store>()(
       // by fixed id, same reset technique as the "new patient" demo above.
       loginWithGoogle: () => {
         const GOOGLE_PROVIDER_ID = "user_google_provider";
+        // Google returns a verified email + name, but never a phone number.
+        // So no `phone` here — the applicant enters it (required) in the
+        // application form, and it's verified there via OTP at submit. Faking
+        // one would leave a "phantom" phone that was never actually verified.
         const user: User = {
           id: GOOGLE_PROVIDER_ID,
           email: "google.provider@demo.co.il",
           full_name: 'ישראל ישראלי',
           role: "provider",
-          phone: "050-0000000",
           created_date: new Date().toISOString(),
         };
         set((s) => ({

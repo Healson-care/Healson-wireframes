@@ -1554,7 +1554,7 @@ export default function ProviderRegisterPage() {
           <div className="grid gap-3 sm:grid-cols-2">
             <Input
               type="tel"
-              label="טלפון (חשבון הכניסה שלך)"
+              label="טלפון"
               icon={<Phone className="h-4 w-4" />}
               value={accountPhone}
               onChange={(e) => setAccountPhone(e.target.value)}
