@@ -64,7 +64,14 @@ import {
 } from "@/types";
 import { KupahArrangementPicker, MultiSelectPills } from "@/components/provider/KupahArrangementPicker";
 
-type Phase = "category" | "type" | "form" | "otp" | "email" | "success";
+// The application, end to end: pick a category/type → fill in who you are →
+// verify the phone you just entered → licensing, insurance and coverage →
+// read the whole thing back → send. There is deliberately no email step: the
+// welcome mail sent at signup is a notification, never a gate.
+type Phase = "category" | "type" | "form" | "otp" | "review" | "success";
+
+/** The form's own sub-steps, in order. "identity" and "license" always exist. */
+type FormStepKey = "identity" | "license" | "extras" | "area";
 
 const TITLES = ['ד"ר', "פרופ'"];
 
@@ -469,22 +476,26 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
 
 const REGISTER_STEPS: { key: string; label: string; icon: ReactNode }[] = [
   { key: "type", label: "סוג ספק", icon: <Layers className="h-4 w-4" /> },
+  { key: "identity", label: "פרטים אישיים", icon: <UserIcon className="h-4 w-4" /> },
   { key: "otp", label: "אימות טלפון", icon: <ShieldCheck className="h-4 w-4" /> },
-  { key: "email", label: "אימות אימייל", icon: <Mail className="h-4 w-4" /> },
-  { key: "form", label: "פרטי הבקשה", icon: <ClipboardPlus className="h-4 w-4" /> },
+  { key: "details", label: "מקצוע ורישוי", icon: <ClipboardPlus className="h-4 w-4" /> },
+  { key: "review", label: "סיכום ושליחה", icon: <FileText className="h-4 w-4" /> },
   { key: "success", label: "סיום", icon: <PartyPopper className="h-4 w-4" /> },
 ];
 
-function phaseToStepIndex(phase: Phase): number {
+// The "form" phase spans two stepper stops — the identity sub-step is stop 1
+// (it feeds the OTP), everything after it is stop 3 — so the stepper needs to
+// know which sub-step is showing, not just the phase.
+function phaseToStepIndex(phase: Phase, onIdentityStep: boolean): number {
   if (phase === "category" || phase === "type") return 0;
-  if (phase === "otp") return 1;
-  if (phase === "email") return 2;
-  if (phase === "form") return 3;
-  return 4;
+  if (phase === "form") return onIdentityStep ? 1 : 3;
+  if (phase === "otp") return 2;
+  if (phase === "review") return 4;
+  return 5;
 }
 
-function RegisterStepper({ phase }: { phase: Phase }) {
-  const activeIndex = phaseToStepIndex(phase);
+function RegisterStepper({ phase, onIdentityStep }: { phase: Phase; onIdentityStep: boolean }) {
+  const activeIndex = phaseToStepIndex(phase, onIdentityStep);
   return (
     <div className="mb-6 flex items-start">
       {REGISTER_STEPS.map((step, i) => {
@@ -532,11 +543,14 @@ function RegisterStepper({ phase }: { phase: Phase }) {
 // ("בקשה בבדיקה") and keeps the operational nav locked until approval.
 function RegisterShell({
   phase,
+  onIdentityStep = false,
   wide,
   side,
   children,
 }: {
   phase: Phase;
+  /** See phaseToStepIndex — only meaningful while phase === "form". */
+  onIdentityStep?: boolean;
   wide?: boolean;
   /** Optional context rail (form phase) — turns the card into a real page. */
   side?: ReactNode;
@@ -550,7 +564,7 @@ function RegisterShell({
         side ? "bg-slate-50/80" : wide ? "max-w-3xl bg-white" : "max-w-md bg-white"
       }`}
     >
-      <RegisterStepper phase={phase} />
+      <RegisterStepper phase={phase} onIdentityStep={onIdentityStep} />
       <AnimatePresence mode="wait">
         <motion.div
           key={phase}
@@ -580,7 +594,7 @@ function RegisterShell({
           } as React.CSSProperties
         }
       >
-        {phase !== "otp" && phase !== "email" && phase !== "success" && (
+        {phase !== "otp" && phase !== "success" && (
           <div className="mb-5 w-full rounded-xl border border-[var(--brand-gold)]/30 bg-[var(--brand-gold)]/[0.07] px-4 py-3 text-sm text-[var(--brand-ink)]">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <p className="font-medium">שלב 2 בהצטרפות · פרטי הבקשה</p>
@@ -696,12 +710,10 @@ export default function ProviderRegisterPage() {
   const { ready, user } = useRequireRole("provider");
   const provider = useCurrentProvider();
   const upsertProviderProfile = useStore((s) => s.upsertProviderProfile);
+  const updateProviderById = useStore((s) => s.updateProviderById);
   const beginProviderVerification = useStore((s) => s.beginProviderVerification);
   const verifyProviderPhoneOtp = useStore((s) => s.verifyProviderPhoneOtp);
   const resendProviderPhoneOtp = useStore((s) => s.resendProviderPhoneOtp);
-  const sendProviderActivationEmail = useStore((s) => s.sendProviderActivationEmail);
-  const verifyProviderActivationEmail = useStore((s) => s.verifyProviderActivationEmail);
-  const resendProviderActivationEmail = useStore((s) => s.resendProviderActivationEmail);
   const finalizeProviderApplication = useStore((s) => s.finalizeProviderApplication);
   const updateCurrentUserDetails = useStore((s) => s.updateCurrentUserDetails);
   const demoApproveProvider = useStore((s) => s.demoApproveProvider);
@@ -777,25 +789,15 @@ export default function ProviderRegisterPage() {
     }
   }, [errorNonce]);
 
-  // (Re-)send the phone OTP whenever the "otp" phase is entered — right after
-  // account creation on /apply, and when resuming a session that was left
-  // mid-verification (see the resume-sync block above).
+  // (Re-)send the phone OTP whenever the "otp" phase is entered — which now
+  // only happens straight after the identity sub-step, so the number the code
+  // is sent to is the one the applicant just typed.
   useEffect(() => {
     if (phase === "otp" && applicationProviderId) {
       const result = beginProviderVerification(applicationProviderId);
       if (result.ok) {
         showToast("קוד אימות נשלח", { description: `קוד הדגמה: ${result.otpHint}`, variant: "success" });
       }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, applicationProviderId]);
-
-  // (Re-)send the activation email whenever the "email" phase is entered —
-  // both right after phone-OTP verification and when resuming a session that
-  // was left mid-verification (see the resume-sync block above).
-  useEffect(() => {
-    if (phase === "email" && applicationProviderId) {
-      sendProviderActivationEmail(applicationProviderId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, applicationProviderId]);
@@ -846,14 +848,12 @@ export default function ProviderRegisterPage() {
       setSubSpecialties(provider.sub_specialties ?? []);
       setLocationCount(provider.location_count != null ? String(provider.location_count) : "");
       setStoreStructure(type === "store" && (provider.location_count ?? 1) > 1 ? "chain" : "single");
-      // Phone + email verification now happen right after the account is
-      // created (before the rest of the application form, see /apply) —
-      // resume wherever this applicant left off. The OTP/email are
-      // (re-)sent from effects below, not here, since this branch runs
-      // during render and shouldn't reach into the external store.
-      if (!provider.phone_verified_at) setPhase("otp");
-      else if (!provider.email_verified_at) setPhase("email");
-      else setPhase("form");
+      // Resume into the form, at the first sub-step that still has work: the
+      // identity details until the phone is verified, the licensing details
+      // once it is. Never straight into "otp" — the OTP is only ever entered
+      // right after the number itself was typed on the identity sub-step.
+      setFormStep(provider.phone_verified_at ? 1 : 0);
+      setPhase("form");
     } else if (provider) {
       // No provider type yet — e.g. the Google demo shortcut, which lands
       // here without one (see loginWithGoogle). Every normal /apply signup
@@ -896,19 +896,25 @@ export default function ProviderRegisterPage() {
   // removed from the application (real address→map linkage happens later, when
   // adding clinics), so a type with neither skips this step entirely.
   const hasAreaStep = !!config && (providerType === "store" || config.showLocationCount === true);
-  const formSteps: { key: "details" | "extras" | "area"; label: string }[] = [
-    { key: "details", label: "פרטים ורישוי" },
+  // "identity" collects who you are and — crucially — the phone number the
+  // OTP is then sent to; "license" is everything Ops needs to verify you.
+  // Both always exist, so their indices (0 and 1) are stable enough to resume
+  // against; the last two are per-type.
+  const formSteps: { key: FormStepKey; label: string }[] = [
+    { key: "identity", label: "פרטים אישיים" },
+    { key: "license", label: "מקצוע ורישוי" },
     ...(hasExtrasStep ? ([{ key: "extras", label: "כיסוי ביטוחי" }] as const) : []),
     ...(hasAreaStep ? ([{ key: "area", label: "פריסה" }] as const) : []),
   ];
   const safeFormStep = Math.min(formStep, formSteps.length - 1);
   const currentFormStepKey = formSteps[safeFormStep].key;
   const isLastFormStep = safeFormStep === formSteps.length - 1;
+  const phoneVerified = !!provider?.phone_verified_at;
 
   // Custom validations for fields native `required` can't cover (file
-  // uploads, pill multi-selects) — all belong to the "details" sub-step, and
+  // uploads, pill multi-selects) — all belong to the "license" sub-step, and
   // re-checked on final submit as a safety net.
-  function detailsStepError(): { field: "license" | "hospital" | "specialty"; message: string } | null {
+  function licenseStepError(): { field: "license" | "hospital" | "specialty"; message: string } | null {
     if (!config) return null;
     if (config.licenseFileRequired !== false && !licenseFile && !provider?.license_file) {
       return { field: "license", message: `נא לצרף ${licenseFileLabel.replace(/\s*\(.*\)$/, "")}` };
@@ -978,17 +984,33 @@ export default function ProviderRegisterPage() {
     e.preventDefault();
     if (!providerType || !config || !provider) return;
     setError("");
-    if (currentFormStepKey === "details" || isLastFormStep) {
-      const stepError = detailsStepError();
+    if (currentFormStepKey === "license" || isLastFormStep) {
+      const stepError = licenseStepError();
       if (stepError) {
         setError(stepError.message, stepError.field);
         return;
       }
     }
+    // Read before persistDraft — it writes accountPhone onto the account, so
+    // afterwards there is nothing left to compare the new number against.
+    const phoneChanged = accountPhone.trim() !== (user?.phone ?? "").trim();
     setLoading(true);
     const saved = await persistDraft();
     if (!saved) {
       setLoading(false);
+      return;
+    }
+    // The phone was just entered (or corrected) — verify it now, before
+    // asking for anything else. A previously verified number that has since
+    // been edited is no longer verified.
+    if (currentFormStepKey === "identity" && (!phoneVerified || phoneChanged)) {
+      if (phoneVerified && phoneChanged) {
+        updateProviderById(provider.id, { phone_verified_at: undefined });
+      }
+      setLoading(false);
+      setPhase("otp");
+      setOtpCode("");
+      window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
     // Not on the last sub-step yet — advance instead of submitting (native
@@ -999,9 +1021,27 @@ export default function ProviderRegisterPage() {
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
-    // Phone + email were already verified right after the account was
-    // created (see the "otp"/"email" phases below) — nothing left to check
-    // here except the license number, one last time.
+    // Everything is filled and valid — read it back for confirmation before
+    // anything is sent to Healson. finalizeProviderApplication runs from the
+    // review screen, not here.
+    setLoading(false);
+    setPhase("review");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function handleFinalSubmit() {
+    if (!provider) return;
+    setError("");
+    // Safety net: the per-step gates already ran, but the review screen is
+    // reachable from a resumed session too.
+    const stepError = licenseStepError();
+    if (stepError) {
+      setError(stepError.message, stepError.field);
+      setPhase("form");
+      setFormStep(1);
+      return;
+    }
+    setLoading(true);
     const result = finalizeProviderApplication(provider.id);
     setLoading(false);
     if (!result.ok) {
@@ -1036,8 +1076,10 @@ export default function ProviderRegisterPage() {
         return;
       }
       setApplicationProviderId(result.providerId ?? null);
-      setPhase("email");
-      showToast("מייל הפעלת חשבון נשלח", { description: `נשלח לכתובת ${email}`, variant: "success" });
+      // Straight on to the licensing sub-step — identity is behind us.
+      setFormStep(1);
+      setPhase("form");
+      showToast("הטלפון אומת", { description: "ממשיכים לפרטי המקצוע והרישוי", variant: "success" });
     }, 300);
   }
 
@@ -1046,28 +1088,12 @@ export default function ProviderRegisterPage() {
     if (otp) showToast("קוד חדש נשלח לטלפון", { description: `קוד הדגמה: ${otp}` });
   }
 
-  function handleConfirmEmailLink() {
+  /** Back out of the OTP to correct the number it was sent to. */
+  function handleEditPhone() {
     setError("");
-    setLoading(true);
-    setTimeout(() => {
-      const result = verifyProviderActivationEmail();
-      setLoading(false);
-      if (!result.ok) {
-        setError(result.error ?? "שגיאה באימות");
-        return;
-      }
-      // Phone + email are both verified now — the account is fully active
-      // (a confirmation email was just sent, see the "email" phase copy).
-      // Continue straight into the rest of the application instead of
-      // stopping here.
-      setPhase("form");
-      showToast("החשבון הופעל בהצלחה", { description: "אפשר להמשיך למילוי פרטי הבקשה", variant: "success" });
-    }, 300);
-  }
-
-  function handleResendActivationEmail() {
-    const sent = resendProviderActivationEmail();
-    if (sent) showToast("מייל הפעלת חשבון נשלח שוב", { description: `נשלח לכתובת ${email}` });
+    setOtpCode("");
+    setFormStep(0);
+    setPhase("form");
   }
 
   function handleDemoApprove() {
@@ -1130,10 +1156,8 @@ export default function ProviderRegisterPage() {
     setLocationCount("");
     setStoreStructure("single");
     // Persist the type immediately — not just on the form's first "המשך" —
-    // since phone/email verification (below) now happens BEFORE the rest of
-    // the application form and needs a provider_type to resume against.
-    // This fallback path (picking a type here rather than on /apply, e.g.
-    // the Google demo shortcut) hasn't verified either yet.
+    // so the dashboard shows the application as started, and a resumed
+    // session has a type to rebuild the per-type form config from.
     if (provider) {
       upsertProviderProfile(provider.user_id, {
         provider_type: t,
@@ -1141,9 +1165,9 @@ export default function ProviderRegisterPage() {
         contact_name: isPerson ? undefined : user?.full_name,
       });
     }
-    if (provider?.phone_verified_at && provider?.email_verified_at) setPhase("form");
-    else if (provider?.phone_verified_at) setPhase("email");
-    else setPhase("otp");
+    // Always into the form's first sub-step: personal details, where the
+    // phone is entered — the OTP comes right after it, never before.
+    setPhase("form");
   }
 
   if (phase === "category") {
@@ -1270,52 +1294,162 @@ export default function ProviderRegisterPage() {
           <Button type="submit" loading={loading} className="w-full">
             אמת קוד
           </Button>
-          <button type="button" onClick={handleResend} className="text-sm text-primary hover:underline text-center">
-            שלח קוד מחדש
-          </button>
+          <div className="flex items-center justify-center gap-3 text-sm">
+            <button type="button" onClick={handleResend} className="text-primary hover:underline">
+              שלח קוד מחדש
+            </button>
+            <span className="text-slate-300">·</span>
+            <button type="button" onClick={handleEditPhone} className="text-slate-500 hover:underline">
+              עריכת מספר הטלפון
+            </button>
+          </div>
         </form>
       </RegisterShell>
     );
   }
 
-  if (phase === "email") {
+  // Step 4 — read the whole application back before anything leaves the
+  // building. Every group carries its own "עריכה" link straight to the
+  // sub-step it came from, so a correction costs one click, not a re-walk.
+  if (phase === "review" && config && providerType) {
+    const editTo = (step: number) => () => {
+      setError("");
+      setFormStep(step);
+      setPhase("form");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+    const extrasIndex = formSteps.findIndex((s) => s.key === "extras");
+    const areaIndex = formSteps.findIndex((s) => s.key === "area");
+    const licenseFileName = licenseFile?.name ?? provider?.license_file?.file_name;
+    const specialtyText = config.multiSpecialty ? specialtyMulti.join(", ") : specialty;
+    const areaText =
+      providerType === "store"
+        ? storeStructure === "single"
+          ? "סניף יחיד"
+          : `רשת של ${locationCount || "—"} סניפים`
+        : locationCount
+        ? `${locationCount} מוקדי קבלה`
+        : "";
+
+    const groups: { title: string; onEdit: () => void; rows: { label: string; value: string }[] }[] = [
+      {
+        title: "פרטים אישיים",
+        onEdit: editTo(0),
+        rows: [
+          { label: config.nameLabel, value: [config.showTitle ? title : "", fullName].filter(Boolean).join(" ") },
+          ...(isDoctor ? [{ label: "סוג רופא/ה", value: DOCTOR_SUBTYPE_LABELS[doctorSubtype] }] : []),
+          { label: "טלפון", value: accountPhone },
+          { label: "אימייל", value: email },
+          ...(config.showContactName && extraFieldsGate
+            ? [{ label: config.contactNameLabel ?? "איש קשר", value: contactName }]
+            : []),
+          ...(config.showContactPhone && extraFieldsGate ? [{ label: "טלפון איש קשר", value: contactPhone }] : []),
+          ...(config.showContactEmail && extraFieldsGate ? [{ label: "אימייל איש קשר", value: contactEmail }] : []),
+        ],
+      },
+      {
+        title: "מקצוע ורישוי",
+        onEdit: editTo(1),
+        rows: [
+          { label: config.specialtyLabel, value: specialtyText },
+          ...(config.showSubSpecialties ? [{ label: subSpecialtyLabel, value: subSpecialties.join(", ") }] : []),
+          ...(config.showBusinessRegNumber && extraFieldsGate
+            ? [{ label: 'מספר עוסק מורשה / ח"פ', value: businessRegNumber }]
+            : []),
+          ...(config.showLicenseNumber !== false && extraFieldsGate
+            ? [{ label: config.licenseNumberLabel ?? "מספר רישיון", value: licenseNumber }]
+            : []),
+          { label: licenseFileLabel.replace(/\s*\(.*\)$/, ""), value: licenseFileName ?? "" },
+          ...(isSurgeon ? [{ label: "הרשאת ניתוח", value: surgicalPrivilegesHospital }] : []),
+        ],
+      },
+      ...(extrasIndex >= 0
+        ? [
+            {
+              title: "כיסוי ביטוחי",
+              onEdit: editTo(extrasIndex),
+              rows: [
+                ...(config.showKupot
+                  ? [{ label: "הסדרי קופות", value: kupahArrangements.map((k) => `${k.kupah} (${k.level})`).join(", ") }]
+                  : []),
+                ...(config.showPrivateInsurance
+                  ? [{ label: "ביטוח פרטי (B)", value: privateInsurers.join(", ") }]
+                  : []),
+              ],
+            },
+          ]
+        : []),
+      ...(areaIndex >= 0
+        ? [{ title: "פריסה", onEdit: editTo(areaIndex), rows: [{ label: "מוקדי פעילות", value: areaText }] }]
+        : []),
+    ];
+
     return (
-      <RegisterShell phase={phase}>
-        <div className="flex flex-col items-center text-center mb-5">
-          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <Mail className="h-6 w-6" />
-          </div>
-          <h1 className="font-display text-xl font-bold text-[var(--brand-navy)]">אימות כתובת אימייל</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            שלחנו מייל הפעלת חשבון לכתובת <bdi className="font-medium text-slate-700">{email}</bdi>
+      <RegisterShell phase={phase} wide>
+        <div className="mb-5">
+          <h1 className="font-display text-xl font-bold text-[var(--brand-navy)]">סיכום הבקשה לפני שליחה</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            עברנו על הבקשה ולא חסר בה דבר. כדאי לוודא שהפרטים נכונים — אחרי השליחה היא עוברת לבדיקת צוות Healson.
           </p>
         </div>
+
         {error && (
-          <div role="alert" className="mb-4 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
+          <div
+            ref={errorRef}
+            role="alert"
+            tabIndex={-1}
+            className="mb-4 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-text outline-none"
+          >
             {error}
           </div>
         )}
-        <div className="flex flex-col gap-3">
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <div className="flex items-center gap-2 mb-2 text-slate-500">
-              <Mail className="h-4 w-4" />
-              <span className="text-xs font-medium">מייל הדגמה מ-HEALSON</span>
-            </div>
-            <p className="text-sm text-slate-700 mb-3">
-              לחצו על הקישור הבא כדי לאמת את כתובת האימייל ולהפעיל את החשבון.
-            </p>
-            <Button type="button" onClick={handleConfirmEmailLink} loading={loading} className="w-full">
-              אשרו את החשבון שלי
-            </Button>
-          </div>
-          <button
-            type="button"
-            onClick={handleResendActivationEmail}
-            className="text-sm text-primary hover:underline text-center"
-          >
-            שלח מייל מחדש
-          </button>
+
+        <div className="mb-4 flex items-center gap-2.5 rounded-xl border border-success-border bg-success-bg px-3.5 py-3 text-sm text-success-text">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          <span>
+            הבקשה מלאה ותקינה — <bdi className="font-medium">{config.label}</bdi>, טלפון מאומת.
+          </span>
         </div>
+
+        <div className="flex flex-col gap-3">
+          {groups.map((group) => (
+            <section key={group.title} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="mb-2.5 flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
+                <h2 className="text-sm font-bold text-slate-900">{group.title}</h2>
+                <button
+                  type="button"
+                  onClick={group.onEdit}
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  עריכה
+                </button>
+              </div>
+              <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+                {group.rows.map((row) => (
+                  <div key={row.label} className="flex flex-col">
+                    <dt className="text-[11px] text-slate-500">{row.label}</dt>
+                    <dd className="text-sm text-slate-800">
+                      {row.value ? <bdi>{row.value}</bdi> : <span className="text-slate-400">לא צוין</span>}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          ))}
+        </div>
+
+        <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+          <Button type="button" variant="outline" onClick={editTo(0)} className="sm:flex-1">
+            <ArrowRight className="h-4 w-4" />
+            עריכת הבקשה
+          </Button>
+          <Button type="button" onClick={handleFinalSubmit} loading={loading} className="sm:flex-[2]">
+            שליחת הבקשה לאישור Healson
+          </Button>
+        </div>
+        <p className="mt-3 text-center text-xs text-slate-500">
+          לאחר השליחה נשלח אליך העתק של הבקשה במייל, ואפשר יהיה לעקוב אחר הסטטוס בלוח ההצטרפות.
+        </p>
       </RegisterShell>
     );
   }
@@ -1526,7 +1660,7 @@ export default function ProviderRegisterPage() {
   );
 
   return (
-    <RegisterShell phase={phase} side={formSide}>
+    <RegisterShell phase={phase} onIdentityStep={currentFormStepKey === "identity"} side={formSide}>
       <div className="mb-5 flex items-center gap-3">
         <button
           type="button"
@@ -1595,8 +1729,7 @@ export default function ProviderRegisterPage() {
         aria-label={`שלב ${safeFormStep + 1} מתוך ${formSteps.length}: ${formSteps[safeFormStep].label}`}
         className="flex flex-col gap-4 outline-none"
       >
-        {currentFormStepKey === "details" && (
-        <>
+        {currentFormStepKey === "identity" && (
         <FormSection icon={<UserIcon className="h-4 w-4" />} title="פרטים אישיים ויצירת קשר">
           {config.showTitle ? (
             <div className="grid grid-cols-3 gap-2">
@@ -1671,7 +1804,11 @@ export default function ProviderRegisterPage() {
               icon={<Phone className="h-4 w-4" />}
               value={accountPhone}
               onChange={(e) => setAccountPhone(e.target.value)}
-              hint="קוד האימות יישלח למספר זה"
+              hint={
+                phoneVerified
+                  ? "מספר מאומת — שינוי שלו ידרוש אימות מחדש"
+                  : "בשלב הבא נשלח קוד אימות בן 6 ספרות למספר הזה"
+              }
               required
             />
             <Input
@@ -1725,7 +1862,9 @@ export default function ProviderRegisterPage() {
             </div>
           )}
         </FormSection>
+        )}
 
+        {currentFormStepKey === "license" && (
         <FormSection icon={<Stethoscope className="h-4 w-4" />} title="פרטי המקצוע והרישוי">
           {config.freeTextSpecialty ? (
             <Input
@@ -1868,7 +2007,6 @@ export default function ProviderRegisterPage() {
             )}
           </AnimatePresence>
         </FormSection>
-        </>
         )}
 
         {currentFormStepKey === "extras" && (
@@ -1967,7 +2105,11 @@ export default function ProviderRegisterPage() {
             </Button>
           )}
           <Button type="submit" loading={loading} className="flex-1">
-            {isLastFormStep ? "שליחת בקשה" : "המשך"}
+            {currentFormStepKey === "identity" && !phoneVerified
+              ? "המשך לאימות הטלפון"
+              : isLastFormStep
+              ? "המשך לסיכום"
+              : "המשך"}
           </Button>
         </div>
 
@@ -1975,7 +2117,7 @@ export default function ProviderRegisterPage() {
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
           <p className="flex items-center gap-1.5 text-xs text-slate-500">
             <Save className="h-3.5 w-3.5" />
-            הפרטים נשמרים אוטומטית בכל שלב — הבקשה נשלחת ל-Healson רק בלחיצה על ״שליחת בקשה״.
+            הפרטים נשמרים אוטומטית בכל שלב — הבקשה נשלחת ל-Healson רק ממסך הסיכום, בלחיצה על ״שליחת הבקשה״.
           </p>
           <button
             type="button"

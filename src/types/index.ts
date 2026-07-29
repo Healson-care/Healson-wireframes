@@ -1111,8 +1111,10 @@ export interface ProviderProfile {
   // straight in הקמה as a blank slate. Optional: pre-split records derive it
   // from provider_type (units are never self-registerable).
   onboarding_path?: "solo" | "unit";
+  // Set by verifyProviderPhoneOtp, right after the phone is entered on the
+  // application's "פרטים אישיים" sub-step. There is no email counterpart:
+  // the mail sent at signup is a welcome notification, not a gate.
   phone_verified_at?: string;
-  email_verified_at?: string;
   license_file?: UploadedFile;
   doctor_subtype?: DoctorSubtype;
   surgical_board_certificate?: UploadedFile;
