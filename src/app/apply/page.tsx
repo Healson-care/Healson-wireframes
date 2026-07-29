@@ -304,45 +304,6 @@ export default function ProviderApplyPage() {
                 </div>
               )}
 
-              <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-                <Field
-                  label="שם מלא"
-                  icon={<UserIcon className="h-4 w-4" />}
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  required
-                />
-                <Field
-                  type="email"
-                  label="אימייל"
-                  placeholder="you@example.com"
-                  icon={<Mail className="h-4 w-4" />}
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                />
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Field
-                    type="password"
-                    label="סיסמה"
-                    placeholder="••••••••"
-                    icon={<Lock className="h-4 w-4" />}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                  />
-                  <Field
-                    type="password"
-                    label="אימות סיסמה"
-                    placeholder="••••••••"
-                    icon={<Lock className="h-4 w-4" />}
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    required
-                  />
-                </div>
-              )}
-
               {stepPhase === "account" && providerType && (
                 <>
                   <button
@@ -355,23 +316,13 @@ export default function ProviderApplyPage() {
                   </button>
 
                   <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <Field
-                        label="שם מלא"
-                        icon={<UserIcon className="h-4 w-4" />}
-                        value={fullName}
-                        onChange={(e) => setFullName(e.target.value)}
-                        required
-                      />
-                      <Field
-                        type="tel"
-                        label="טלפון"
-                        icon={<Phone className="h-4 w-4" />}
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        required
-                      />
-                    </div>
+                    <Field
+                      label="שם מלא"
+                      icon={<UserIcon className="h-4 w-4" />}
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      required
+                    />
                     <Field
                       type="email"
                       label="אימייל"
