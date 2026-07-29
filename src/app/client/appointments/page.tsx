@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/Input";
 import { Popover } from "@/components/ui/Popover";
 import { AppointmentReminderPlan } from "@/components/patient/AppointmentReminderPlan";
 import { DocumentUploadDialog } from "@/components/patient/DocumentUploadDialog";
+import { RequiredDocumentUploadDialog } from "@/components/patient/RequiredDocumentUploadDialog";
 import { SlotPicker } from "@/components/book/SlotPicker";
 import { WaitlistJoinDialog } from "@/components/book/WaitlistJoinDialog";
 import {
@@ -42,12 +43,12 @@ import {
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { cn, formatCurrency } from "@/lib/utils";
-import { fileToDataUrl, validateDocumentFile } from "@/lib/file";
 import {
   Appointment,
   AppointmentStatus,
   documentAppointmentIds,
   DOCUMENT_CATEGORIES,
+  PatientDocument,
   WaitlistEntry,
   WaitlistStatus,
 } from "@/types";
@@ -498,28 +499,11 @@ function AppointmentListCard({
   const pendingRequiredDocs = linkedDocs.filter((d) => d.status === "ממתין למילוי");
 
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [requiredUploadDoc, setRequiredUploadDoc] = useState<PatientDocument | null>(null);
 
   function handleFillQuestionnaire(docId: string) {
     updateDocument(docId, { status: "זמין" });
     showToast("השאלון מולא בהצלחה", { variant: "success" });
-  }
-
-  // Fulfils one specific checklist item (a named required document) by
-  // attaching the uploaded file directly to its existing placeholder record,
-  // rather than creating a new document.
-  async function handleFulfillRequiredDoc(docId: string, file: File | null) {
-    if (!file) return;
-    const validationError = validateDocumentFile(file);
-    if (validationError) {
-      showToast(validationError, { variant: "destructive" });
-      return;
-    }
-    const dataUrl = await fileToDataUrl(file);
-    updateDocument(docId, {
-      status: "זמין",
-      file: { file_name: file.name, uploaded_at: new Date().toISOString(), data_url: dataUrl },
-    });
-    showToast("המסמך הועלה בהצלחה", { variant: "success" });
   }
 
   return (
@@ -719,15 +703,13 @@ function AppointmentListCard({
                                   מלא עכשיו
                                 </Button>
                               ) : (
-                                <label className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-primary hover:text-primary">
+                                <button
+                                  type="button"
+                                  onClick={() => setRequiredUploadDoc(d)}
+                                  className="flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-primary hover:text-primary"
+                                >
                                   <Upload className="h-3.5 w-3.5" /> העלאה
-                                  <input
-                                    type="file"
-                                    accept=".pdf,.jpg,.jpeg,.png"
-                                    className="hidden"
-                                    onChange={(e) => handleFulfillRequiredDoc(d.id, e.target.files?.[0] ?? null)}
-                                  />
-                                </label>
+                                </button>
                               )}
                             </div>
                           ))}
@@ -848,6 +830,13 @@ function AppointmentListCard({
           defaultAppointmentIds={[item.data.id]}
         />
       )}
+
+      <RequiredDocumentUploadDialog
+        open={!!requiredUploadDoc}
+        onClose={() => setRequiredUploadDoc(null)}
+        docId={requiredUploadDoc?.id ?? null}
+        docTitle={requiredUploadDoc?.title}
+      />
     </motion.div>
   );
 }
@@ -1315,6 +1304,21 @@ function ClientAppointmentsPageContent() {
         onClose={() => setPayDepositAppointment(null)}
         onPaid={(id) => {
           updateAppointment(id, { status: "מאושר", deposit_paid_at: new Date().toISOString() });
+          const patientId = patient?.id ?? currentUser?.id;
+          if (patientId && payDepositAppointment) {
+            addDocument({
+              patient_id: patientId,
+              category: "receipt",
+              title: `קבלה על מקדמה - ${payDepositAppointment.service_name}`,
+              uploaded_by: "system",
+              appointment_id: id,
+              file: {
+                file_name: "קבלה.pdf",
+                uploaded_at: new Date().toISOString(),
+                data_url: "data:application/pdf;base64,",
+              },
+            });
+          }
           showToast("התשלום התקבל, התור אושר", { variant: "success" });
           setPayDepositAppointment(null);
         }}

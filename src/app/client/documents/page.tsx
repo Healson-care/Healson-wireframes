@@ -29,7 +29,7 @@ import { Input } from "@/components/ui/Input";
 import { FilterDropdown } from "@/components/ui/FilterDropdown";
 import { Popover } from "@/components/ui/Popover";
 import { DocumentUploadDialog } from "@/components/patient/DocumentUploadDialog";
-import { fileToDataUrl, validateDocumentFile } from "@/lib/file";
+import { RequiredDocumentUploadDialog } from "@/components/patient/RequiredDocumentUploadDialog";
 import { formatDateHe } from "@/lib/utils";
 import {
   Appointment,
@@ -241,6 +241,7 @@ function ClientDocumentsPageContent() {
 
   const [activeCategories, setActiveCategories] = useState<DocumentCategory[]>([]);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [requiredUploadDoc, setRequiredUploadDoc] = useState<PatientDocument | null>(null);
   const [renameDoc, setRenameDoc] = useState<PatientDocument | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
@@ -293,23 +294,6 @@ function ClientDocumentsPageContent() {
   function handleFillQuestionnaire(docId: string) {
     updateDocument(docId, { status: "זמין" });
     showToast("השאלון מולא בהצלחה", { variant: "success" });
-  }
-
-  // Fulfils a non-questionnaire checklist item by attaching the uploaded
-  // file directly to its existing placeholder record.
-  async function handleUploadRequiredDoc(docId: string, file: File | null) {
-    if (!file) return;
-    const validationError = validateDocumentFile(file);
-    if (validationError) {
-      showToast(validationError, { variant: "destructive" });
-      return;
-    }
-    const dataUrl = await fileToDataUrl(file);
-    updateDocument(docId, {
-      status: "זמין",
-      file: { file_name: file.name, uploaded_at: new Date().toISOString(), data_url: dataUrl },
-    });
-    showToast("המסמך הועלה בהצלחה", { variant: "success" });
   }
 
   function handleDownload() {
@@ -388,15 +372,13 @@ function ClientDocumentsPageContent() {
                       מלא עכשיו
                     </Button>
                   ) : (
-                    <label className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-warning-text/40 bg-white px-2.5 py-1 text-[11px] font-medium text-warning-text transition-colors hover:bg-warning-text hover:text-white">
+                    <button
+                      type="button"
+                      onClick={() => setRequiredUploadDoc(item.data)}
+                      className="flex shrink-0 items-center gap-1.5 rounded-lg border border-warning-text/40 bg-white px-2.5 py-1 text-[11px] font-medium text-warning-text transition-colors hover:bg-warning-text hover:text-white"
+                    >
                       <Upload className="h-3 w-3" /> העלאה
-                      <input
-                        type="file"
-                        accept=".pdf,.jpg,.jpeg,.png"
-                        className="hidden"
-                        onChange={(e) => handleUploadRequiredDoc(item.data.id, e.target.files?.[0] ?? null)}
-                      />
-                    </label>
+                    </button>
                   )}
                 </div>
               );
@@ -459,6 +441,13 @@ function ClientDocumentsPageContent() {
             showToast("המסמך נמחק", { variant: "success" });
           }
         }}
+      />
+
+      <RequiredDocumentUploadDialog
+        open={!!requiredUploadDoc}
+        onClose={() => setRequiredUploadDoc(null)}
+        docId={requiredUploadDoc?.id ?? null}
+        docTitle={requiredUploadDoc?.title}
       />
     </ClientLayout>
   );
