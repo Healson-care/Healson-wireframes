@@ -183,6 +183,12 @@ interface AuthState {
   resendReauthOtp: () => string | null;
   pendingRegistrationVerification: PendingRegistrationVerification | null;
   beginRegistrationVerification: () => void;
+  // Clears a stale pending verification left over from a registration the
+  // user abandoned mid-way in a previous session (this store persists to
+  // localStorage) — called when a fresh registration reaches the SMS screen
+  // without a phone number yet, so that screen reliably shows the phone
+  // prompt instead of mistaking old state for "already sent".
+  resetRegistrationVerification: () => void;
   verifyRegistrationSmsOtp: (code: string) => { ok: boolean; error?: string };
   // No code param — clicking the (simulated) email link is itself the proof.
   verifyRegistrationEmailLink: () => { ok: boolean; error?: string };
@@ -797,6 +803,10 @@ export const useStore = create<Store>()(
         set({
           pendingRegistrationVerification: { smsOtp: "123456", smsVerified: false },
         });
+      },
+
+      resetRegistrationVerification: () => {
+        set({ pendingRegistrationVerification: null });
       },
 
       verifyRegistrationSmsOtp: (code) => {

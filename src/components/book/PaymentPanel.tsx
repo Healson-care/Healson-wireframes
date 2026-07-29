@@ -5,14 +5,16 @@ import { CreditCard, MapPin, ShieldCheck, Smartphone, Stethoscope } from "lucide
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { HoldTimer } from "@/components/book/HoldTimer";
+import { PreparationRequirements } from "@/components/book/PreparationRequirements";
 import { formatCurrency } from "@/lib/utils";
-import { InsuranceLayer, Kupah, LAYER_LABELS, ProviderProfile } from "@/types";
+import { ConsultationType, InsuranceLayer, Kupah, LAYER_LABELS, ProviderProfile } from "@/types";
 
 const DEPOSIT_PERCENT = 30;
 
 export function PaymentPanel({
   provider,
   itemName,
+  consultation,
   clinicId,
   selectedSlot,
   kupah,
@@ -28,6 +30,7 @@ export function PaymentPanel({
 }: {
   provider: ProviderProfile;
   itemName?: string;
+  consultation?: ConsultationType;
   clinicId?: string;
   selectedSlot: { date: string; time: string; label: string };
   kupah?: Kupah;
@@ -107,6 +110,10 @@ export function PaymentPanel({
         )}
       </div>
 
+      <div className="mb-4">
+        <PreparationRequirements consultation={consultation} />
+      </div>
+
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm mb-4">
         <p className="text-xs text-slate-400 mb-2">מחיר</p>
         <div className="flex items-center justify-between text-sm">
@@ -119,9 +126,11 @@ export function PaymentPanel({
           <span className="text-slate-500">המחיר שלך</span>
           <span className="font-medium text-slate-900">{formatCurrency(price)}</span>
         </div>
-        {hasArrangement && (
+        {hasArrangement && layer && (
           <p className="text-[11px] text-slate-400 mt-1">
-            * ייתכנו הטבות או החזרים נוספים בהתאם לפוליסת הביטוח האישית שלך שאינם משתקפים כאן
+            * המחיר מבוסס על ה{LAYER_LABELS[layer]}
+            {layer === "S" && kupah ? ` שלך ב${kupah}` : " שלך"} — בהנחת זכאות מלאה. מגבלות זכאות אישיות (למשל תקרת
+            מספר טיפולים מוטבים בשנה) לא מוצגות כאן ואינן ידועות למערכת; מומלץ לוודא מול חברת הביטוח/הקופה שלך.
           </p>
         )}
         <div className="h-px bg-slate-100 my-3" />

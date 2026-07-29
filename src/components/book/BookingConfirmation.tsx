@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { AlertCircle, ArrowLeft, Calendar, CheckCircle2, Receipt, Sparkles } from "lucide-react";
+import { AlertCircle, ArrowLeft, Calendar, CheckCircle2, MapPin, Phone, Receipt, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ServiceItemCard } from "@/components/book/ServiceItemCard";
+import { PreparationRequirements } from "@/components/book/PreparationRequirements";
 import { useStore } from "@/lib/store";
-import { PROVIDER_SERVICE_TYPE_LABELS, ProviderProfile } from "@/types";
+import { ConsultationType, PROVIDER_SERVICE_TYPE_LABELS, ProviderProfile } from "@/types";
 
 // Deterministic (not Math.random) so it stays pure during render — the
 // spread still reads as organic confetti thanks to the sine-based offsets.
@@ -45,6 +46,7 @@ export function BookingConfirmation({
   homeLabel,
   appointmentId,
   bookedServiceName,
+  consultation,
 }: {
   provider: ProviderProfile;
   selectedSlot: { date: string; time: string; label: string };
@@ -55,8 +57,10 @@ export function BookingConfirmation({
   // Excluded from "שירותים רלוונטיים נוספים" below so the doctor's own just-
   // booked service doesn't show up as a suggestion for themselves.
   bookedServiceName?: string;
+  consultation?: ConsultationType;
 }) {
   const documents = useStore((s) => s.documents);
+  const appointments = useStore((s) => s.appointments);
   const showToast = useStore((s) => s.showToast);
   // Everything still waiting on the patient for this specific appointment —
   // the questionnaire (if any) plus any named required_documents checklist
@@ -64,6 +68,16 @@ export function BookingConfirmation({
   // questionnaire alone.
   const pendingDocs = documents.filter((d) => d.appointment_id === appointmentId && d.status === "ממתין למילוי");
   const appointmentHref = `/client/appointments?appointment=${appointmentId}`;
+
+  // Minimal doctor/location details right here — so most patients never
+  // need to click through to the full appointment just to see where they're
+  // going. "לצפייה בתור" below still exists for everything else (reschedule,
+  // cancel, full document list).
+  const bookedAppointment = appointments.find((a) => a.id === appointmentId);
+  const clinic =
+    provider.clinic_locations.find((c) => c.id === bookedAppointment?.clinic_id) ??
+    provider.clinic_locations.find((c) => c.is_primary) ??
+    provider.clinic_locations[0];
 
   // Placeholder cross-sell (§future: real recommendations based on the
   // service just booked) — for now, surfaces this doctor's other services
@@ -87,7 +101,29 @@ export function BookingConfirmation({
       </p>
       <p className="text-xs text-slate-400 mt-1">מספר תיק לקוח #{confirmation.fileNumber}</p>
 
-      <div className="mt-5 flex flex-col items-stretch gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-right sm:flex-row sm:items-center sm:justify-between">
+      <div className="mt-4 flex flex-col gap-1 rounded-xl border border-slate-200 bg-white p-4 text-right text-sm">
+        <p className="font-semibold text-slate-800">
+          {provider.title} {provider.display_name}
+        </p>
+        <p className="text-slate-500">{provider.specialty}</p>
+        {clinic && (
+          <p className="flex items-center gap-1.5 text-slate-500 mt-1">
+            <MapPin className="h-3.5 w-3.5 shrink-0" />
+            {clinic.name} · {clinic.address}, {clinic.city}
+          </p>
+        )}
+        {clinic?.phone && (
+          <a href={`tel:${clinic.phone}`} className="flex items-center gap-1.5 text-primary hover:underline">
+            <Phone className="h-3.5 w-3.5 shrink-0" /> {clinic.phone}
+          </a>
+        )}
+      </div>
+
+      <div className="mt-3">
+        <PreparationRequirements consultation={consultation} />
+      </div>
+
+      <div className="mt-3 flex flex-col items-stretch gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-right sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
           <Receipt className="h-5 w-5 shrink-0 text-slate-500" />
           <div>

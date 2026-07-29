@@ -125,6 +125,8 @@ export default function ClientLoginPage() {
   const verifyOtp = useStore((s) => s.verifyOtp);
   const completePatientRegistration = useStore((s) => s.completePatientRegistration);
   const beginRegistrationVerification = useStore((s) => s.beginRegistrationVerification);
+  const resetRegistrationVerification = useStore((s) => s.resetRegistrationVerification);
+  const pendingRegistrationVerification = useStore((s) => s.pendingRegistrationVerification);
   const verifyRegistrationSmsOtp = useStore((s) => s.verifyRegistrationSmsOtp);
   const verifyRegistrationEmailLink = useStore((s) => s.verifyRegistrationEmailLink);
   const resendRegistrationOtp = useStore((s) => s.resendRegistrationOtp);
@@ -133,6 +135,7 @@ export default function ClientLoginPage() {
   const login = useStore((s) => s.login);
   const verifyLoginOtp = useStore((s) => s.verifyLoginOtp);
   const resendLoginOtp = useStore((s) => s.resendLoginOtp);
+  const pendingLoginVerification = useStore((s) => s.pendingLoginVerification);
 
   const [mode, setMode] = useState<Mode>("existing");
   const [phase, setPhase] = useState<Phase>("existing-form");
@@ -177,10 +180,16 @@ export default function ClientLoginPage() {
 
   // Existing-patient form fields
   const [existingEmail, setExistingEmail] = useState("");
-  const [existingPhone, setExistingPhone] = useState("");
   const [existingPassword, setExistingPassword] = useState("");
 
-  const phoneForOtpDisplay = mode === "new" ? phone : existingPhone;
+  // Existing patients don't get asked for their phone at all — it's already
+  // on file from when they registered (see pendingLoginVerification below),
+  // unlike registration where it's genuinely new information.
+  const loginPatientUserId = pendingLoginVerification?.userId;
+  const loginPatientPhone = loginPatientUserId
+    ? patients.find((p) => p.user_id === loginPatientUserId)?.phone
+    : undefined;
+  const phoneForOtpDisplay = mode === "new" ? phone : loginPatientPhone;
   const dobAge = calcAge(dateOfBirth);
   const isMinor = dobAge !== null && dobAge < 18;
 
@@ -254,7 +263,9 @@ export default function ClientLoginPage() {
   function fillGoogleDemo() {
     if (mode === "new") {
       setFullName(GOOGLE_DEMO_NEW.full_name);
-      setPhone(GOOGLE_DEMO_NEW.phone);
+      // Phone deliberately isn't prefilled — Google sign-in doesn't actually
+      // hand over a verified phone number either, so this path should also
+      // go through the phone prompt on the SMS screen, same as email/password.
       setEmail(GOOGLE_DEMO_NEW.email);
       setIdNumber(GOOGLE_DEMO_NEW.id_number);
       setDateOfBirth(GOOGLE_DEMO_NEW.date_of_birth);
@@ -264,7 +275,6 @@ export default function ClientLoginPage() {
       setAddressCity("תל אביב");
     } else {
       setExistingEmail(GOOGLE_DEMO_EXISTING.email);
-      setExistingPhone(GOOGLE_DEMO_EXISTING.phone);
       setExistingPassword(GOOGLE_DEMO_EXISTING.password);
     }
   }
@@ -306,23 +316,29 @@ export default function ClientLoginPage() {
       setError("הסיסמאות אינן תואמות");
       return;
     }
-    if (!phone || phoneError) {
-      setError(phoneError ?? "יש להזין מספר טלפון");
-      return;
-    }
     setLoading(true);
     setTimeout(() => {
       const result = register(email, password);
       setLoading(false);
       if (!result.ok) return;
-      // The double SMS+email OTP right after this is the real verification
-      // step the user sees — this just uses the existing register/verifyOtp
-      // pair internally to create the account record, without showing a
-      // redundant third (email-only) OTP screen. Both contact channels
-      // (email, phone) are known at this point, so verify immediately,
-      // before asking for anything else (name, ID, insurance...).
+      // Email is verified right away (no separate email-only OTP screen —
+      // the mail step later shares this same verification). Phone isn't
+      // collected yet at this point on purpose (see phase "otp-sms" below),
+      // so the SMS code can't be sent until the next screen asks for it —
+      // unless it's already known (e.g. re-submitting this step after having
+      // already gone through the phone prompt once), in which case skip
+      // straight to re-sending it.
       verifyOtp(email, result.otpHint);
-      handleStartFinalVerification();
+      if (phone && !phoneError) {
+        handleStartFinalVerification();
+      } else {
+        // A stale pendingRegistrationVerification from a registration
+        // abandoned in a previous session (this store persists to
+        // localStorage) would otherwise make the SMS screen think it
+        // already sent a code and skip straight past the phone prompt.
+        resetRegistrationVerification();
+        setPhase("otp-sms");
+      }
     }, 300);
   }
 
@@ -366,6 +382,18 @@ export default function ClientLoginPage() {
     smsGuard.start();
     const hint = resendRegistrationOtp("sms");
     showToast("קוד אימות נשלח ב-SMS", { description: `קוד הדגמה: ${hint}`, variant: "success" });
+  }
+
+  // Phone is asked for here, on the SMS screen itself, rather than back on
+  // the credentials step — nothing needs it before this exact moment.
+  function handleSubmitPhoneForSms(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    if (!phone || phoneError) {
+      setError(phoneError ?? "יש להזין מספר טלפון");
+      return;
+    }
+    handleStartFinalVerification();
   }
 
   async function finishNewRegistration() {
@@ -563,41 +591,64 @@ export default function ClientLoginPage() {
           </>
         )}
         {phase === "otp-sms" ? (
-          <>
-            <h1 className="text-lg font-semibold text-slate-900 mb-1">אימות דו-שלבי (1/2)</h1>
-            <p className="text-sm text-slate-500 mb-5">
-              שלחנו קוד אימות ב-SMS{phoneForOtpDisplay ? ` למספר ${phoneForOtpDisplay}` : ""}
-            </p>
-            {errorBox}
-            {smsGuard.blocked ? (
-              <BlockedPanel />
-            ) : (
-              <form onSubmit={handleVerifySms} className="flex flex-col gap-3">
+          !pendingRegistrationVerification ? (
+            <>
+              <h1 className="text-lg font-semibold text-slate-900 mb-1">אימות דו-שלבי (1/2)</h1>
+              <p className="text-sm text-slate-500 mb-5">נשלח קוד אימות ב-SMS למספר הטלפון שלכם</p>
+              {errorBox}
+              <form onSubmit={handleSubmitPhoneForSms} className="flex flex-col gap-3">
                 <Input
-                  inputMode="numeric"
-                  maxLength={6}
-                  placeholder="123456"
-                  label="קוד מ-SMS"
-                  value={smsCode}
-                  onChange={(e) => setSmsCode(e.target.value)}
-                  className="text-center tracking-[0.4em] text-lg"
-                  disabled={smsGuard.verifyLockSecondsLeft > 0}
+                  label="טלפון נייד"
+                  icon={<Phone className="h-4 w-4" />}
+                  placeholder="050-1234567"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  error={phoneError}
                   required
+                  autoFocus
                 />
-                <WrongAttemptsLockoutNotice secondsLeft={smsGuard.verifyLockSecondsLeft} />
-                <Button type="submit" loading={loading} disabled={smsGuard.verifyLockSecondsLeft > 0} className="w-full">
-                  אמת קוד SMS
+                <Button type="submit" loading={loading} className="w-full">
+                  שלח קוד אימות
                 </Button>
-                <ResendControl
-                  secondsLeft={smsGuard.secondsLeft}
-                  onResend={handleResendSms}
-                  resendCount={smsGuard.resendCount}
-                  issueReported={smsGuard.issueReported}
-                  onReportIssue={() => handleReportOtpIssue("sms")}
-                />
               </form>
-            )}
-          </>
+            </>
+          ) : (
+            <>
+              <h1 className="text-lg font-semibold text-slate-900 mb-1">אימות דו-שלבי (1/2)</h1>
+              <p className="text-sm text-slate-500 mb-5">
+                שלחנו קוד אימות ב-SMS{phoneForOtpDisplay ? ` למספר ${phoneForOtpDisplay}` : ""}
+              </p>
+              {errorBox}
+              {smsGuard.blocked ? (
+                <BlockedPanel />
+              ) : (
+                <form onSubmit={handleVerifySms} className="flex flex-col gap-3">
+                  <Input
+                    inputMode="numeric"
+                    maxLength={6}
+                    placeholder="123456"
+                    label="קוד מ-SMS"
+                    value={smsCode}
+                    onChange={(e) => setSmsCode(e.target.value)}
+                    className="text-center tracking-[0.4em] text-lg"
+                    disabled={smsGuard.verifyLockSecondsLeft > 0}
+                    required
+                  />
+                  <WrongAttemptsLockoutNotice secondsLeft={smsGuard.verifyLockSecondsLeft} />
+                  <Button type="submit" loading={loading} disabled={smsGuard.verifyLockSecondsLeft > 0} className="w-full">
+                    אמת קוד SMS
+                  </Button>
+                  <ResendControl
+                    secondsLeft={smsGuard.secondsLeft}
+                    onResend={handleResendSms}
+                    resendCount={smsGuard.resendCount}
+                    issueReported={smsGuard.issueReported}
+                    onReportIssue={() => handleReportOtpIssue("sms")}
+                  />
+                </form>
+              )}
+            </>
+          )
         ) : (
           <>
             <h1 className="text-lg font-semibold text-slate-900 mb-1">אימות דו-שלבי (2/2)</h1>
@@ -923,15 +974,6 @@ export default function ClientLoginPage() {
             required
           />
           <Input
-            label="טלפון נייד"
-            icon={<Phone className="h-4 w-4" />}
-            placeholder="050-1234567"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            error={phoneError}
-            required
-          />
-          <Input
             type={showPassword ? "text" : "password"}
             placeholder="••••••••"
             label="סיסמה"
@@ -973,13 +1015,6 @@ export default function ClientLoginPage() {
             icon={<Mail className="h-4 w-4" />}
             value={existingEmail}
             onChange={(e) => setExistingEmail(e.target.value)}
-            required
-          />
-          <Input
-            label="טלפון נייד"
-            icon={<Phone className="h-4 w-4" />}
-            value={existingPhone}
-            onChange={(e) => setExistingPhone(e.target.value)}
             required
           />
           <Input

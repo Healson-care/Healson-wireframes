@@ -385,6 +385,7 @@ export default function BookPage() {
             <PaymentPanel
               provider={selectedProvider}
               itemName={consultation?.name}
+              consultation={consultation}
               clinicId={discoveryClinicId ?? undefined}
               selectedSlot={selectedSlot}
               kupah={patient?.kupah}
@@ -410,6 +411,7 @@ export default function BookPage() {
               homeLabel="לאזור האישי שלי"
               appointmentId={pendingAppointmentId}
               bookedServiceName={consultation?.name}
+              consultation={consultation}
             />
           </motion.div>
         )}
