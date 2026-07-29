@@ -52,7 +52,7 @@ const DEMO_ACCOUNTS: DemoAccount[] = [
     kind: "individual",
     user: DEMO_PROVIDER_USER,
     label: "רופא או מטפל",
-    description: "פורטל של ספק יחיד — יומן אישי, מטופלים והפניות",
+    description: "פורטל של נותן שירות יחיד — יומן אישי, מטופלים והפניות",
     icon: Stethoscope,
   },
   {
@@ -76,7 +76,7 @@ const DEMO_ACCOUNTS: DemoAccount[] = [
 const ACCOUNT_KINDS: { kind: AccountKind; label: string; description: string; icon: typeof Stethoscope }[] = [
   {
     kind: "individual",
-    label: "ספק יחיד",
+    label: "נותן שירות יחיד",
     description: "רופא או מטפל",
     icon: Stethoscope,
   },

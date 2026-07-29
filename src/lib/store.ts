@@ -77,15 +77,22 @@ interface PendingRegistration {
   otp: string;
 }
 
-// Held between the provider clicking "שלח לבדיקת Healson" on /apply (which
-// re-checks license-number uniqueness against the profile's already-saved
-// fields — see submitProviderApplication) and phone-OTP verification. Unlike
-// the old PendingProviderApplication, no applicant data lives here: by this
-// point the ProviderProfile already exists and has been filled in
-// incrementally (the applicant registered + logged in back at step 1).
+// Held between the account being created on /apply (registerProviderAccount,
+// which also kicks off beginProviderVerification) and phone-OTP verification.
+// This happens BEFORE the applicant fills out the rest of the application —
+// see verifyProviderPhoneOtp / finalizeProviderApplication.
 interface PendingProviderSubmission {
   providerId: string;
   otp: string;
+}
+
+// Held between phone-OTP verification and the applicant clicking the
+// (simulated) link in the account-activation email — see
+// sendProviderActivationEmail / verifyProviderActivationEmail below. A link
+// click, not a code: same reasoning as PendingRegistrationVerification's
+// email step.
+interface PendingProviderEmailVerification {
+  providerId: string;
 }
 
 // True 2FA — password (factor 1) + one OTP (factor 2), not three factors.
@@ -195,22 +202,39 @@ interface AuthState {
   register: (email: string, password: string) => { ok: boolean; otpHint: string };
   verifyOtp: (email: string, code: string) => { ok: boolean; error?: string };
   resendOtp: () => string | null;
-  // Provider signup step 1 — creates the User + a bare ProviderProfile and
-  // logs the applicant in immediately (mirrors register/verifyOtp above),
-  // instead of waiting until Ops verifies the license (see PROV-ONBOARDING).
+  // Provider signup step 1 — creates the User + a ProviderProfile (already
+  // carrying the provider type picked on /apply) and logs the applicant in
+  // immediately (mirrors register/verifyOtp above), instead of waiting until
+  // Ops verifies the license (see PROV-ONBOARDING).
   registerProviderAccount: (
     full_name: string,
     phone: string,
     email: string,
-    password: string
-  ) => { ok: boolean; error?: string };
-  // Provider signup step 4 — called once the applicant has filled out their
-  // profile (already persisted incrementally via upsertProviderProfile) and
-  // clicks "שלח לבדיקת Healson". Re-checks license-number uniqueness and
-  // stages phone-OTP verification before flipping application_submitted_at.
-  submitProviderApplication: (providerId: string) => { ok: boolean; error?: string; otpHint?: string };
-  verifyProviderApplicationOtp: (code: string) => { ok: boolean; error?: string; providerId?: string };
-  resendProviderApplicationOtp: () => string | null;
+    password: string,
+    providerType?: ProviderType
+  ) => { ok: boolean; error?: string; providerId?: string };
+  // Provider signup step 2 — fires right after the account is created, before
+  // any application details are collected. Stages phone-OTP verification;
+  // verifying it only sets phone_verified_at (application submission is a
+  // separate, later step — see finalizeProviderApplication).
+  beginProviderVerification: (providerId: string) => { ok: boolean; error?: string; otpHint?: string };
+  verifyProviderPhoneOtp: (code: string) => { ok: boolean; error?: string; providerId?: string };
+  resendProviderPhoneOtp: () => string | null;
+  // Provider signup step 3 — once the phone OTP clears, an activation email
+  // is "sent" to the account's personal email; clicking its (simulated) link
+  // both confirms the account and verifies that email address, mirroring the
+  // patient flow's final-sms → final-email pattern (see
+  // verifyRegistrationEmailLink above).
+  pendingProviderEmailVerification: PendingProviderEmailVerification | null;
+  sendProviderActivationEmail: (providerId: string) => void;
+  verifyProviderActivationEmail: () => { ok: boolean; error?: string; providerId?: string };
+  resendProviderActivationEmail: () => string | null;
+  // Provider signup step 4 — called once the applicant has filled out the
+  // rest of the application (license, catalog basics, etc. — already
+  // persisted incrementally via upsertProviderProfile) and clicks "שליחת
+  // בקשה". Phone + email are already verified by this point, so this just
+  // re-checks license-number uniqueness and flips application_submitted_at.
+  finalizeProviderApplication: (providerId: string) => { ok: boolean; error?: string };
   pendingPasswordReset: PendingPasswordReset | null;
   forgotPassword: (contact: string, loginPath?: string) => { ok: boolean; otpHint?: string; error?: string };
   verifyPasswordResetSmsOtp: (code: string) => { ok: boolean; error?: string };
@@ -346,7 +370,7 @@ interface EntitiesState {
   // follow automatically — nothing else needs rewriting.
   updateServiceArray: (
     id: string,
-    data: Partial<Pick<ServiceArray, "type" | "name" | "branch_id">>
+    data: Partial<Pick<ServiceArray, "type" | "name" | "branch_id" | "schedule" | "schedule_exceptions">>
   ) => void;
   deleteServiceArray: (id: string) => { ok: boolean; error?: string };
   // Internal: clears service_array_id off a unit's resources referencing gone מערכים.
@@ -597,6 +621,7 @@ export const useStore = create<Store>()(
       currentUser: null,
       pendingRegistration: null,
       pendingProviderSubmission: null,
+      pendingProviderEmailVerification: null,
       pendingLoginVerification: null,
       pendingReauth: null,
       pendingRegistrationVerification: null,
@@ -866,7 +891,7 @@ export const useStore = create<Store>()(
         return pending ? pending.otp : null;
       },
 
-      registerProviderAccount: (full_name, phone, email, password) => {
+      registerProviderAccount: (full_name, phone, email, password, providerType) => {
         void password; // mocked — no real auth/password storage anywhere in this app (see login())
         const emailTaken = get().users.some((u) => u.email.toLowerCase() === email.toLowerCase());
         if (emailTaken) return { ok: false, error: "כתובת האימייל כבר רשומה במערכת" };
@@ -882,17 +907,72 @@ export const useStore = create<Store>()(
         // Everything that comes through the public join flow is on the "solo"
         // path by definition — a medical unit never reaches this action, its
         // user is opened by Ops (addOrganizationUnit + createProviderUnitUser).
-        get().upsertProviderProfile(newUser.id, { display_name: full_name, onboarding_path: "solo" });
+        // provider_type is already known (picked on /apply, step 1) — mirrors
+        // ProviderTypePicker's own seeding: for an individual the display name
+        // IS the account holder's name, for an organization it names the
+        // business, so the person's name moves to the contact field instead.
+        const isPerson = !providerType || providerType === "doctor" || providerType === "caregiver";
+        const profile = get().upsertProviderProfile(newUser.id, {
+          provider_type: providerType,
+          display_name: isPerson ? full_name : "",
+          contact_name: isPerson ? undefined : full_name,
+          onboarding_path: "solo",
+        });
         // Logged in immediately (PROV-REGISTRATION) — unlike the old
-        // apply-then-wait-for-Ops flow, the applicant gets a real session
-        // the moment their account exists and completes the rest of their
-        // profile (type/details/documents/submit) on /apply while already
-        // authenticated, mirroring register()/verifyOtp() for patients.
+        // apply-then-wait-for-Ops flow, the applicant gets a real session the
+        // moment their account exists, and continues straight into phone +
+        // email verification, then the rest of the application, on
+        // /provider/register while already authenticated — mirroring
+        // register()/verifyOtp() for patients.
         set({ currentUser: newUser });
-        return { ok: true };
+        return { ok: true, providerId: profile.id };
       },
 
-      submitProviderApplication: (providerId) => {
+      beginProviderVerification: (providerId) => {
+        const provider = get().providers.find((p) => p.id === providerId);
+        if (!provider) return { ok: false, error: "לא נמצא פרופיל ספק" };
+        const otp = "123456";
+        set({ pendingProviderSubmission: { providerId, otp } });
+        return { ok: true, otpHint: otp };
+      },
+
+      verifyProviderPhoneOtp: (code) => {
+        const pending = get().pendingProviderSubmission;
+        if (!pending) return { ok: false, error: "לא נמצא תהליך אימות פעיל" };
+        if (code !== pending.otp) return { ok: false, error: "קוד שגוי, נסה שנית" };
+        get().updateProviderById(pending.providerId, { phone_verified_at: new Date().toISOString() });
+        set({ pendingProviderSubmission: null });
+        return { ok: true, providerId: pending.providerId };
+      },
+
+      resendProviderPhoneOtp: () => {
+        const pending = get().pendingProviderSubmission;
+        return pending ? pending.otp : null;
+      },
+
+      sendProviderActivationEmail: (providerId) => {
+        set({ pendingProviderEmailVerification: { providerId } });
+      },
+
+      // Called when the applicant clicks the (simulated) confirmation link —
+      // no code to check, so the only failure mode is there being no pending
+      // verification at all (e.g. a stale/expired link).
+      verifyProviderActivationEmail: () => {
+        const pending = get().pendingProviderEmailVerification;
+        if (!pending) return { ok: false, error: "לא נמצא תהליך אימות פעיל" };
+        get().updateProviderById(pending.providerId, { email_verified_at: new Date().toISOString() });
+        set({ pendingProviderEmailVerification: null });
+        return { ok: true, providerId: pending.providerId };
+      },
+
+      resendProviderActivationEmail: () => {
+        const pending = get().pendingProviderEmailVerification;
+        // No code to hand back — same "sent" sentinel as
+        // resendRegistrationOtp's email branch, just a fire-and-forget signal.
+        return pending ? "sent" : null;
+      },
+
+      finalizeProviderApplication: (providerId) => {
         const provider = get().providers.find((p) => p.id === providerId);
         if (!provider) return { ok: false, error: "לא נמצא פרופיל ספק" };
         const licenseTaken =
@@ -901,26 +981,8 @@ export const useStore = create<Store>()(
             (p) => p.id !== providerId && p.status !== "rejected" && p.license_number === provider.license_number
           );
         if (licenseTaken) return { ok: false, error: "מספר הרישיון כבר רשום במערכת" };
-        const otp = "123456";
-        set({ pendingProviderSubmission: { providerId, otp } });
-        return { ok: true, otpHint: otp };
-      },
-
-      verifyProviderApplicationOtp: (code) => {
-        const pending = get().pendingProviderSubmission;
-        if (!pending) return { ok: false, error: "לא נמצאה בקשת הצטרפות פעילה" };
-        if (code !== pending.otp) return { ok: false, error: "קוד שגוי, נסה שנית" };
-        get().updateProviderById(pending.providerId, {
-          phone_verified_at: new Date().toISOString(),
-          application_submitted_at: new Date().toISOString(),
-        });
-        set({ pendingProviderSubmission: null });
-        return { ok: true, providerId: pending.providerId };
-      },
-
-      resendProviderApplicationOtp: () => {
-        const pending = get().pendingProviderSubmission;
-        return pending ? pending.otp : null;
+        get().updateProviderById(providerId, { application_submitted_at: new Date().toISOString() });
+        return { ok: true };
       },
 
       // Demo-only: fixed codes, nothing is actually sent. Unlike the

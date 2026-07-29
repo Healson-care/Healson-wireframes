@@ -166,6 +166,23 @@ export function ServiceCatalogSection({
     [items]
   );
 
+  // A unit can carry dozens or hundreds of items — a free-text filter over
+  // name/code/category keeps the grid manageable instead of an endless scroll.
+  const [listFilter, setListFilter] = useState("");
+  const visibleItems = useMemo(() => {
+    const q = listFilter.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((item) => {
+      const catalogItem = catalog.find((c) => c.id === item.catalog_item_id);
+      const code = catalogItem?.tavar_code ?? item.moh_code ?? "";
+      return (
+        item.name.toLowerCase().includes(q) ||
+        code.toLowerCase().includes(q) ||
+        (item.service_category ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [items, catalog, listFilter]);
+
   // This provider's still-open catalog requests (Healson catalog only) — shown
   // so they don't re-request the same missing item while Ops is triaging it.
   const myOpenRequests = useMemo(
@@ -423,11 +440,24 @@ export function ServiceCatalogSection({
         </div>
       )}
 
+      {items.length > 0 && (
+        <div className="mb-3">
+          <Input
+            icon={<Search className="h-4 w-4" />}
+            placeholder={`חיפוש לפי שם, קוד או קטגוריה (${items.length} ${itemLabel}ים)`}
+            value={listFilter}
+            onChange={(e) => setListFilter(e.target.value)}
+          />
+        </div>
+      )}
+
       {items.length === 0 ? (
         <EmptyState icon={<Stethoscope className="h-10 w-10" />} title={`אין ${itemLabel}ים מוגדרים`} />
+      ) : visibleItems.length === 0 ? (
+        <EmptyState icon={<Search className="h-10 w-10" />} title="לא נמצאו פריטים תואמים" description="נסו מונח חיפוש אחר." />
       ) : (
         <div className="grid sm:grid-cols-2 gap-3">
-          {items.map((item) => {
+          {visibleItems.map((item) => {
             const catalogItem = catalog.find((c) => c.id === item.catalog_item_id);
             const code = catalogItem?.tavar_code ?? item.moh_code;
             const assigned = assignmentLabel(item);
@@ -460,13 +490,21 @@ export function ServiceCatalogSection({
                     <div className="mt-1.5">
                       {isUnit ? (
                         assigned ? (
-                          <span className="flex items-center gap-1 text-[11px] text-slate-500">
-                            <MonitorCog className="h-3 w-3" /> משויך ל: {assigned}
-                          </span>
+                          <button
+                            type="button"
+                            onClick={() => openEdit(item)}
+                            className="flex items-center gap-1 text-[11px] text-slate-500 hover:text-primary hover:underline"
+                          >
+                            <MonitorCog className="h-3 w-3" /> משויך ל: {assigned} · שינוי שיוך / לו״ז
+                          </button>
                         ) : (
-                          <span className="flex items-center gap-1 text-[11px] text-amber-600">
-                            <MonitorCog className="h-3 w-3" /> לא משויך לחדר או לנותן/ת שירות — לא ייפתחו תורים
-                          </span>
+                          <button
+                            type="button"
+                            onClick={() => openEdit(item)}
+                            className="flex items-center gap-1 text-[11px] font-medium text-amber-600 hover:underline"
+                          >
+                            <MonitorCog className="h-3 w-3" /> לא משויך לחדר או לנותן/ת שירות — שיוך ללו״ז עכשיו
+                          </button>
                         )
                       ) : (item.linked_clinic_ids?.length ?? 0) > 0 ? (
                         <span className="flex items-center gap-1 text-[11px] text-slate-500">

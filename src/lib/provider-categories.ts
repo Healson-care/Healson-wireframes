@@ -34,7 +34,7 @@ export interface ProviderCategoryConfig {
 export const PROVIDER_CATEGORIES: ProviderCategoryConfig[] = [
   {
     key: "individual",
-    label: "ספק יחיד",
+    label: "נותן שירות יחיד",
     description: "רופא/ה או מטפל/ת עצמאי/ת שנותן/ת שירות בעצמו/ה",
     examples: "רופא/ה מומחה/ית · מנתח/ת · אח/ות · פיזיותרפיה · דיאטנ/ית",
     icon: User,

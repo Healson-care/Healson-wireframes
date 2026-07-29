@@ -9,6 +9,8 @@ import {
   Lock,
   User as UserIcon,
   ArrowLeft,
+  ArrowRight,
+  ChevronLeft,
   ShieldCheck,
   Stethoscope,
   HeartPulse,
@@ -22,6 +24,13 @@ import {
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { ProviderGoogleSignIn } from "@/components/shared/ProviderGoogleSignIn";
+import {
+  PROVIDER_TYPE_ICONS,
+  ProviderCategory,
+  getCategory,
+  selfRegisterableCategories,
+} from "@/lib/provider-categories";
+import { PROVIDER_TYPE_DESCRIPTIONS, PROVIDER_TYPE_LABELS, ProviderType } from "@/types";
 
 // The service constellation — the brand's signature motif (an arch of circular
 // badges), rebuilt as a living hero. Middle badge sits highest (ARCH offsets).
@@ -83,9 +92,24 @@ function Field({
   );
 }
 
+// Cards mirror the same taxonomy (and self-registerable filtering) as the
+// dashboard's inline ProviderTypePicker — kept here as its own compact
+// version since this runs BEFORE an account/session exists, so it can only
+// write to local state, not upsertProviderProfile.
+const CATEGORIES = selfRegisterableCategories();
+
 export default function ProviderApplyPage() {
   const router = useRouter();
   const registerProviderAccount = useStore((s) => s.registerProviderAccount);
+
+  // Step 1 of the join flow now bundles the provider type together with the
+  // account fields — verification (phone OTP + email activation) happens
+  // right after this, on /provider/register, before any license/details are
+  // collected. "category"/"type" narrow down the type; "account" is the
+  // existing credentials form.
+  const [stepPhase, setStepPhase] = useState<"category" | "type" | "account">("category");
+  const [category, setCategory] = useState<ProviderCategory | null>(null);
+  const [providerType, setProviderType] = useState<ProviderType | null>(null);
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -94,9 +118,35 @@ export default function ProviderApplyPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  function categoryTypes(key: ProviderCategory) {
+    return getCategory(key).types.filter((t) => CATEGORIES.find((c) => c.key === key)?.types.includes(t));
+  }
+
+  function chooseCategory(key: ProviderCategory) {
+    setCategory(key);
+    const types = categoryTypes(key);
+    if (types.length === 1) {
+      // A single-type category (e.g. "store") skips the redundant type step.
+      setProviderType(types[0]);
+      setStepPhase("account");
+    } else {
+      setProviderType(null);
+      setStepPhase("type");
+    }
+  }
+
+  function chooseType(t: ProviderType) {
+    setProviderType(t);
+    setStepPhase("account");
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    if (!providerType) {
+      setError("נא לבחור סוג ספק");
+      return;
+    }
     if (password !== confirmPassword) {
       setError("הסיסמאות אינן תואמות");
       return;
@@ -111,9 +161,10 @@ export default function ProviderApplyPage() {
         setError(result.error ?? "שגיאה ביצירת החשבון");
         return;
       }
-      // Straight into the portal — the dashboard drives every stage of the
-      // journey from here (picking a type, filling the application, go-live).
-      router.push("/provider/dashboard");
+      // Straight into the portal, but into verification first (phone OTP +
+      // email activation) — /provider/register resumes there automatically
+      // since the account already carries a provider_type.
+      router.push("/provider/register");
     }, 300);
   }
 
@@ -229,7 +280,9 @@ export default function ProviderApplyPage() {
                 מצטרפים להילסון
               </h1>
               <p className="mt-1.5 text-[13px] leading-relaxed text-[var(--brand-ink-soft)]">
-                יוצרים חשבון בפחות מדקה — וממשיכים למלא את הבקשה בקצב שלכם. הכול נשמר.
+                {stepPhase === "account"
+                  ? "יוצרים חשבון בפחות מדקה — ואז מאמתים טלפון ואימייל וממשיכים למלא את הבקשה בקצב שלכם. הכול נשמר."
+                  : "קודם בוחרים את סוג הספק — ואז יוצרים חשבון בפחות מדקה."}
               </p>
 
               <div className="mt-4">
@@ -288,23 +341,85 @@ export default function ProviderApplyPage() {
                     required
                   />
                 </div>
+              )}
 
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="focus-ring group relative mt-0.5 flex h-11 w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-b from-[var(--brand-navy-700)] to-[var(--brand-navy)] text-sm font-semibold text-white shadow-lg shadow-[var(--brand-navy)]/25 transition-all hover:-translate-y-px hover:shadow-xl hover:shadow-[var(--brand-navy)]/30 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <span
-                    aria-hidden
-                    className="absolute inset-0 -translate-x-full bg-gradient-to-l from-transparent via-[var(--brand-gold)]/25 to-transparent transition-transform duration-700 group-hover:translate-x-full"
-                  />
-                  {loading && (
-                    <span className="relative h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                  )}
-                  <span className="relative">צור חשבון והמשך</span>
-                  <ArrowLeft className="relative h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
-                </button>
-              </form>
+              {stepPhase === "account" && providerType && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setStepPhase(category && categoryTypes(category).length === 1 ? "category" : "type")}
+                    className="mb-3 flex items-center gap-1.5 self-start rounded-lg border border-[var(--brand-ivory-200)] bg-[var(--brand-gold)]/[0.06] px-2.5 py-1.5 text-xs font-medium text-[var(--brand-ink)] hover:text-[var(--brand-gold-deep)]"
+                  >
+                    <ArrowRight className="h-3.5 w-3.5 text-[var(--brand-gold-deep)]" />
+                    {PROVIDER_TYPE_LABELS[providerType]} · שינוי
+                  </button>
+
+                  <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Field
+                        label="שם מלא"
+                        icon={<UserIcon className="h-4 w-4" />}
+                        value={fullName}
+                        onChange={(e) => setFullName(e.target.value)}
+                        required
+                      />
+                      <Field
+                        type="tel"
+                        label="טלפון"
+                        icon={<Phone className="h-4 w-4" />}
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <Field
+                      type="email"
+                      label="אימייל"
+                      placeholder="you@example.com"
+                      icon={<Mail className="h-4 w-4" />}
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                    />
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Field
+                        type="password"
+                        label="סיסמה"
+                        placeholder="••••••••"
+                        icon={<Lock className="h-4 w-4" />}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        required
+                      />
+                      <Field
+                        type="password"
+                        label="אימות סיסמה"
+                        placeholder="••••••••"
+                        icon={<Lock className="h-4 w-4" />}
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        required
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="focus-ring group relative mt-0.5 flex h-11 w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-b from-[var(--brand-navy-700)] to-[var(--brand-navy)] text-sm font-semibold text-white shadow-lg shadow-[var(--brand-navy)]/25 transition-all hover:-translate-y-px hover:shadow-xl hover:shadow-[var(--brand-navy)]/30 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <span
+                        aria-hidden
+                        className="absolute inset-0 -translate-x-full bg-gradient-to-l from-transparent via-[var(--brand-gold)]/25 to-transparent transition-transform duration-700 group-hover:translate-x-full"
+                      />
+                      {loading && (
+                        <span className="relative h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                      )}
+                      <span className="relative">צור חשבון והמשך</span>
+                      <ArrowLeft className="relative h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
+                    </button>
+                  </form>
+                </>
+              )}
 
               <div className="mt-3.5 flex flex-wrap items-center justify-between gap-2">
                 <span className="flex items-center gap-1.5 text-[11px] leading-tight text-[var(--brand-ink-soft)]">

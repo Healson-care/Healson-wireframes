@@ -36,7 +36,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { ProviderLayout } from "@/components/layouts/ProviderLayout";
-import { Input, Select, Textarea } from "@/components/ui/Input";
+import { Input, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { FileDropzone } from "@/components/ui/FileDropzone";
 import { DemoPanel } from "@/components/provider/DemoPanel";
@@ -64,7 +64,7 @@ import {
 } from "@/types";
 import { KupahArrangementPicker, MultiSelectPills } from "@/components/provider/KupahArrangementPicker";
 
-type Phase = "category" | "type" | "form" | "otp" | "success";
+type Phase = "category" | "type" | "form" | "otp" | "email" | "success";
 
 const TITLES = ['ד"ר', "פרופ'"];
 
@@ -146,7 +146,6 @@ const NURSE_SPECIALTIES = [
   "סיעוד קהילתי",
   "סיעוד תעסוקתי",
   "סיעוד מחלקתי / בית חולים",
-  "אחר",
 ];
 
 const COMPLEMENTARY_TYPES = [
@@ -270,14 +269,12 @@ interface TypeFieldConfig {
   licenseFileLabel: string;
   licenseFileRequired?: boolean;
   // When set, showLicenseNumber / showKupot / showPrivateInsurance /
-  // showMedicalResume / showContactName / showContactPhone /
-  // showContactEmail / showBusinessRegNumber only apply once the applicant
-  // has picked this specific value as their `specialty` — used by
-  // "caregiver" so the richer (ex-nurse) form only appears once "סיעוד" is
-  // selected, while other care types keep the leaner (ex-complementary) form.
+  // showContactName / showContactPhone / showContactEmail /
+  // showBusinessRegNumber only apply once the applicant has picked this
+  // specific value as their `specialty` — used by "caregiver" so the richer
+  // (ex-nurse) form only appears once "סיעוד" is selected, while other care
+  // types keep the leaner (ex-complementary) form.
   licenseOnlyForSpecialty?: string;
-  showDescription?: boolean;
-  showMedicalResume?: boolean;
   showKupot?: boolean;
   showPrivateInsurance?: boolean;
   showSubSpecialties?: boolean;
@@ -312,8 +309,6 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
     specialtyOptions: SPECIALTIES,
     licenseNumberLabel: "מספר רישיון רפואי",
     licenseFileLabel: "קובץ רישיון רפואי (PDF / JPG / PNG)",
-    showDescription: true,
-    showMedicalResume: true,
     showBusinessRegNumber: true,
     businessRegRequired: false,
     showKupot: true,
@@ -337,8 +332,6 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
     licenseOnlyForSpecialty: "סיעוד",
     licenseNumberLabel: "מספר רישיון סיעוד (משרד הבריאות)",
     licenseFileLabel: "רישיון סיעוד / תעודת הסמכה (PDF / JPG / PNG)",
-    showDescription: true,
-    showMedicalResume: true,
     showBusinessRegNumber: true,
     businessRegRequired: false,
     showKupot: true,
@@ -377,7 +370,6 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
     showBusinessRegNumber: true,
     licenseNumberLabel: "מספר רישיון עסק (משרד הבריאות)",
     licenseFileLabel: "רישיון משרד הבריאות (PDF / JPG / PNG)",
-    showDescription: true,
     showKupot: true,
     showPrivateInsurance: true,
     showLocationCount: true,
@@ -397,7 +389,6 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
     showBusinessRegNumber: true,
     licenseNumberLabel: "מספר רישיון מרפאה (משרד הבריאות)",
     licenseFileLabel: "רישיון משרד הבריאות (PDF / JPG / PNG)",
-    showDescription: true,
     showKupot: true,
     showPrivateInsurance: true,
     showLocationCount: true,
@@ -478,16 +469,18 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
 
 const REGISTER_STEPS: { key: string; label: string; icon: ReactNode }[] = [
   { key: "type", label: "סוג ספק", icon: <Layers className="h-4 w-4" /> },
-  { key: "form", label: "פרטי הבקשה", icon: <ClipboardPlus className="h-4 w-4" /> },
   { key: "otp", label: "אימות טלפון", icon: <ShieldCheck className="h-4 w-4" /> },
+  { key: "email", label: "אימות אימייל", icon: <Mail className="h-4 w-4" /> },
+  { key: "form", label: "פרטי הבקשה", icon: <ClipboardPlus className="h-4 w-4" /> },
   { key: "success", label: "סיום", icon: <PartyPopper className="h-4 w-4" /> },
 ];
 
 function phaseToStepIndex(phase: Phase): number {
   if (phase === "category" || phase === "type") return 0;
-  if (phase === "form") return 1;
-  if (phase === "otp") return 2;
-  return 3;
+  if (phase === "otp") return 1;
+  if (phase === "email") return 2;
+  if (phase === "form") return 3;
+  return 4;
 }
 
 function RegisterStepper({ phase }: { phase: Phase }) {
@@ -587,7 +580,7 @@ function RegisterShell({
           } as React.CSSProperties
         }
       >
-        {phase !== "otp" && phase !== "success" && (
+        {phase !== "otp" && phase !== "email" && phase !== "success" && (
           <div className="mb-5 w-full rounded-xl border border-[var(--brand-gold)]/30 bg-[var(--brand-gold)]/[0.07] px-4 py-3 text-sm text-[var(--brand-ink)]">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <p className="font-medium">שלב 2 בהצטרפות · פרטי הבקשה</p>
@@ -703,9 +696,13 @@ export default function ProviderRegisterPage() {
   const { ready, user } = useRequireRole("provider");
   const provider = useCurrentProvider();
   const upsertProviderProfile = useStore((s) => s.upsertProviderProfile);
-  const submitProviderApplication = useStore((s) => s.submitProviderApplication);
-  const verifyProviderApplicationOtp = useStore((s) => s.verifyProviderApplicationOtp);
-  const resendProviderApplicationOtp = useStore((s) => s.resendProviderApplicationOtp);
+  const beginProviderVerification = useStore((s) => s.beginProviderVerification);
+  const verifyProviderPhoneOtp = useStore((s) => s.verifyProviderPhoneOtp);
+  const resendProviderPhoneOtp = useStore((s) => s.resendProviderPhoneOtp);
+  const sendProviderActivationEmail = useStore((s) => s.sendProviderActivationEmail);
+  const verifyProviderActivationEmail = useStore((s) => s.verifyProviderActivationEmail);
+  const resendProviderActivationEmail = useStore((s) => s.resendProviderActivationEmail);
+  const finalizeProviderApplication = useStore((s) => s.finalizeProviderApplication);
   const updateCurrentUserDetails = useStore((s) => s.updateCurrentUserDetails);
   const demoApproveProvider = useStore((s) => s.demoApproveProvider);
   const demoRejectProvider = useStore((s) => s.demoRejectProvider);
@@ -748,8 +745,6 @@ export default function ProviderRegisterPage() {
   const [licenseFile, setLicenseFile] = useState<File | null>(null);
   const [doctorSubtype, setDoctorSubtype] = useState<DoctorSubtype>("physician");
   const [surgicalPrivilegesHospital, setSurgicalPrivilegesHospital] = useState("");
-  const [description, setDescription] = useState("");
-  const [medicalResumeFile, setMedicalResumeFile] = useState<File | null>(null);
   const [kupahArrangements, setKupahArrangements] = useState<KupahArrangement[]>([]);
   const [privateInsurers, setPrivateInsurers] = useState<string[]>([]);
   const [subSpecialties, setSubSpecialties] = useState<string[]>([]);
@@ -782,6 +777,29 @@ export default function ProviderRegisterPage() {
     }
   }, [errorNonce]);
 
+  // (Re-)send the phone OTP whenever the "otp" phase is entered — right after
+  // account creation on /apply, and when resuming a session that was left
+  // mid-verification (see the resume-sync block above).
+  useEffect(() => {
+    if (phase === "otp" && applicationProviderId) {
+      const result = beginProviderVerification(applicationProviderId);
+      if (result.ok) {
+        showToast("קוד אימות נשלח", { description: `קוד הדגמה: ${result.otpHint}`, variant: "success" });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, applicationProviderId]);
+
+  // (Re-)send the activation email whenever the "email" phase is entered —
+  // both right after phone-OTP verification and when resuming a session that
+  // was left mid-verification (see the resume-sync block above).
+  useEffect(() => {
+    if (phase === "email" && applicationProviderId) {
+      sendProviderActivationEmail(applicationProviderId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, applicationProviderId]);
+
   // Moving between sub-steps replaces the whole form content — without moving
   // focus, keyboard/screen-reader users are left on the now-gone submit
   // button. Focus the form (labeled with the current step) on each change;
@@ -804,34 +822,46 @@ export default function ProviderRegisterPage() {
   // a useEffect-based version would have.
   if (ready && !synced) {
     setSynced(true);
+    if (provider) setApplicationProviderId(provider.id);
     if (provider?.application_submitted_at) {
-      setApplicationProviderId(provider.id);
       setPhase("success");
-    } else if (provider) {
+    } else if (provider?.provider_type) {
+      const type = provider.provider_type;
+      const typeConfig = TYPE_CONFIG[type];
+      setCategory(categoryForType(type));
+      setProviderType(type);
       setFullName(provider.display_name ?? user?.full_name ?? "");
       setContactName(provider.contact_name ?? "");
       setContactPhone(provider.contact_phone ?? "");
       setContactEmail(provider.contact_email ?? "");
-      if (provider.provider_type) {
-        const type = provider.provider_type;
-        const typeConfig = TYPE_CONFIG[type];
-        setCategory(categoryForType(type));
-        setProviderType(type);
-        setTitle(provider.title ?? "ד\"ר");
-        if (typeConfig?.multiSpecialty) setSpecialtyMulti(provider.specialty ? provider.specialty.split(", ") : []);
-        else setSpecialty(provider.specialty ?? "");
-        setLicenseNumber(provider.license_number ?? "");
-        setBusinessRegNumber(provider.business_reg_number ?? "");
-        setDoctorSubtype(provider.doctor_subtype ?? "physician");
-        setSurgicalPrivilegesHospital(provider.surgical_privileges_hospital ?? "");
-        setDescription(provider.bio ?? "");
-        setKupahArrangements(provider.kupah_arrangements ?? []);
-        setPrivateInsurers(provider.private_insurance_companies ?? []);
-        setSubSpecialties(provider.sub_specialties ?? []);
-        setLocationCount(provider.location_count != null ? String(provider.location_count) : "");
-        setStoreStructure(type === "store" && (provider.location_count ?? 1) > 1 ? "chain" : "single");
-        setPhase("form");
-      }
+      setTitle(provider.title ?? "ד\"ר");
+      if (typeConfig?.multiSpecialty) setSpecialtyMulti(provider.specialty ? provider.specialty.split(", ") : []);
+      else setSpecialty(provider.specialty ?? "");
+      setLicenseNumber(provider.license_number ?? "");
+      setBusinessRegNumber(provider.business_reg_number ?? "");
+      setDoctorSubtype(provider.doctor_subtype ?? "physician");
+      setSurgicalPrivilegesHospital(provider.surgical_privileges_hospital ?? "");
+      setKupahArrangements(provider.kupah_arrangements ?? []);
+      setPrivateInsurers(provider.private_insurance_companies ?? []);
+      setSubSpecialties(provider.sub_specialties ?? []);
+      setLocationCount(provider.location_count != null ? String(provider.location_count) : "");
+      setStoreStructure(type === "store" && (provider.location_count ?? 1) > 1 ? "chain" : "single");
+      // Phone + email verification now happen right after the account is
+      // created (before the rest of the application form, see /apply) —
+      // resume wherever this applicant left off. The OTP/email are
+      // (re-)sent from effects below, not here, since this branch runs
+      // during render and shouldn't reach into the external store.
+      if (!provider.phone_verified_at) setPhase("otp");
+      else if (!provider.email_verified_at) setPhase("email");
+      else setPhase("form");
+    } else if (provider) {
+      // No provider type yet — e.g. the Google demo shortcut, which lands
+      // here without one (see loginWithGoogle). Every normal /apply signup
+      // already carries a type, landing straight in the branch above.
+      setFullName(provider.display_name ?? user?.full_name ?? "");
+      setContactName(provider.contact_name ?? "");
+      setContactPhone(provider.contact_phone ?? "");
+      setContactEmail(provider.contact_email ?? "");
     }
   }
 
@@ -849,10 +879,18 @@ export default function ProviderRegisterPage() {
   // richer (ex-nurse) fields only apply once "סיעוד" is picked as the
   // specialty; every other type has no gate and is always true.
   const extraFieldsGate = config?.licenseOnlyForSpecialty ? specialty === config.licenseOnlyForSpecialty : true;
+  // Store subtypes are product groupings within a medical category; doctor/
+  // caregiver subtypes are clinical sub-specialties — "תתי קטגוריה" fit neither.
+  const subSpecialtyLabel = providerType === "store" ? "קטגוריה רפואית" : "תת-התמחות";
+  // "רישיון סיעוד" only applies to nursing — every other caregiver specialty
+  // (physio, dietetics, etc.) just needs a professional certification.
+  const licenseFileLabel =
+    providerType === "caregiver" && !extraFieldsGate
+      ? "תעודת הסמכה (PDF / JPG / PNG)"
+      : config?.licenseFileLabel ?? "";
 
   const showInsuranceSection = !!config && (config.showKupot || config.showPrivateInsurance) && extraFieldsGate;
-  const hasExtrasStep =
-    !!config && (config.showDescription || (config.showMedicalResume && extraFieldsGate) || showInsuranceSection);
+  const hasExtrasStep = showInsuranceSection;
   // The "coverage" sub-step only exists when there's actually a coverage field
   // to fill (store branch structure, or a location count) — service areas were
   // removed from the application (real address→map linkage happens later, when
@@ -860,7 +898,7 @@ export default function ProviderRegisterPage() {
   const hasAreaStep = !!config && (providerType === "store" || config.showLocationCount === true);
   const formSteps: { key: "details" | "extras" | "area"; label: string }[] = [
     { key: "details", label: "פרטים ורישוי" },
-    ...(hasExtrasStep ? ([{ key: "extras", label: "תיאור וביטוחים" }] as const) : []),
+    ...(hasExtrasStep ? ([{ key: "extras", label: "כיסוי ביטוחי" }] as const) : []),
     ...(hasAreaStep ? ([{ key: "area", label: "פריסה" }] as const) : []),
   ];
   const safeFormStep = Math.min(formStep, formSteps.length - 1);
@@ -873,7 +911,7 @@ export default function ProviderRegisterPage() {
   function detailsStepError(): { field: "license" | "hospital" | "specialty"; message: string } | null {
     if (!config) return null;
     if (config.licenseFileRequired !== false && !licenseFile && !provider?.license_file) {
-      return { field: "license", message: `נא לצרף ${config.licenseFileLabel.replace(/\s*\(.*\)$/, "")}` };
+      return { field: "license", message: `נא לצרף ${licenseFileLabel.replace(/\s*\(.*\)$/, "")}` };
     }
     if (isSurgeon && !surgicalPrivilegesHospital) {
       return { field: "hospital", message: "רופא/ה מנתח/ת נדרש/ת לציין את בית החולים בו יש הרשאת ניתוח" };
@@ -886,13 +924,12 @@ export default function ProviderRegisterPage() {
 
   // Everything typed so far is written to the profile as a DRAFT — on every
   // sub-step advance, and on "שמירה והמשך מאוחר יותר". Nothing here submits
-  // the application (that's submitProviderApplication, from the last step
+  // the application (that's finalizeProviderApplication, from the last step
   // only), so the applicant can stop at any point and come back without
   // losing work — which is what the portal promises them.
   async function persistDraft(): Promise<boolean> {
     if (!providerType || !config || !provider) return false;
     let licenseFileRecord: UploadedFile | undefined;
-    let medicalResumeFileRecord: UploadedFile | undefined;
     try {
       licenseFileRecord = licenseFile
         ? {
@@ -901,13 +938,6 @@ export default function ProviderRegisterPage() {
             data_url: await fileToDataUrl(licenseFile),
           }
         : provider.license_file;
-      medicalResumeFileRecord = medicalResumeFile
-        ? {
-            file_name: medicalResumeFile.name,
-            uploaded_at: new Date().toISOString(),
-            data_url: await fileToDataUrl(medicalResumeFile),
-          }
-        : provider.medical_resume_file;
     } catch (err) {
       setError(err instanceof Error ? err.message : "שגיאה בהעלאת הקובץ");
       return false;
@@ -926,8 +956,6 @@ export default function ProviderRegisterPage() {
       license_file: licenseFileRecord,
       doctor_subtype: isDoctor ? doctorSubtype : undefined,
       surgical_privileges_hospital: isSurgeon ? surgicalPrivilegesHospital : undefined,
-      bio: config.showDescription ? description : undefined,
-      medical_resume_file: config.showMedicalResume && extraFieldsGate ? medicalResumeFileRecord : undefined,
       kupah_arrangements: config.showKupot && extraFieldsGate ? kupahArrangements : undefined,
       private_insurance_companies: config.showPrivateInsurance && extraFieldsGate ? privateInsurers : undefined,
       sub_specialties: config.showSubSpecialties
@@ -971,14 +999,16 @@ export default function ProviderRegisterPage() {
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
-    const result = submitProviderApplication(provider.id);
+    // Phone + email were already verified right after the account was
+    // created (see the "otp"/"email" phases below) — nothing left to check
+    // here except the license number, one last time.
+    const result = finalizeProviderApplication(provider.id);
     setLoading(false);
     if (!result.ok) {
       setError(result.error ?? "שגיאה בשליחת הבקשה");
       return;
     }
-    setPhase("otp");
-    showToast("קוד אימות נשלח", { description: `קוד הדגמה: ${result.otpHint}`, variant: "success" });
+    setPhase("success");
   }
 
   async function handleSaveAndExit() {
@@ -999,20 +1029,45 @@ export default function ProviderRegisterPage() {
     setError("");
     setLoading(true);
     setTimeout(() => {
-      const result = verifyProviderApplicationOtp(otpCode);
+      const result = verifyProviderPhoneOtp(otpCode);
       setLoading(false);
       if (!result.ok) {
         setError(result.error ?? "שגיאה באימות");
         return;
       }
       setApplicationProviderId(result.providerId ?? null);
-      setPhase("success");
+      setPhase("email");
+      showToast("מייל הפעלת חשבון נשלח", { description: `נשלח לכתובת ${email}`, variant: "success" });
     }, 300);
   }
 
   function handleResend() {
-    const otp = resendProviderApplicationOtp();
+    const otp = resendProviderPhoneOtp();
     if (otp) showToast("קוד חדש נשלח לטלפון", { description: `קוד הדגמה: ${otp}` });
+  }
+
+  function handleConfirmEmailLink() {
+    setError("");
+    setLoading(true);
+    setTimeout(() => {
+      const result = verifyProviderActivationEmail();
+      setLoading(false);
+      if (!result.ok) {
+        setError(result.error ?? "שגיאה באימות");
+        return;
+      }
+      // Phone + email are both verified now — the account is fully active
+      // (a confirmation email was just sent, see the "email" phase copy).
+      // Continue straight into the rest of the application instead of
+      // stopping here.
+      setPhase("form");
+      showToast("החשבון הופעל בהצלחה", { description: "אפשר להמשיך למילוי פרטי הבקשה", variant: "success" });
+    }, 300);
+  }
+
+  function handleResendActivationEmail() {
+    const sent = resendProviderActivationEmail();
+    if (sent) showToast("מייל הפעלת חשבון נשלח שוב", { description: `נשלח לכתובת ${email}` });
   }
 
   function handleDemoApprove() {
@@ -1058,7 +1113,8 @@ export default function ProviderRegisterPage() {
     // business instead — move the person's name to the contact field and
     // clear the business name so it isn't pre-filled with a person.
     const isPerson = t === "doctor" || t === "caregiver";
-    if (!isPerson && fullName === user?.full_name) setFullName("");
+    const newFullName = !isPerson && fullName === user?.full_name ? "" : fullName;
+    setFullName(newFullName);
     setContactName(isPerson ? "" : user?.full_name ?? "");
     setContactPhone("");
     setContactEmail("");
@@ -1067,15 +1123,27 @@ export default function ProviderRegisterPage() {
     setDoctorSubtype("physician");
     setSurgicalPrivilegesHospital("");
     setBusinessRegNumber("");
-    setDescription("");
-    setMedicalResumeFile(null);
     setKupahArrangements([]);
     setPrivateInsurers([]);
     setSubSpecialties([]);
     setOtherSubSpecialty("");
     setLocationCount("");
     setStoreStructure("single");
-    setPhase("form");
+    // Persist the type immediately — not just on the form's first "המשך" —
+    // since phone/email verification (below) now happens BEFORE the rest of
+    // the application form and needs a provider_type to resume against.
+    // This fallback path (picking a type here rather than on /apply, e.g.
+    // the Google demo shortcut) hasn't verified either yet.
+    if (provider) {
+      upsertProviderProfile(provider.user_id, {
+        provider_type: t,
+        display_name: isPerson ? newFullName : "",
+        contact_name: isPerson ? undefined : user?.full_name,
+      });
+    }
+    if (provider?.phone_verified_at && provider?.email_verified_at) setPhase("form");
+    else if (provider?.phone_verified_at) setPhase("email");
+    else setPhase("otp");
   }
 
   if (phase === "category") {
@@ -1210,6 +1278,48 @@ export default function ProviderRegisterPage() {
     );
   }
 
+  if (phase === "email") {
+    return (
+      <RegisterShell phase={phase}>
+        <div className="flex flex-col items-center text-center mb-5">
+          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <Mail className="h-6 w-6" />
+          </div>
+          <h1 className="font-display text-xl font-bold text-[var(--brand-navy)]">אימות כתובת אימייל</h1>
+          <p className="text-sm text-slate-500 mt-1">
+            שלחנו מייל הפעלת חשבון לכתובת <bdi className="font-medium text-slate-700">{email}</bdi>
+          </p>
+        </div>
+        {error && (
+          <div role="alert" className="mb-4 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
+            {error}
+          </div>
+        )}
+        <div className="flex flex-col gap-3">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="flex items-center gap-2 mb-2 text-slate-500">
+              <Mail className="h-4 w-4" />
+              <span className="text-xs font-medium">מייל הדגמה מ-HEALSON</span>
+            </div>
+            <p className="text-sm text-slate-700 mb-3">
+              לחצו על הקישור הבא כדי לאמת את כתובת האימייל ולהפעיל את החשבון.
+            </p>
+            <Button type="button" onClick={handleConfirmEmailLink} loading={loading} className="w-full">
+              אשרו את החשבון שלי
+            </Button>
+          </div>
+          <button
+            type="button"
+            onClick={handleResendActivationEmail}
+            className="text-sm text-primary hover:underline text-center"
+          >
+            שלח מייל מחדש
+          </button>
+        </div>
+      </RegisterShell>
+    );
+  }
+
   if (phase === "success") {
     const rejected = demoOutcome === "rejected" || provider?.status === "rejected";
     const approved = demoOutcome === "approved" || provider?.status === "onboarding";
@@ -1262,6 +1372,10 @@ export default function ProviderRegisterPage() {
               <p className="text-sm text-slate-600 leading-relaxed max-w-md">
                 צוות Healson בודק כעת את הרישיון והמסמכים שצירפת — בדרך כלל תוך 24 שעות. נעדכן אותך ברגע
                 שהבדיקה תסתיים, ואז ניתן יהיה להמשיך לחתימת ההסכם ולהגדרת הקטלוג.
+              </p>
+              <p className="text-xs text-slate-500 leading-relaxed max-w-md">
+                שלחנו אליך גם מייל אישור לכתובת <bdi className="font-medium">{email}</bdi> — ניתן לעקוב משם אחר
+                סטטוס הבקשה בכל שלב.
               </p>
             </>
           )}
@@ -1402,8 +1516,7 @@ export default function ProviderRegisterPage() {
           <Upload className="h-3.5 w-3.5 text-slate-400" /> מה כדאי להכין
         </p>
         <ul className="flex flex-col gap-1.5 text-[11px] leading-relaxed text-slate-500">
-          {config.licenseFileRequired !== false && <li>· {config.licenseFileLabel.replace(/\s*\(.*\)$/, "")}</li>}
-          {config.showMedicalResume && extraFieldsGate && <li>· קורות חיים / תעודות</li>}
+          {config.licenseFileRequired !== false && <li>· {licenseFileLabel.replace(/\s*\(.*\)$/, "")}</li>}
           {config.showLicenseNumber !== false && <li>· מספר רישיון בתוקף</li>}
           {config.showBusinessRegNumber && <li>· ח״פ / ע״מ של העסק</li>}
           {isSurgeon && <li>· בית החולים שבו יש הרשאת ניתוח</li>}
@@ -1665,7 +1778,7 @@ export default function ProviderRegisterPage() {
                 className="flex flex-col gap-3 overflow-hidden"
               >
                 <MultiSelectPills
-                  label={isDoctor ? "תתי התמחות (ניתן לבחור יותר מאחת)" : "תתי קטגוריה (ניתן לבחור יותר מאחת)"}
+                  label={`${subSpecialtyLabel} (ניתן לבחור יותר מאחת)`}
                   options={[
                     ...(SUBSPECIALTIES_BY_SPECIALTY[specialty] ?? STORE_SUBTYPES_BY_CATEGORY[specialty] ?? []),
                     "אחר",
@@ -1675,7 +1788,7 @@ export default function ProviderRegisterPage() {
                 />
                 {subSpecialties.includes("אחר") && (
                   <Input
-                    label={isDoctor ? 'פירוט תת התמחות "אחר"' : 'פירוט קטגוריה "אחר"'}
+                    label={`פירוט ${subSpecialtyLabel} "אחר"`}
                     value={otherSubSpecialty}
                     onChange={(e) => setOtherSubSpecialty(e.target.value)}
                   />
@@ -1716,7 +1829,7 @@ export default function ProviderRegisterPage() {
           )}
 
           <div className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-slate-700">{config.licenseFileLabel}</span>
+            <span className="text-sm font-medium text-slate-700">{licenseFileLabel}</span>
             <FileDropzone
               file={licenseFile}
               onFileChange={(f) => {
@@ -1724,7 +1837,7 @@ export default function ProviderRegisterPage() {
                 if (errorField === "license") setError("");
               }}
               existingFileName={provider?.license_file?.file_name}
-              ariaLabel={config.licenseFileLabel.trim()}
+              ariaLabel={licenseFileLabel.trim()}
             />
             {errorField === "license" && error && (
               <span className="text-xs text-danger-text">{error}</span>
@@ -1763,31 +1876,6 @@ export default function ProviderRegisterPage() {
         <div className="rounded-lg bg-info-bg border border-info-border px-3 py-2 text-xs text-info-text">
           את הפרטים הבאים ניתן להשלים ולערוך גם מאוחר יותר, דרך הפורטל האישי, לאחר אישור הבקשה
         </div>
-
-        {(config.showDescription || (config.showMedicalResume && extraFieldsGate)) && (
-          <FormSection icon={<FileText className="h-4 w-4" />} title="תיאור ומסמכים נוספים">
-            {config.showDescription && (
-              <Textarea
-                label={isDoctor ? "תיאור / אודות הרופא/ה" : "תיאור"}
-                placeholder={isDoctor ? "ספר/י בקצרה על עצמך כרופא/ה — ניסיון, גישה טיפולית וכו׳" : undefined}
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-              />
-            )}
-
-            {config.showMedicalResume && extraFieldsGate && (
-              <div className="flex flex-col gap-1.5">
-                <span className="text-sm font-medium text-slate-700">רזומה רפואי (לא חובה)</span>
-                <FileDropzone
-                  file={medicalResumeFile}
-                  onFileChange={setMedicalResumeFile}
-                  existingFileName={provider?.medical_resume_file?.file_name}
-                  ariaLabel="העלאת רזומה רפואי"
-                />
-              </div>
-            )}
-          </FormSection>
-        )}
 
         {showInsuranceSection && (
           <FormSection icon={<Shield className="h-4 w-4" />} title="כיסוי ביטוחי">

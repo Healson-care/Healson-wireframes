@@ -975,6 +975,11 @@ export interface ServiceArray {
   type: ServiceArrayType; // from the predefined catalog
   name: string; // display name — defaults to the type label, editable
   created_date: string;
+  // A schedule set directly on the מערך — applies to every עמדה/doctor placed
+  // in it that doesn't keep its own independent week (see ScheduleHolder in
+  // src/lib/schedule.ts, which this structurally satisfies).
+  schedule?: WeeklySchedule;
+  schedule_exceptions?: ScheduleException[];
 }
 
 export type FacilityKind =
@@ -1107,6 +1112,7 @@ export interface ProviderProfile {
   // from provider_type (units are never self-registerable).
   onboarding_path?: "solo" | "unit";
   phone_verified_at?: string;
+  email_verified_at?: string;
   license_file?: UploadedFile;
   doctor_subtype?: DoctorSubtype;
   surgical_board_certificate?: UploadedFile;
@@ -1453,10 +1459,23 @@ export interface PatientDocument {
   category: DocumentCategory;
   title: string;
   uploaded_by: "patient" | "provider" | "system";
+  // Set by system-generated docs (booking receipts, questionnaires, the
+  // required-documents checklist) — always exactly one appointment.
   appointment_id?: string;
+  // Set by patient-initiated manual uploads (the "מסמך חדש" / "הוספת מסמך
+  // אחר" dialogs) — zero, one, or many linked appointments. Kept separate
+  // from appointment_id rather than folding those flows onto it, since a
+  // single scalar can't express "linked to two appointments".
+  appointment_ids?: string[];
   status?: DocumentStatus;
   created_date: string;
   file?: UploadedFile;
+}
+
+/** Every appointment a document is linked to, regardless of which of the two
+ * linking fields produced it (see PatientDocument). */
+export function documentAppointmentIds(doc: PatientDocument): string[] {
+  return doc.appointment_ids ?? (doc.appointment_id ? [doc.appointment_id] : []);
 }
 
 export interface Branch {
