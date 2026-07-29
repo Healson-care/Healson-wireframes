@@ -542,7 +542,7 @@ export default function ClientLoginPage() {
   // Two resends without success is treated as a signal of a real delivery
   // problem — filed for the team to look into, not just another resend.
   function handleReportOtpIssue(channel: "sms" | "email") {
-    const contact = channel === "sms" ? phoneForOtpDisplay : mode === "new" ? email : existingEmail;
+    const contact = (channel === "sms" ? phoneForOtpDisplay : mode === "new" ? email : existingEmail) ?? "";
     (channel === "sms" ? smsGuard : emailGuard).reportIssue(channel, contact);
   }
 
