@@ -7,7 +7,6 @@ import { motion } from "framer-motion";
 import {
   Mail,
   Lock,
-  Phone,
   User as UserIcon,
   ArrowLeft,
   ArrowRight,
@@ -113,7 +112,6 @@ export default function ProviderApplyPage() {
   const [providerType, setProviderType] = useState<ProviderType | null>(null);
 
   const [fullName, setFullName] = useState("");
-  const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -155,7 +153,9 @@ export default function ProviderApplyPage() {
     }
     setLoading(true);
     setTimeout(() => {
-      const result = registerProviderAccount(fullName, phone, email, password, providerType);
+      // No phone at signup — it's collected and OTP-verified later in the
+      // application form, the same for the Google path (which never has one).
+      const result = registerProviderAccount(fullName, "", email, password);
       setLoading(false);
       if (!result.ok) {
         setError(result.error ?? "שגיאה ביצירת החשבון");
@@ -304,60 +304,42 @@ export default function ProviderApplyPage() {
                 </div>
               )}
 
-              {stepPhase === "category" && (
-                <div className="flex flex-col gap-2">
-                  {CATEGORIES.map((cfg) => (
-                    <button
-                      key={cfg.key}
-                      type="button"
-                      onClick={() => chooseCategory(cfg.key)}
-                      className="flex items-center gap-3 rounded-xl border border-[var(--brand-ivory-200)] bg-white p-3 text-right shadow-sm transition-all hover:border-[var(--brand-gold)] hover:shadow-md"
-                    >
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--brand-gold-soft)] to-[var(--brand-gold)] text-[var(--brand-navy)]">
-                        <cfg.icon className="h-5 w-5" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-semibold text-[var(--brand-navy)]">{cfg.label}</span>
-                        <span className="block text-xs leading-snug text-[var(--brand-ink-soft)]">{cfg.description}</span>
-                      </span>
-                      <ChevronLeft className="h-4 w-4 shrink-0 text-[var(--brand-gold-deep)]" />
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {stepPhase === "type" && category && (
-                <div className="flex flex-col gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setStepPhase("category")}
-                    className="mb-1 flex items-center gap-1 self-start text-xs font-medium text-[var(--brand-gold-deep)] hover:text-[var(--brand-navy)]"
-                  >
-                    <ArrowRight className="h-3.5 w-3.5" />
-                    חזרה לקטגוריות
-                  </button>
-                  {categoryTypes(category).map((t) => {
-                    const Icon = PROVIDER_TYPE_ICONS[t];
-                    return (
-                      <button
-                        key={t}
-                        type="button"
-                        onClick={() => chooseType(t)}
-                        className="flex items-center gap-3 rounded-xl border border-[var(--brand-ivory-200)] bg-white p-3 text-right shadow-sm transition-all hover:border-[var(--brand-gold)] hover:shadow-md"
-                      >
-                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--brand-gold-soft)] to-[var(--brand-gold)] text-[var(--brand-navy)]">
-                          <Icon className="h-5 w-5" />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-sm font-semibold text-[var(--brand-navy)]">{PROVIDER_TYPE_LABELS[t]}</span>
-                          <span className="block text-xs leading-snug text-[var(--brand-ink-soft)]">
-                            {PROVIDER_TYPE_DESCRIPTIONS[t]}
-                          </span>
-                        </span>
-                        <ChevronLeft className="h-4 w-4 shrink-0 text-[var(--brand-gold-deep)]" />
-                      </button>
-                    );
-                  })}
+              <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+                <Field
+                  label="שם מלא"
+                  icon={<UserIcon className="h-4 w-4" />}
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  required
+                />
+                <Field
+                  type="email"
+                  label="אימייל"
+                  placeholder="you@example.com"
+                  icon={<Mail className="h-4 w-4" />}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field
+                    type="password"
+                    label="סיסמה"
+                    placeholder="••••••••"
+                    icon={<Lock className="h-4 w-4" />}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                  <Field
+                    type="password"
+                    label="אימות סיסמה"
+                    placeholder="••••••••"
+                    icon={<Lock className="h-4 w-4" />}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    required
+                  />
                 </div>
               )}
 
