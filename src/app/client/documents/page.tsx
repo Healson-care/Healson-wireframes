@@ -14,6 +14,7 @@ import {
   Pencil,
   Plus,
   Receipt,
+  Stethoscope,
   Trash2,
   Upload,
   X,
@@ -27,6 +28,7 @@ import { Button } from "@/components/ui/Button";
 import { Dialog, ConfirmDialog } from "@/components/ui/Dialog";
 import { Input } from "@/components/ui/Input";
 import { FilterDropdown } from "@/components/ui/FilterDropdown";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs";
 import { Popover } from "@/components/ui/Popover";
 import { DocumentUploadDialog } from "@/components/patient/DocumentUploadDialog";
 import { RequiredDocumentUploadDialog } from "@/components/patient/RequiredDocumentUploadDialog";
@@ -38,6 +40,8 @@ import {
   DocumentCategory,
   LabReferral,
   PatientDocument,
+  REFERRAL_STATUSES,
+  ReferralStatus,
 } from "@/types";
 
 type DocItem = { kind: "doc"; id: string; category: DocumentCategory; created_date: string; data: PatientDocument };
@@ -53,6 +57,33 @@ const CATEGORY_ICON: Record<DocumentCategory, typeof FileText> = {
   other: FileText,
 };
 
+// Tab split: receipts are the patient's financial paper trail; everything
+// else (referrals, visit summaries, questionnaires, lab results, misc) is
+// medical.
+type DocumentsTab = "medical" | "financial";
+const FINANCIAL_CATEGORIES: DocumentCategory[] = ["receipt"];
+const MEDICAL_CATEGORY_OPTIONS = DOCUMENT_CATEGORIES.filter((c) => !FINANCIAL_CATEGORIES.includes(c.id));
+
+const REFERRAL_STATUS_DESCRIPTIONS: Record<ReferralStatus, string> = {
+  "ממתין לעיבוד": "ההפניה נקלטה והבדיקה עדיין לא החלה",
+  בעיבוד: "הדגימה נמצאת בתהליך בדיקה במעבדה",
+  הושלם: "הבדיקה הסתיימה והתוצאות מוצגות כאן",
+  שגיאה: "אירעה תקלה בעיבוד הבדיקה — כדאי לפנות למעבדה או למוקד",
+};
+
+// One status vocabulary for the whole page: a plain document stores no
+// status and simply counts as "זמין"; lab referrals carry their processing
+// lifecycle. ("ממתין למילוי" docs are excluded on purpose — they live in the
+// actions banner, not in the list this filter narrows.)
+const STATUS_FILTER_OPTIONS: { value: string; label: string }[] = [
+  { value: "זמין", label: "זמין" },
+  ...REFERRAL_STATUSES.map((s) => ({ value: s, label: s })),
+];
+
+function itemStatus(item: DisplayItem): string {
+  return item.kind === "doc" ? item.data.status ?? "זמין" : item.data.status;
+}
+
 function CategoryFilter({
   activeCategories,
   onChange,
@@ -63,7 +94,7 @@ function CategoryFilter({
   return (
     <FilterDropdown
       values={activeCategories}
-      options={DOCUMENT_CATEGORIES.map((c) => ({ value: c.id, label: c.label }))}
+      options={MEDICAL_CATEGORY_OPTIONS.map((c) => ({ value: c.id, label: c.label }))}
       allLabel="כל הקטגוריות"
       onChange={(values) => onChange(values as DocumentCategory[])}
     />
@@ -209,7 +240,23 @@ function DocumentRow({
           </div>
         </div>
         <div className="shrink-0">
-          <StatusBadge status={item.data.status} kind="referral" />
+          <Popover
+            align="end"
+            trigger={
+              <span
+                className="inline-flex cursor-pointer underline decoration-dotted underline-offset-2"
+                title={REFERRAL_STATUS_DESCRIPTIONS[item.data.status]}
+              >
+                <StatusBadge status={item.data.status} kind="referral" />
+              </span>
+            }
+          >
+            {() => (
+              <p className="text-xs leading-relaxed text-slate-600">
+                {REFERRAL_STATUS_DESCRIPTIONS[item.data.status]}
+              </p>
+            )}
+          </Popover>
         </div>
       </div>
       {isCompleted && (
@@ -239,7 +286,9 @@ function ClientDocumentsPageContent() {
   const deleteDocument = useStore((s) => s.deleteDocument);
   const showToast = useStore((s) => s.showToast);
 
+  const [activeTab, setActiveTab] = useState<DocumentsTab>("medical");
   const [activeCategories, setActiveCategories] = useState<DocumentCategory[]>([]);
+  const [activeStatuses, setActiveStatuses] = useState<string[]>([]);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [requiredUploadDoc, setRequiredUploadDoc] = useState<PatientDocument | null>(null);
   const [renameDoc, setRenameDoc] = useState<PatientDocument | null>(null);
@@ -271,8 +320,21 @@ function ClientDocumentsPageContent() {
     [items]
   );
 
+  const tabItems = availableItems.filter((i) =>
+    activeTab === "financial" ? FINANCIAL_CATEGORIES.includes(i.category) : !FINANCIAL_CATEGORIES.includes(i.category)
+  );
+
+  // The category/status filters exist only on the medical tab — the financial
+  // tab holds a single category (receipts, always available), so there's
+  // nothing to narrow there.
   const categoryFilteredItems =
-    activeCategories.length === 0 ? availableItems : availableItems.filter((i) => activeCategories.includes(i.category));
+    activeTab === "medical"
+      ? tabItems.filter(
+          (i) =>
+            (activeCategories.length === 0 || activeCategories.includes(i.category)) &&
+            (activeStatuses.length === 0 || activeStatuses.includes(itemStatus(i)))
+        )
+      : tabItems;
 
   // "?appointment=" (arriving from the appointment card's "לצפייה מלאה
   // במסמכים" link, or the booking-confirmation receipt link) narrows the
@@ -312,6 +374,30 @@ function ClientDocumentsPageContent() {
     showToast("שם המסמך עודכן", { variant: "success" });
     setRenameDoc(null);
   }
+
+  // Rendered inside whichever tab is active — visibleItems is already
+  // narrowed to that tab, so the same markup serves both.
+  const documentsList =
+    visibleItems.length === 0 ? (
+      <EmptyState
+        icon={<FileText className="h-10 w-10" />}
+        title={activeTab === "financial" ? "אין מסמכים פיננסיים להצגה" : "אין מסמכים רפואיים להצגה"}
+      />
+    ) : (
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm divide-y divide-slate-100">
+        {visibleItems.map((item) => (
+          <DocumentRow
+            key={item.id}
+            item={item}
+            linkedAppointments={getLinkedAppointments(item)}
+            onDownload={handleDownload}
+            onRename={openRenameDialog}
+            onDelete={(docId) => setDeleteDocId(docId)}
+            onGoToAppointment={(appointmentId) => router.push(`/client/appointments?appointment=${appointmentId}`)}
+          />
+        ))}
+      </div>
+    );
 
   return (
     <ClientLayout>
@@ -388,27 +474,29 @@ function ClientDocumentsPageContent() {
       )}
 
       <p className="text-xs font-semibold text-slate-400 mb-1.5 px-1">המסמכים שלי</p>
-      <div className="mb-3 flex flex-wrap gap-2">
-        <CategoryFilter activeCategories={activeCategories} onChange={setActiveCategories} />
-      </div>
-
-      {visibleItems.length === 0 ? (
-        <EmptyState icon={<FileText className="h-10 w-10" />} title="אין מסמכים להצגה" />
-      ) : (
-        <div className="rounded-xl border border-slate-200 bg-white shadow-sm divide-y divide-slate-100">
-          {visibleItems.map((item) => (
-            <DocumentRow
-              key={item.id}
-              item={item}
-              linkedAppointments={getLinkedAppointments(item)}
-              onDownload={handleDownload}
-              onRename={openRenameDialog}
-              onDelete={(docId) => setDeleteDocId(docId)}
-              onGoToAppointment={(appointmentId) => router.push(`/client/appointments?appointment=${appointmentId}`)}
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as DocumentsTab)}>
+        <TabsList className="mb-3 w-fit">
+          <TabsTrigger value="medical" icon={<Stethoscope className="h-4 w-4" />}>
+            רפואיים
+          </TabsTrigger>
+          <TabsTrigger value="financial" icon={<Receipt className="h-4 w-4" />}>
+            פיננסיים
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="medical">
+          <div className="mb-3 flex flex-wrap gap-2">
+            <CategoryFilter activeCategories={activeCategories} onChange={setActiveCategories} />
+            <FilterDropdown
+              values={activeStatuses}
+              options={STATUS_FILTER_OPTIONS}
+              allLabel="כל הסטטוסים"
+              onChange={setActiveStatuses}
             />
-          ))}
-        </div>
-      )}
+          </div>
+          {documentsList}
+        </TabsContent>
+        <TabsContent value="financial">{documentsList}</TabsContent>
+      </Tabs>
 
       <DocumentUploadDialog
         open={uploadOpen}

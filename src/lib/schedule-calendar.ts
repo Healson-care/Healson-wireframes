@@ -260,12 +260,22 @@ export function buildBlocks(lanes: CalendarLane[], dates: Date[]): CalendarBlock
   return blocks;
 }
 
+/** The minimum shape column packing needs — availability blocks and the
+ * appointment calendar's blocks (src/lib/appointment-calendar.ts) both satisfy
+ * it, so the two calendars share one layout engine. */
+export interface PackableBlock {
+  startMin: number;
+  endMin: number;
+  col: number;
+  colCount: number;
+}
+
 /** Greedy interval-graph column packing so overlapping blocks on one day sit
  * side by side (a shared timeline where parallel capacity reads at a glance).
  * Mutates and returns the same block objects with col/colCount set. */
-export function packColumns(dayBlocks: CalendarBlock[]): CalendarBlock[] {
+export function packColumns<T extends PackableBlock>(dayBlocks: T[]): T[] {
   const sorted = [...dayBlocks].sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
-  let cluster: CalendarBlock[] = [];
+  let cluster: T[] = [];
   let clusterEnd = -1;
 
   const flush = () => {
@@ -322,7 +332,10 @@ export const MIN_BLOCK_MIN = 15;
 
 /** Hour window to render: the default working window, expanded to include any
  * block that falls outside it, clamped to [0, 24]. */
-export function timeBounds(blocks: CalendarBlock[]): { startMin: number; endMin: number } {
+export function timeBounds(blocks: { startMin: number; endMin: number }[]): {
+  startMin: number;
+  endMin: number;
+} {
   let startHour = DEFAULT_DAY_START_HOUR;
   let endHour = DEFAULT_DAY_END_HOUR;
   for (const b of blocks) {

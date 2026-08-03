@@ -763,15 +763,12 @@ export default function ClientLoginPage() {
               type="checkbox"
               checked={documentType === "passport"}
               onChange={(e) => {
-                const next = e.target.checked ? "passport" : "id";
-                setDocumentType(next);
                 // Un-checking after having already picked "אין לי קופת
-                // חולים" on the insurance step would otherwise leave a
-                // required Select stuck on a now-invalid "" value, since
-                // that option only renders for passport holders.
-                if (next === "id" && insurance.kupah === "") {
-                  setInsurance((prev) => ({ ...prev, kupah: "כללית" }));
-                }
+                // חולים" on the insurance step leaves kupah on "" — for an
+                // ת"ז holder that now renders as the "בחרו קופת חולים"
+                // placeholder, whose `required` forces re-picking a real
+                // kupah there; no reset needed here.
+                setDocumentType(e.target.checked ? "passport" : "id");
               }}
               className="h-4 w-4 rounded border-slate-300 accent-primary"
             />
@@ -897,6 +894,10 @@ export default function ClientLoginPage() {
         <button onClick={() => setPhase("new-profile")} className="text-sm text-primary mb-3 flex items-center gap-1">
           <ArrowRight className="h-3.5 w-3.5" /> חזרה
         </button>
+        <h1 className="text-lg font-semibold text-slate-900 mb-1">פרופיל ביטוחי</h1>
+        <p className="text-sm text-slate-500 mb-5">
+          הכיסוי הביטוחי שלכם קובע אילו מחירים והחזרים תראו בהזמנת שירותים — רק בחירת הקופה היא חובה
+        </p>
         <form onSubmit={handleInsuranceSubmit} className="flex flex-col gap-3">
           <InsuranceProfileForm
             value={insurance}

@@ -7,8 +7,11 @@ import { Dialog, ConfirmDialog } from "@/components/ui/Dialog";
 import { Input, Select } from "@/components/ui/Input";
 import { EmptyState } from "@/components/ui/Misc";
 import { Badge } from "@/components/ui/Badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs";
+import { ClinicScheduleCalendar } from "@/components/provider/schedule/ClinicScheduleCalendar";
 import { cn, generateId, formatDateHe } from "@/lib/utils";
 import {
+  Appointment,
   Clinic,
   ConsultationType,
   DEFAULT_SLOT_MINUTES,
@@ -35,6 +38,7 @@ import {
 } from "@/lib/schedule";
 import {
   CalendarClock,
+  CalendarDays,
   CalendarOff,
   CalendarPlus,
   Coffee,
@@ -49,16 +53,22 @@ import {
 
 /** Full availability manager (§PRV-05).
  *
- * Replaces the old "one time range per day" editor with the model real
- * scheduling systems use: any number of shifts per day (split hours), breaks
- * inside a shift, a per-shift slot length, per-shift service scoping, days
- * that are simply not active, and one-off date exceptions (closed, or
- * different hours). Everything is edited per location, because two locations
- * of the same provider legitimately keep different weeks. */
+ * Two ways into the same weekly model, because they answer different questions:
+ *   • יומן   — the calendar (ClinicScheduleCalendar): "how does my week actually
+ *              look, and where are the holes?" Open a shift by clicking the hour,
+ *              drag to move it, drag its edge to lengthen it.
+ *   • לוח שבועי — the list editor below: the precise, per-day form (split shifts,
+ *              breaks, slot length, per-shift service scoping) and the date
+ *              exceptions, which need a reason and a date rather than a drag.
+ *
+ * The underlying record is identical either way — any number of shifts per day,
+ * breaks inside a shift, days that are simply not active — and everything is
+ * edited per location, since two locations legitimately keep different weeks. */
 export function AvailabilitySection({
   clinics,
   onChange,
   services = [],
+  appointments = [],
   locationLabelSingular = "מרפאה",
   locationLabelPlural = "מרפאות",
 }: {
@@ -66,6 +76,8 @@ export function AvailabilitySection({
   onChange: (clinics: Clinic[]) => void;
   /** The provider's own services — a shift can be limited to a subset of them. */
   services?: ConsultationType[];
+  /** Booked appointments, so the calendar's month view can show load per day. */
+  appointments?: Appointment[];
   locationLabelSingular?: string;
   locationLabelPlural?: string;
 }) {
@@ -87,6 +99,55 @@ export function AvailabilitySection({
   }
 
   return (
+    <Tabs defaultValue="calendar" className="flex flex-col gap-4">
+      <TabsList>
+        {/* The calendar leads: "how does my week look" is the question this
+            screen is opened with; the precise per-day form is the follow-up. */}
+        <TabsTrigger value="calendar" icon={<CalendarDays className="h-4 w-4" />}>
+          יומן
+        </TabsTrigger>
+        <TabsTrigger value="weekly" icon={<Layers className="h-4 w-4" />}>
+          לוח שבועי וחריגות
+        </TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="calendar">
+        <ClinicScheduleCalendar
+          clinics={clinics}
+          services={services}
+          appointments={appointments}
+          locationLabelSingular={locationLabelSingular}
+          onChange={onChange}
+        />
+      </TabsContent>
+
+      <TabsContent value="weekly">
+        <WeeklyEditor
+          clinics={clinics}
+          selected={selected}
+          services={services}
+          onSelect={setSelectedId}
+          onChange={updateClinic}
+        />
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+function WeeklyEditor({
+  clinics,
+  selected,
+  services,
+  onSelect,
+  onChange,
+}: {
+  clinics: Clinic[];
+  selected?: Clinic;
+  services: ConsultationType[];
+  onSelect: (id: string) => void;
+  onChange: (clinic: Clinic) => void;
+}) {
+  return (
     <div className="flex flex-col gap-4">
       {clinics.length > 1 && (
         <div className="flex flex-wrap gap-1.5">
@@ -96,7 +157,7 @@ export function AvailabilitySection({
               <button
                 key={c.id}
                 type="button"
-                onClick={() => setSelectedId(c.id)}
+                onClick={() => onSelect(c.id)}
                 className={cn(
                   "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
                   isActive
@@ -120,7 +181,7 @@ export function AvailabilitySection({
           services={services.filter(
             (s) => (s.linked_clinic_ids?.length ?? 0) === 0 || s.linked_clinic_ids!.includes(selected.id)
           )}
-          onChange={updateClinic}
+          onChange={onChange}
         />
       )}
     </div>

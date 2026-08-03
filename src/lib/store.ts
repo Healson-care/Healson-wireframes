@@ -2163,7 +2163,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 32,
+      version: 34,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
       // records), the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER seed
       // account, the v3 -> v4 AppointmentStatus rename ("ממתין לאישור" ->
@@ -2249,14 +2249,26 @@ export const useStore = create<Store>()(
       // slice (single source of truth) and seeds a provider-side demo.
       // v29 -> v30 stamps provider_type "doctor" on the legacy solo demo doctors
       // (prov_1/prov_2) so they read as practitioners — reseed clean.
-      // v30 -> v31 adds sub_specialties to the published solo doctors, which the
-      // faceted search shows on each provider card — persisted v30 state has the
-      // old provider rows without them, so reseed clean.
-      // v31 -> v32 migrates seed prices to the SKBHP model (price_full base
-      // price on every item, H repurposed as a dedicated tourist price, S
-      // entries zeroed as basket coverage) and drops the placeholder
-      // "ביטוח ישיר" policy from the demo patient — reseed clean.
-      migrate: (persistedState, version) => (version < 32 ? ({} as Store) : (persistedState as Store)),
+      // v30 -> v31 attributes every seeded UNIT appointment to the עמדה that
+      // serves it (Appointment.resource_id/owner_context_id/practitioner_id), so
+      // the provider portal's new day board — a column per עמדה — opens with
+      // real patients in the right columns instead of one unattributed pile.
+      // v31 -> v32 does the same for SOLO providers: each seeded appointment
+      // carries the clinic_id it was booked at, so their day board can separate
+      // "my clinic" from "shifts a unit scheduled me for" — reseed clean.
+      // v32 -> v33 is the provider demo-data correctness pass: catalogues that
+      // match each provider's specialty (an orthopaedist no longer "operates" an
+      // MRI, a מכון no longer sells consultations), MoH codes on every coded
+      // item, canonical insurer names so layer-B pricing actually matches, real
+      // shift-based weeks with per-shift slot lengths, and appointment/order
+      // prices resolved from the provider's own price list — reseed clean.
+      // v33 -> v34 is the search branch, renumbered on merge because both
+      // branches independently reused v31/v32: the SKBHP price migration
+      // (price_full base price on every item, H repurposed as a dedicated
+      // tourist price, S entries zeroed since basket coverage has no payable
+      // amount) plus dropping the placeholder "ביטוח ישיר" policy from the demo
+      // patient — reseed clean.
+      migrate: (persistedState, version) => (version < 34 ? ({} as Store) : (persistedState as Store)),
       // Uploaded files (photos/PDFs) are stored as base64 data URLs inside
       // this same persisted blob (no real backend — see file.ts). If a
       // single write ever still exceeds the browser's localStorage quota

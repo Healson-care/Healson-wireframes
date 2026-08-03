@@ -28,11 +28,12 @@ import {
   User,
   VisitRecord,
   emptyWeeklySchedule,
+  isUnitProviderType,
 } from "@/types";
 import { generateId, isoDateDaysFromNow, isoTimestampHoursFromNow } from "./utils";
 import { SEED_SKILL_DOMAINS, SEED_SKILL_SUBDOMAINS } from "./medical-tree";
 import { scheduleToLegacyHours } from "./schedule";
-import { resolveCatalogPrice } from "./pricing";
+import { resolveCatalogPrice, resolveProviderPrice } from "./pricing";
 
 // -------------------------------------------------------------------------
 // Demo accounts — used by the mock auth flow (see src/lib/store.ts).
@@ -120,6 +121,20 @@ export const SEED_USERS: User[] = [
 ];
 
 const provider2ClinicId = generateId("clinic");
+// Stable ids — the ergometry clinic below is scoped to that one item, and the
+// consultation clinics to everything that fits their 30-minute grid, so shifts
+// and items have to be able to reference each other.
+const provider2ErgometryId = "ct_p2_ergometry";
+const provider2ConsultId = "ct_p2_consult";
+const provider2EcgId = "ct_p2_ecg";
+const provider2EchoId = "ct_p2_echo";
+const provider2HolterId = "ct_p2_holter";
+const provider2ClinicServiceIds = [
+  provider2ConsultId,
+  provider2EcgId,
+  provider2EchoId,
+  provider2HolterId,
+];
 
 const provider2: ProviderProfile = {
   id: "prov_2",
@@ -128,7 +143,8 @@ const provider2: ProviderProfile = {
   display_name: "ד\"ר מיכל ברק",
   title: "ד\"ר",
   specialty: "קרדיולוגיה",
-  sub_specialties: ["קרדיולוגיה התערבותית", "מעקב מטופלי לב כרוניים"],
+  sub_specialties: ["קרדיולוגיה התערבותית", "אי ספיקת לב"],
+  doctor_subtype: "physician",
   bio: "מומחית ברפואת לב עם ניסיון של מעל 15 שנה, בעלת תואר נוסף בקרדיולוגיה התערבותית. מתמחה באבחון מוקדם ומעקב מטופלי לב כרוניים.",
   languages: ["עברית", "אנגלית", "רוסית"],
   rating: 4.9,
@@ -145,8 +161,11 @@ const provider2: ProviderProfile = {
   commission_rate: 12,
   created_date: isoDateDaysFromNow(-400),
   agreements: [
-    { id: generateId("agr"), provider_id: "prov_2", layer: "K" },
-    { id: generateId("agr"), provider_id: "prov_2", layer: "B" },
+    { id: generateId("agr"), provider_id: "prov_2", layer: "K", kupah_list: ["כללית", "מכבי", "לאומית"] },
+    // Insurer names must be the canonical B_INSURANCE_COMPANIES strings — the
+    // B price is matched against the policy on the patient's record, so a short
+    // form ("הראל") would silently never match "הראל ביטוח".
+    { id: generateId("agr"), provider_id: "prov_2", layer: "B", insurance_companies: ["כלל ביטוח", "הראל ביטוח"] },
     { id: generateId("agr"), provider_id: "prov_2", layer: "H" },
   ],
   kupah_arrangements: [
@@ -154,10 +173,10 @@ const provider2: ProviderProfile = {
     { kupah: "מכבי", level: "מכבי כסף" },
     { kupah: "לאומית", level: "לאומית זהב" },
   ],
-  private_insurance_companies: ["כלל", "הראל"],
+  private_insurance_companies: ["כלל ביטוח", "הראל ביטוח"],
   consultation_types: [
     {
-      id: generateId("ct"),
+      id: provider2ConsultId,
       name: "ייעוץ קרדיולוגי כללי",
       duration_minutes: 30,
       prices: [
@@ -175,8 +194,21 @@ const provider2: ProviderProfile = {
       ],
     },
     {
-      id: generateId("ct"),
-      name: "בדיקת מאמץ",
+      id: provider2EcgId,
+      name: "אק״ג במנוחה",
+      duration_minutes: 15,
+      prices: [
+        { layer: "K", price: 55 },
+        { layer: "B", price: 25 },
+        { layer: "H", price: 180 },
+      ],
+      service_type: "test",
+      moh_code: "21030",
+      linked_clinic_ids: [provider2ClinicId],
+    },
+    {
+      id: provider2ErgometryId,
+      name: "מבחן מאמץ לבבי (ארגומטריה)",
       duration_minutes: 45,
       prices: [
         { layer: "K", price: 200 },
@@ -184,13 +216,15 @@ const provider2: ProviderProfile = {
         { layer: "H", price: 650 },
       ],
       service_type: "test",
+      moh_code: "21040",
       linked_clinic_ids: [provider2ClinicId],
+      required_documents: [{ id: generateId("reqdoc"), label: "אק״ג אחרון (אם קיים)" }],
     },
     // Unified into the single services list (no more separate "בדיקות"
     // tab/section) — see B2/B3 in the services-merge fix.
     {
-      id: generateId("ct"),
-      name: "אקו לב",
+      id: provider2EchoId,
+      name: "אקו לב (אקוקרדיוגרפיה)",
       duration_minutes: 30,
       prices: [
         { layer: "K", price: 260 },
@@ -198,28 +232,87 @@ const provider2: ProviderProfile = {
         { layer: "H", price: 800 },
       ],
       service_type: "imaging",
+      moh_code: "52040",
+      linked_clinic_ids: [provider2ClinicId],
+    },
+    {
+      id: provider2HolterId,
+      name: "הולטר קצב לב 24 שעות",
+      duration_minutes: 20,
+      prices: [
+        { layer: "K", price: 180 },
+        { layer: "B", price: 80 },
+        { layer: "H", price: 520 },
+      ],
+      service_type: "test",
+      moh_code: "21090",
       linked_clinic_ids: [provider2ClinicId],
     },
   ],
   exam_types: [],
+  // A real cardiology week: consultation clinics on a 30-minute grid, and a
+  // separate ergometry block on a 45-minute grid — a stress test cannot be
+  // squeezed into a consultation slot, which is exactly what a flat
+  // "08:00–16:00, every day" schedule was quietly implying.
   clinic_locations: [
-    {
+    clinicWithSchedule({
       id: provider2ClinicId,
       name: "מרפאת הלב תל אביב",
-      address: "רחוב איבן גבירול 50",
+      address: "אבן גבירול 50",
       city: "תל אביב",
       phone: "03-5551234",
       is_primary: true,
-      hours: {
-        sunday: ["08:00", "16:00"],
-        monday: ["08:00", "16:00"],
-        tuesday: ["08:00", "16:00"],
-        wednesday: ["08:00", "16:00"],
-        thursday: ["08:00", "14:00"],
-        friday: null,
-        saturday: null,
-      },
-    },
+      location_type: "clinic",
+      schedule: weekly({
+        // The consultation clinics are scoped to the items that FIT a 30-minute
+        // slot; the ergometry has its own 45-minute block. Leaving them
+        // unscoped would offer patients a stress test in a slot half its length.
+        sunday: [
+          shift("sh_p2_sun", "08:00", "14:00", {
+            label: "מרפאת בוקר",
+            slot_minutes: 30,
+            service_ids: provider2ClinicServiceIds,
+          }),
+        ],
+        monday: [
+          shift("sh_p2_mon", "08:00", "14:00", {
+            label: "מרפאת בוקר",
+            slot_minutes: 30,
+            service_ids: provider2ClinicServiceIds,
+            breaks: [{ id: "br_p2_mon", start: "11:00", end: "11:20", label: "הפסקה" }],
+          }),
+        ],
+        tuesday: [
+          shift("sh_p2_tue_am", "08:00", "12:00", {
+            label: "מרפאת בוקר",
+            slot_minutes: 30,
+            service_ids: provider2ClinicServiceIds,
+          }),
+          shift("sh_p2_tue_pm", "14:00", "17:00", {
+            label: "מרפאת מאמץ",
+            slot_minutes: 45,
+            service_ids: [provider2ErgometryId],
+          }),
+        ],
+        wednesday: [
+          shift("sh_p2_wed", "08:00", "16:00", {
+            label: "יום רציף",
+            slot_minutes: 30,
+            service_ids: provider2ClinicServiceIds,
+          }),
+        ],
+        thursday: [
+          shift("sh_p2_thu", "08:00", "14:00", {
+            label: "מרפאת בוקר",
+            slot_minutes: 30,
+            service_ids: provider2ClinicServiceIds,
+          }),
+        ],
+      }),
+      schedule_exceptions: [
+        { id: "exc_p2_1", date: isoDateDaysFromNow(7), closed: true, reason: "כנס האיגוד הקרדיולוגי" },
+      ],
+    }),
   ],
   referral_forms: [
     {
@@ -237,6 +330,12 @@ const provider1ClinicId = generateId("clinic");
 // A second location for the same doctor (§location picker demo) — he splits
 // his week between the two, so each has different weekly hours.
 const provider1ClinicId2 = generateId("clinic");
+// Stable ids — the injections clinic and the operating block are scoped to
+// these specific items, so shift and item must reference each other.
+const provider1ConsultId = "ct_p1_consult";
+const provider1SecondOpinionId = "ct_p1_second_opinion";
+const provider1InjectionId = "ct_p1_injection";
+const provider1SurgeryId = "ct_p1_arthroscopy";
 
 const provider1: ProviderProfile = {
   id: "prov_1",
@@ -246,6 +345,11 @@ const provider1: ProviderProfile = {
   title: "ד\"ר",
   specialty: "אורתופדיה",
   sub_specialties: ["כירורגיית ברך", "כירורגיית כתף", "ניתוחים זעיר-פולשניים"],
+  // The bio says "מנתח" — so the record has to BE a surgeon: the surgeon
+  // subtype is what makes the platform ask for board certification, malpractice
+  // cover and hospital privileges (§apply flow).
+  doctor_subtype: "surgeon",
+  surgical_privileges_hospital: "מרכז רפואי הדסה עין כרם",
   bio: "מנתח אורתופד בכיר המתמחה בכירורגיית ברך וכתף, כולל ניתוחים זעיר-פולשניים. ליווה אלפי מטופלים בדרך להחלמה מלאה.",
   languages: ["עברית", "אנגלית"],
   rating: 4.8,
@@ -261,6 +365,9 @@ const provider1: ProviderProfile = {
   agreements: [
     { id: generateId("agr"), provider_id: "prov_1", layer: "S", kupah_list: ["כללית", "מכבי", "מאוחדת", "לאומית"] },
     { id: generateId("agr"), provider_id: "prov_1", layer: "K" },
+    // A private surgery is what B cover is actually FOR — without this layer the
+    // surgery below would only ever price at the full private rate.
+    { id: generateId("agr"), provider_id: "prov_1", layer: "B", insurance_companies: ["הראל ביטוח", "כלל ביטוח", "מנורה מבטחים"] },
     { id: generateId("agr"), provider_id: "prov_1", layer: "H" },
   ],
   // Same קופה, two שב"ן plans — a provider can hold more than one plan of
@@ -272,82 +379,168 @@ const provider1: ProviderProfile = {
   ],
   consultation_types: [
     {
-      id: generateId("ct"),
-      name: "ייעוץ אורתופדי - ברך",
+      // A specialist visit reached with a kupah referral is exactly what layer
+      // S funds — hence the S price here rather than on the private second
+      // opinion below.
+      id: provider1ConsultId,
+      name: "ייעוץ אורתופדי — ברך וכתף",
       duration_minutes: 30,
       prices: [
+        { layer: "S", price: 35 },
         { layer: "K", price: 120 },
+        { layer: "B", price: 60 },
         { layer: "H", price: 450 },
       ],
       service_type: "consultation",
       linked_clinic_ids: [provider1ClinicId, provider1ClinicId2],
+      requires_referral: true,
       required_documents: [
-        { id: generateId("reqdoc"), label: "הפניה מרופא מטפל" },
-        { id: generateId("reqdoc"), label: "צילומי רנטגן קודמים (אם קיימים)" },
+        { id: generateId("reqdoc"), label: "הפניה/התחייבות מהקופה" },
+        { id: generateId("reqdoc"), label: "צילומי רנטגן או MRI קודמים (אם קיימים)" },
       ],
     },
     {
-      id: generateId("ct"),
-      name: "חוות דעת שנייה",
-      duration_minutes: 20,
+      // A second opinion before surgery is a private product (or via שב"ן) —
+      // the basket doesn't fund it, so no S price.
+      id: provider1SecondOpinionId,
+      name: "חוות דעת שנייה לפני ניתוח",
+      duration_minutes: 30,
       prices: [
-        { layer: "S", price: 35 },
         { layer: "K", price: 100 },
         { layer: "H", price: 390 },
       ],
       service_type: "consultation",
       linked_clinic_ids: [provider1ClinicId, provider1ClinicId2],
+      required_documents: [{ id: generateId("reqdoc"), label: "מסמכי הייעוץ/הניתוח המוצע" }],
     },
-    // Unified into the single services list (no more separate "בדיקות"
-    // tab/section) — see B2/B3 in the services-merge fix.
+    // An orthopaedist's clinic performs guided injections — it does NOT operate
+    // an MRI scanner (that's an imaging institute's machine, see
+    // providerInstitute). The item a knee patient actually books here is the
+    // injection; the MRI is something they arrive WITH.
     {
-      id: generateId("ct"),
-      name: "בדיקת MRI לברך",
-      duration_minutes: 45,
+      id: provider1InjectionId,
+      name: "הזרקה תוך-מפרקית מונחית אולטרסאונד",
+      duration_minutes: 20,
       prices: [
-        { layer: "K", price: 350 },
-        { layer: "H", price: 1200 },
+        { layer: "K", price: 180 },
+        { layer: "B", price: 90 },
+        { layer: "H", price: 650 },
       ],
-      service_type: "imaging",
+      service_type: "procedure",
+      moh_code: "32020",
       linked_clinic_ids: [provider1ClinicId],
+    },
+    {
+      id: provider1SurgeryId,
+      name: "ארתרוסקופיה של הברך",
+      duration_minutes: 90,
+      prices: [
+        { layer: "B", price: 1500 },
+        { layer: "H", price: 18500 },
+      ],
+      service_type: "surgery",
+      moh_code: "42010",
+      linked_clinic_ids: [provider1ClinicId],
+      requires_referral: true,
+      anesthesia_type: "general",
+      recovery_days: 21,
+      requires_hospital: true,
+      required_documents: [
+        { id: generateId("reqdoc"), label: "MRI עדכני של הברך" },
+        { id: generateId("reqdoc"), label: "אישור כשירות לניתוח (בדיקות דם + אק״ג)" },
+      ],
     },
   ],
   exam_types: [],
+  // An orthopaedic surgeon's real week: consultation clinics on a 30-minute
+  // grid, a dedicated injections clinic on a 20-minute grid, and one operating
+  // block a week at 90 minutes a case. A flat "09:00–17:00 every day" cannot
+  // express any of that — and would offer patients a 90-minute operation in a
+  // 30-minute consultation slot.
   clinic_locations: [
-    {
+    clinicWithSchedule({
       id: provider1ClinicId,
       name: "מרפאת אורתופדיה רמת גן",
       address: "ביאליק 12",
       city: "רמת גן",
       phone: "03-6661234",
       is_primary: true,
-      hours: {
-        sunday: ["09:00", "17:00"],
-        monday: ["09:00", "17:00"],
-        tuesday: ["09:00", "17:00"],
-        wednesday: null,
-        thursday: ["09:00", "17:00"],
-        friday: ["09:00", "13:00"],
-        saturday: null,
-      },
-    },
-    {
+      location_type: "clinic",
+      schedule: weekly({
+        sunday: [
+          shift("sh_p1_sun_am", "09:00", "13:00", {
+            label: "מרפאת בוקר",
+            slot_minutes: 30,
+            service_ids: [provider1ConsultId, provider1SecondOpinionId],
+          }),
+          shift("sh_p1_sun_pm", "16:00", "19:00", {
+            label: "מרפאת אחר הצהריים",
+            slot_minutes: 30,
+            service_ids: [provider1ConsultId, provider1SecondOpinionId],
+          }),
+        ],
+        monday: [
+          shift("sh_p1_mon_am", "09:00", "13:00", {
+            label: "מרפאת בוקר",
+            slot_minutes: 30,
+            service_ids: [provider1ConsultId, provider1SecondOpinionId],
+          }),
+          shift("sh_p1_mon_pm", "14:00", "17:30", {
+            label: "ניתוחים — מרכז רפואי הדסה עין כרם",
+            slot_minutes: 90,
+            service_ids: [provider1SurgeryId],
+          }),
+        ],
+        tuesday: [
+          shift("sh_p1_tue_am", "09:00", "13:00", {
+            label: "מרפאת בוקר",
+            slot_minutes: 30,
+            service_ids: [provider1ConsultId, provider1SecondOpinionId],
+          }),
+          shift("sh_p1_tue_pm", "14:00", "16:00", {
+            label: "מרפאת הזרקות",
+            slot_minutes: 20,
+            service_ids: [provider1InjectionId],
+          }),
+        ],
+        thursday: [
+          shift("sh_p1_thu", "09:00", "17:00", {
+            label: "יום רציף",
+            slot_minutes: 30,
+            service_ids: [provider1ConsultId, provider1SecondOpinionId],
+            breaks: [{ id: "br_p1_thu", start: "13:00", end: "13:30", label: "הפסקת צהריים" }],
+          }),
+        ],
+        friday: [
+          shift("sh_p1_fri", "09:00", "12:00", {
+            label: "בוקר מקוצר",
+            slot_minutes: 30,
+            service_ids: [provider1ConsultId, provider1SecondOpinionId],
+          }),
+        ],
+      }),
+      schedule_exceptions: [
+        { id: "exc_p1_1", date: isoDateDaysFromNow(14), closed: true, reason: "כנס אורתופדיה שנתי" },
+      ],
+    }),
+    clinicWithSchedule({
       id: provider1ClinicId2,
       name: "מרפאת אורתופדיה תל אביב",
       address: "דיזנגוף 150",
       city: "תל אביב",
       phone: "03-6669876",
       is_primary: false,
-      hours: {
-        sunday: null,
-        monday: null,
-        tuesday: null,
-        wednesday: ["10:00", "18:00"],
-        thursday: null,
-        friday: null,
-        saturday: null,
-      },
-    },
+      location_type: "clinic",
+      schedule: weekly({
+        wednesday: [
+          shift("sh_p1_wed", "10:00", "18:00", {
+            label: "מרפאת תל אביב",
+            slot_minutes: 30,
+            breaks: [{ id: "br_p1_wed", start: "13:30", end: "14:00", label: "הפסקה" }],
+          }),
+        ],
+      }),
+    }),
   ],
   referral_forms: [
     {
@@ -415,6 +608,17 @@ const provider4: ProviderProfile = {
       prices: [{ layer: "H", price: 350 }],
       service_type: "consultation",
     },
+    // Mole mapping is the one item every dermatology clinic sells alongside the
+    // consultation — enough to make the mid-onboarding record read as real
+    // without giving it the full catalogue of a live provider.
+    {
+      id: generateId("ct"),
+      name: "מיפוי שומות דיגיטלי (דרמוסקופיה)",
+      duration_minutes: 30,
+      prices: [{ layer: "H", price: 550 }],
+      service_type: "test",
+      moh_code: "21070",
+    },
   ],
   exam_types: [],
   clinic_locations: [],
@@ -426,6 +630,9 @@ const provider4: ProviderProfile = {
 // since the provider still declares those layers, the patient can claim the
 // visit back from their own מכבי-שלי / מגדל cover after paying in full.
 const provider5ClinicId = generateId("clinic");
+const provider5ConsultId = "ct_p5_consult";
+const provider5GastroId = "ct_p5_gastro";
+const provider5ColonoId = "ct_p5_colono";
 
 const provider5: ProviderProfile = {
   id: "prov_5",
@@ -447,13 +654,13 @@ const provider5: ProviderProfile = {
   created_date: isoDateDaysFromNow(-250),
   agreements: [
     { id: generateId("agr"), provider_id: "prov_5", layer: "K", kupah_list: ["כללית", "מאוחדת", "לאומית"] },
-    { id: generateId("agr"), provider_id: "prov_5", layer: "B", insurance_companies: ["כלל", "הראל"] },
+    { id: generateId("agr"), provider_id: "prov_5", layer: "B", insurance_companies: ["כלל ביטוח", "הראל ביטוח"] },
     { id: generateId("agr"), provider_id: "prov_5", layer: "H" },
   ],
-  private_insurance_companies: ["כלל", "הראל"],
+  private_insurance_companies: ["כלל ביטוח", "הראל ביטוח"],
   consultation_types: [
     {
-      id: generateId("ct"),
+      id: provider5ConsultId,
       name: "ייעוץ גסטרואנטרולוגי",
       duration_minutes: 30,
       prices: [
@@ -464,26 +671,103 @@ const provider5: ProviderProfile = {
       service_type: "consultation",
       linked_clinic_ids: [provider5ClinicId],
     },
+    // The bio says "מומחית לגסטרואנטרולוגיה ואנדוסקופיה" — so the two endoscopic
+    // procedures a gastroenterologist is actually booked for belong here.
+    {
+      id: provider5GastroId,
+      name: "גסטרוסקופיה אבחנתית",
+      duration_minutes: 30,
+      prices: [
+        { layer: "K", price: 450 },
+        { layer: "B", price: 200 },
+        { layer: "H", price: 1500 },
+      ],
+      service_type: "procedure",
+      moh_code: "31020",
+      linked_clinic_ids: [provider5ClinicId],
+      requires_referral: true,
+      anesthesia_type: "sedation",
+      required_documents: [{ id: generateId("reqdoc"), label: "בדיקות דם (ספירה ותפקודי קרישה)" }],
+    },
+    {
+      id: provider5ColonoId,
+      name: "קולונוסקופיה אבחנתית",
+      duration_minutes: 45,
+      prices: [
+        { layer: "K", price: 650 },
+        { layer: "B", price: 300 },
+        { layer: "H", price: 2200 },
+      ],
+      service_type: "procedure",
+      moh_code: "31010",
+      linked_clinic_ids: [provider5ClinicId],
+      requires_referral: true,
+      anesthesia_type: "sedation",
+      requires_fasting: true,
+      required_documents: [{ id: generateId("reqdoc"), label: "בדיקות דם (ספירה ותפקודי קרישה)" }],
+    },
   ],
   exam_types: [],
+  // Consultation clinic in the morning, endoscopy list in the afternoon — the
+  // way every gastroenterology practice actually runs, and the only way a
+  // 45-minute colonoscopy and a 30-minute consultation can share one week.
   clinic_locations: [
-    {
+    clinicWithSchedule({
       id: provider5ClinicId,
       name: "מרפאת עיכול חיפה",
       address: "הנמל 22",
       city: "חיפה",
       phone: "04-8551234",
       is_primary: true,
-      hours: {
-        sunday: ["09:00", "17:00"],
-        monday: ["09:00", "17:00"],
-        tuesday: ["09:00", "17:00"],
-        wednesday: ["09:00", "17:00"],
-        thursday: ["09:00", "15:00"],
-        friday: null,
-        saturday: null,
-      },
-    },
+      location_type: "clinic",
+      schedule: weekly({
+        sunday: [
+          shift("sh_p5_sun", "09:00", "14:00", {
+            label: "מרפאת בוקר",
+            slot_minutes: 30,
+            service_ids: [provider5ConsultId],
+          }),
+        ],
+        monday: [
+          shift("sh_p5_mon_am", "09:00", "13:00", {
+            label: "מרפאת בוקר",
+            slot_minutes: 30,
+            service_ids: [provider5ConsultId],
+          }),
+          shift("sh_p5_mon_pm", "14:00", "18:00", {
+            label: "רשימת אנדוסקופיות",
+            slot_minutes: 45,
+            service_ids: [provider5GastroId, provider5ColonoId],
+          }),
+        ],
+        tuesday: [
+          shift("sh_p5_tue", "09:00", "15:00", {
+            label: "מרפאת בוקר",
+            slot_minutes: 30,
+            service_ids: [provider5ConsultId],
+          }),
+        ],
+        wednesday: [
+          shift("sh_p5_wed_am", "09:00", "13:00", {
+            label: "מרפאת בוקר",
+            slot_minutes: 30,
+            service_ids: [provider5ConsultId],
+          }),
+          shift("sh_p5_wed_pm", "14:00", "18:00", {
+            label: "רשימת אנדוסקופיות",
+            slot_minutes: 45,
+            service_ids: [provider5GastroId, provider5ColonoId],
+          }),
+        ],
+        thursday: [
+          shift("sh_p5_thu", "09:00", "15:00", {
+            label: "מרפאת בוקר",
+            slot_minutes: 30,
+            service_ids: [provider5ConsultId],
+          }),
+        ],
+      }),
+    }),
   ],
   referral_forms: [],
 };
@@ -492,6 +776,9 @@ const provider5: ProviderProfile = {
 // at all, so no patient sees an arrangement or a reimbursement note here,
 // regardless of what insurance they hold.
 const provider6ClinicId = generateId("clinic");
+const provider6ConsultId = "ct_p6_consult";
+const provider6OctId = "ct_p6_oct";
+const provider6CataractId = "ct_p6_cataract";
 
 const provider6: ProviderProfile = {
   id: "prov_6",
@@ -514,33 +801,91 @@ const provider6: ProviderProfile = {
   agreements: [{ id: generateId("agr"), provider_id: "prov_6", layer: "H" }],
   consultation_types: [
     {
-      id: generateId("ct"),
+      id: provider6ConsultId,
       name: "ייעוץ רפואת עיניים",
       duration_minutes: 20,
       prices: [{ layer: "H", price: 390 }],
       service_type: "consultation",
       linked_clinic_ids: [provider6ClinicId],
     },
+    // The bio promises cataract surgery and laser work — a private-only
+    // ophthalmologist's catalogue is the pre-op imaging plus the operation.
+    {
+      id: provider6OctId,
+      name: "בדיקת OCT — טומוגרפיה של הרשתית",
+      duration_minutes: 20,
+      prices: [{ layer: "H", price: 450 }],
+      service_type: "imaging",
+      moh_code: "52050",
+      linked_clinic_ids: [provider6ClinicId],
+    },
+    {
+      id: provider6CataractId,
+      name: "ניתוח קטרקט עם השתלת עדשה",
+      duration_minutes: 45,
+      prices: [{ layer: "H", price: 13500 }],
+      service_type: "surgery",
+      moh_code: "43010",
+      linked_clinic_ids: [provider6ClinicId],
+      anesthesia_type: "local",
+      recovery_days: 7,
+      requires_hospital: true,
+      required_documents: [
+        { id: generateId("reqdoc"), label: "בדיקת ביומטריה לחישוב עדשה" },
+        { id: generateId("reqdoc"), label: "אישור כשירות לניתוח" },
+      ],
+    },
   ],
   exam_types: [],
+  // Clinic days plus one weekly operating list — a cataract surgeon's week.
   clinic_locations: [
-    {
+    clinicWithSchedule({
       id: provider6ClinicId,
       name: "מרפאת עיניים הרצליה",
       address: "סוקולוב 10",
       city: "הרצליה",
       phone: "09-9551234",
       is_primary: true,
-      hours: {
-        sunday: ["08:30", "16:30"],
-        monday: ["08:30", "16:30"],
-        tuesday: ["08:30", "16:30"],
-        wednesday: ["08:30", "16:30"],
-        thursday: ["08:30", "16:30"],
-        friday: null,
-        saturday: null,
-      },
-    },
+      location_type: "clinic",
+      schedule: weekly({
+        sunday: [
+          shift("sh_p6_sun", "08:30", "16:30", {
+            label: "מרפאה",
+            slot_minutes: 20,
+            service_ids: [provider6ConsultId, provider6OctId],
+            breaks: [{ id: "br_p6_sun", start: "12:30", end: "13:00", label: "הפסקת צהריים" }],
+          }),
+        ],
+        monday: [
+          shift("sh_p6_mon", "08:30", "16:30", {
+            label: "מרפאה",
+            slot_minutes: 20,
+            service_ids: [provider6ConsultId, provider6OctId],
+          }),
+        ],
+        tuesday: [
+          shift("sh_p6_tue", "08:00", "14:00", {
+            label: "יום ניתוחים — קטרקט",
+            slot_minutes: 45,
+            service_ids: [provider6CataractId],
+          }),
+        ],
+        wednesday: [
+          shift("sh_p6_wed", "08:30", "16:30", {
+            label: "מרפאה",
+            slot_minutes: 20,
+            service_ids: [provider6ConsultId, provider6OctId],
+          }),
+        ],
+        thursday: [
+          shift("sh_p6_thu", "08:30", "16:30", {
+            label: "מרפאה",
+            slot_minutes: 20,
+            service_ids: [provider6ConsultId, provider6OctId],
+          }),
+        ],
+      }),
+    }),
   ],
   referral_forms: [],
 };
@@ -579,10 +924,11 @@ const instituteServiceIds = {
   mriHead: "ct_inst_mri_head",
   ctAbdomen: "ct_inst_ct",
   ctChest: "ct_inst_ct_chest",
+  usAbdomen: "ct_inst_us_abdomen",
+  biopsy: "ct_inst_biopsy",
   colono: "ct_inst_colono",
   homeBlood: "ct_inst_home_blood",
   surgeonPick: "ct_inst_surgeon",
-  secondOpinion: "ct_inst_second_opinion",
 };
 
 // Doctors employed by the institute — real doctor records in the platform
@@ -637,12 +983,16 @@ const providerInstitute: ProviderProfile = {
   id: "prov_institute",
   provider_type: "medical_institute",
   user_id: DEMO_INSTITUTE_USER.id,
-  display_name: " מכון רפואי הדסה",
+  display_name: "מכון רפואי הדסה",
   contact_name: "רונית אלמוג",
-  contact_phone: "03-5559090",
-  contact_email: "info@asuta-demo.co.il",
+  contact_phone: "02-5559090",
+  contact_email: "info@hadassah-demo.co.il",
   business_reg_number: "514882301",
-  specialty: "בדיקות, טיפולים, ניתוחים",
+  // A מכון רפואי sells procedures, not clinic visits: imaging, invasive
+  // diagnostics, elective surgery and home sampling. Consultations are the
+  // מרפאת חוץ's product (providerOutpatient) — keeping the two catalogues
+  // distinct is what makes the demo read correctly to a clinician.
+  specialty: "הדמיה, בדיקות, פעולות וניתוחים",
   bio: "מכון רפואי המשלב הדמיה מתקדמת, פעולות פולשניות קלות וניתוחים אלקטיביים, כולל שירותי בדיקות עד הבית.",
   license_number: "INST-2201",
   license_issuer: "משרד הבריאות",
@@ -654,15 +1004,15 @@ const providerInstitute: ProviderProfile = {
   location_count: 1,
   created_date: isoDateDaysFromNow(-260),
   agreements: [
-    { id: generateId("agr"), provider_id: "prov_institute", layer: "K" },
-    { id: generateId("agr"), provider_id: "prov_institute", layer: "B", insurance_companies: ["הראל", "מגדל"] },
+    { id: generateId("agr"), provider_id: "prov_institute", layer: "K", kupah_list: ["מכבי", "כללית"] },
+    { id: generateId("agr"), provider_id: "prov_institute", layer: "B", insurance_companies: ["הראל ביטוח", "מגדל ביטוח"] },
     { id: generateId("agr"), provider_id: "prov_institute", layer: "H" },
   ],
   kupah_arrangements: [
     { kupah: "מכבי", level: "מכבי כסף" },
     { kupah: "כללית", level: "כללית פלטינום" },
   ],
-  private_insurance_companies: ["הראל", "מגדל"],
+  private_insurance_companies: ["הראל ביטוח", "מגדל ביטוח"],
   consultation_types: [
     {
       id: instituteServiceIds.mriSpine,
@@ -722,6 +1072,43 @@ const providerInstitute: ProviderProfile = {
       has_radiation: true,
     },
     {
+      id: instituteServiceIds.usAbdomen,
+      name: "אולטרסאונד בטן שלמה",
+      duration_minutes: 25,
+      prices: [
+        { layer: "K", price: 150 },
+        { layer: "H", price: 480 },
+      ],
+      service_type: "imaging",
+      service_category: "בדיקות",
+      moh_code: "52010",
+      linked_clinic_ids: [instituteClinicId],
+      requires_fasting: true,
+    },
+    {
+      // The radiologist's own procedure — an image-guided biopsy is what an
+      // interventional radiologist is booked for, and it is the institute's
+      // answer to "what does a doctor here actually do", instead of a
+      // consultation a מכון doesn't sell.
+      id: instituteServiceIds.biopsy,
+      name: "ביופסיה מונחית אולטרסאונד",
+      duration_minutes: 40,
+      prices: [
+        { layer: "K", price: 480 },
+        { layer: "H", price: 1750 },
+      ],
+      service_type: "procedure",
+      service_category: "פעולות",
+      moh_code: "31030",
+      linked_clinic_ids: [instituteClinicId],
+      requires_referral: true,
+      anesthesia_type: "local",
+      required_documents: [
+        { id: generateId("reqdoc"), label: "הפניה עם שאלה קלינית" },
+        { id: generateId("reqdoc"), label: "בדיקת תפקודי קרישה" },
+      ],
+    },
+    {
       id: instituteServiceIds.colono,
       name: "קולונוסקופיה בהרדמה",
       duration_minutes: 60,
@@ -763,15 +1150,10 @@ const providerInstitute: ProviderProfile = {
       anesthesia_type: "general",
       recovery_days: 14,
       requires_hospital: true,
-    },
-    {
-      id: instituteServiceIds.secondOpinion,
-      name: "חוות דעת נוספת — הדמיה",
-      duration_minutes: 25,
-      prices: [{ layer: "H", price: 520 }],
-      service_type: "consultation",
-      service_category: "חוות דעת נוספת",
-      linked_clinic_ids: [instituteClinicId],
+      required_documents: [
+        { id: generateId("reqdoc"), label: "הפניה כירורגית" },
+        { id: generateId("reqdoc"), label: "אישור כשירות לניתוח" },
+      ],
     },
   ],
   exam_types: [],
@@ -781,10 +1163,10 @@ const providerInstitute: ProviderProfile = {
   clinic_locations: [
     clinicWithSchedule({
       id: instituteClinicId,
-      name: "מכון רפואי הדסה ",
-      address: "רחוב הזית 8, עין כרם ירושלים ",
-      city: "ראשון לציון",
-      phone: "03-5559090",
+      name: "מכון רפואי הדסה",
+      address: "הזית 8, עין כרם",
+      city: "ירושלים",
+      phone: "02-5559090",
       is_primary: true,
       location_type: "clinic",
       schedule: weekly({
@@ -877,6 +1259,27 @@ const providerInstitute: ProviderProfile = {
       ],
     },
     {
+      id: "fac_inst_us_1",
+      name: "אולטרסאונד 1",
+      kind: "ultrasound",
+      model: "GE Logiq E10",
+      room: "חדר 2, קומת כניסה",
+      service_array: "מערך אולטרסאונד",
+      is_active: true,
+      // The plain scan runs on the machine with a technician; the guided biopsy
+      // is booked against the radiologist below, because HE is the scarce
+      // resource for it — not the room.
+      service_ids: [instituteServiceIds.usAbdomen],
+      created_at: isoDateDaysFromNow(-250),
+      schedule: weekly({
+        sunday: [shift("sh_us1_sun", "08:00", "15:00", { label: "משמרת אולטרסאונד", slot_minutes: 25 })],
+        monday: [shift("sh_us1_mon", "08:00", "15:00", { label: "משמרת אולטרסאונד", slot_minutes: 25 })],
+        tuesday: [shift("sh_us1_tue", "08:00", "13:00", { label: "משמרת בוקר", slot_minutes: 25 })],
+        wednesday: [shift("sh_us1_wed", "08:00", "15:00", { label: "משמרת אולטרסאונד", slot_minutes: 25 })],
+        thursday: [shift("sh_us1_thu", "08:00", "15:00", { label: "משמרת אולטרסאונד", slot_minutes: 25 })],
+      }),
+    },
+    {
       id: "fac_inst_proc_1",
       name: "חדר פעולות 1",
       kind: "procedure_room",
@@ -898,16 +1301,17 @@ const providerInstitute: ProviderProfile = {
       id: "affdoc_inst_1",
       doctor_provider_id: instituteDoctor1.id,
       role: "מנהל היחידה להדמיה",
-      service_array: "מערך ייעוצים",
-      // Consultation-type services are delivered by the doctor, so they hang
-      // off the doctor's own calendar rather than off a machine.
-      service_ids: [instituteServiceIds.secondOpinion],
+      service_array: "מערך אולטרסאונד",
+      // Doctor-delivered work hangs off the doctor's own calendar rather than
+      // off a machine — here that's the image-guided biopsy, the procedure an
+      // interventional radiologist personally performs.
+      service_ids: [instituteServiceIds.biopsy],
       clinic_ids: [instituteClinicId],
       added_at: isoDateDaysFromNow(-240),
       schedule: weekly({
-        sunday: [shift("sh_doc1_sun", "09:00", "13:00", { label: "פענוח וייעוץ", slot_minutes: 25 })],
-        tuesday: [shift("sh_doc1_tue", "09:00", "12:00", { label: "פענוח וייעוץ", slot_minutes: 25 })],
-        wednesday: [shift("sh_doc1_wed", "09:00", "13:00", { label: "פענוח וייעוץ", slot_minutes: 25 })],
+        sunday: [shift("sh_doc1_sun", "09:00", "13:00", { label: "פעולות מונחות דימות", slot_minutes: 40 })],
+        tuesday: [shift("sh_doc1_tue", "09:00", "12:00", { label: "פעולות מונחות דימות", slot_minutes: 40 })],
+        wednesday: [shift("sh_doc1_wed", "09:00", "13:00", { label: "פעולות מונחות דימות", slot_minutes: 40 })],
       }),
     },
     {
@@ -932,6 +1336,10 @@ const outpatientServiceIds = {
   consult: "ct_out_consult",
   followUp: "ct_out_followup",
   secondOpinion: "ct_out_second_opinion",
+  // Specialist clinics are what a מרפאת חוץ IS — each one delivered by the
+  // matching specialist below, never by whoever happens to be affiliated.
+  cardioConsult: "ct_out_cardio_consult",
+  orthoConsult: "ct_out_ortho_consult",
   diagnostics: "ct_out_diagnostics",
   tests: "ct_out_tests",
   treatments: "ct_out_treatments",
@@ -1024,8 +1432,38 @@ const providerOutpatient: ProviderProfile = {
       linked_clinic_ids: [outpatientClinicId],
     },
     {
+      id: outpatientServiceIds.cardioConsult,
+      name: "ייעוץ קרדיולוגי",
+      duration_minutes: 30,
+      prices: [
+        { layer: "S", price: 35 },
+        { layer: "K", price: 140 },
+        { layer: "H", price: 450 },
+      ],
+      service_type: "consultation",
+      service_category: "ייעוץ",
+      linked_clinic_ids: [outpatientClinicId],
+      requires_referral: true,
+    },
+    {
+      id: outpatientServiceIds.orthoConsult,
+      name: "ייעוץ אורתופדי",
+      duration_minutes: 20,
+      prices: [
+        { layer: "S", price: 35 },
+        { layer: "K", price: 130 },
+        { layer: "H", price: 430 },
+      ],
+      service_type: "consultation",
+      service_category: "ייעוץ",
+      linked_clinic_ids: [outpatientClinicId],
+      requires_referral: true,
+    },
+    {
       id: outpatientServiceIds.diagnostics,
-      name: "אבחון קרדיולוגי — אק״ג במאמץ",
+      // Named exactly as the MOH code book names it (21040), so the same test
+      // is called the same thing at every provider on the platform.
+      name: "מבחן מאמץ לבבי (ארגומטריה)",
       duration_minutes: 45,
       prices: [
         { layer: "K", price: 180 },
@@ -1035,6 +1473,7 @@ const providerOutpatient: ProviderProfile = {
       service_category: "אבחונים",
       moh_code: "21040",
       linked_clinic_ids: [outpatientClinicId],
+      requires_referral: true,
     },
     {
       id: outpatientServiceIds.tests,
@@ -1178,7 +1617,9 @@ const providerOutpatient: ProviderProfile = {
       id: "affdoc_out_2",
       doctor_provider_id: "prov_2",
       role: "יועצת קרדיולוגית",
-      service_ids: [outpatientServiceIds.secondOpinion],
+      // A cardiologist runs the cardiology clinic and gives cardiac second
+      // opinions — she is not a generic "second opinion" desk.
+      service_ids: [outpatientServiceIds.cardioConsult, outpatientServiceIds.secondOpinion],
       clinic_ids: [outpatientClinicId],
       added_at: isoDateDaysFromNow(-120),
       schedule: weekly({
@@ -1243,11 +1684,77 @@ function demoUnit(
 // Two medical units under the org; the מכון operates in two branches (ת"א +
 // חיפה), the מרפאת חוץ in one (ת"א). The מכון's לוזים (מתקנים) are grouped by
 // מערך (service line) and carry capacity — e.g. "מערך MRI · MRI 1 · 3 עמדות".
+// Item ids for the org's imaging unit — an imaging unit whose machines carried
+// no catalogue at all read as a shell; these are the three scans such a unit
+// actually sells, each linked to the machines that can perform it.
+const demoImagingServiceIds = {
+  mriKnee: "ct_demo_mri_knee",
+  mriSpine: "ct_demo_mri_spine",
+  ctHead: "ct_demo_ct_head",
+};
+
 const demoUnitInstitute = demoUnit({
   id: demoUnitInstituteId,
   display_name: "מכון הדמיה המאוחדת",
   provider_type: "medical_institute",
   specialty: "הדמיה ואבחון",
+  // A price in a layer the unit has no agreement for can never actually be
+  // charged — the layers priced below and the agreements declared here have to
+  // be the same set.
+  agreements: [
+    { id: generateId("agr"), provider_id: demoUnitInstituteId, layer: "K", kupah_list: ["מכבי", "כללית", "מאוחדת"] },
+    { id: generateId("agr"), provider_id: demoUnitInstituteId, layer: "B", insurance_companies: ["הראל ביטוח", "הפניקס"] },
+    { id: generateId("agr"), provider_id: demoUnitInstituteId, layer: "H" },
+  ],
+  kupah_arrangements: [
+    { kupah: "מכבי", level: "מכבי כסף" },
+    { kupah: "כללית", level: "כללית מושלם" },
+  ],
+  private_insurance_companies: ["הראל ביטוח", "הפניקס"],
+  consultation_types: [
+    {
+      id: demoImagingServiceIds.mriKnee,
+      name: "MRI ברך",
+      duration_minutes: 40,
+      prices: [
+        { layer: "K", price: 380 },
+        { layer: "B", price: 190 },
+        { layer: "H", price: 1400 },
+      ],
+      service_type: "imaging",
+      service_category: "בדיקות",
+      moh_code: "54040",
+      requires_referral: true,
+    },
+    {
+      id: demoImagingServiceIds.mriSpine,
+      name: "MRI עמוד שדרה מותני",
+      duration_minutes: 45,
+      prices: [
+        { layer: "K", price: 390 },
+        { layer: "B", price: 195 },
+        { layer: "H", price: 1450 },
+      ],
+      service_type: "imaging",
+      service_category: "בדיקות",
+      moh_code: "54021",
+      requires_referral: true,
+    },
+    {
+      id: demoImagingServiceIds.ctHead,
+      name: "CT ראש ללא חומר ניגוד",
+      duration_minutes: 20,
+      prices: [
+        { layer: "K", price: 260 },
+        { layer: "B", price: 130 },
+        { layer: "H", price: 890 },
+      ],
+      service_type: "imaging",
+      service_category: "בדיקות",
+      moh_code: "53010",
+      has_radiation: true,
+    },
+  ],
   facilities: [
     {
       id: "fac_mri_tlv",
@@ -1259,31 +1766,33 @@ const demoUnitInstitute = demoUnit({
       service_array: "מערך MRI",
       capacity: 3,
       is_active: true,
-      service_ids: [],
+      service_ids: [demoImagingServiceIds.mriKnee, demoImagingServiceIds.mriSpine],
       created_at: isoDateDaysFromNow(-75),
     },
     {
       id: "fac_ct_tlv",
       name: "CT 1",
       kind: "ct",
+      model: "GE Revolution CT",
       branch_id: demoBranchTlvId,
       service_array_id: "sarr_ct_tlv",
       service_array: "מערך CT",
       capacity: 1,
       is_active: true,
-      service_ids: [],
+      service_ids: [demoImagingServiceIds.ctHead],
       created_at: isoDateDaysFromNow(-75),
     },
     {
       id: "fac_mri_haifa",
       name: "MRI 1",
       kind: "mri",
+      model: "Philips Ingenia 1.5T",
       branch_id: demoBranchHaifaId,
       service_array_id: "sarr_mri_haifa",
       service_array: "מערך MRI",
       capacity: 2,
       is_active: true,
-      service_ids: [],
+      service_ids: [demoImagingServiceIds.mriKnee, demoImagingServiceIds.mriSpine],
       created_at: isoDateDaysFromNow(-65),
     },
   ],
@@ -1307,6 +1816,13 @@ const demoUnitClinic = demoUnit({
   display_name: "מרפאות חוץ המאוחדת",
   provider_type: "outpatient_clinic",
   specialty: "רב-תחומי",
+  agreements: [
+    { id: generateId("agr"), provider_id: demoUnitClinicId, layer: "K", kupah_list: ["כללית", "מכבי", "מאוחדת"] },
+    { id: generateId("agr"), provider_id: demoUnitClinicId, layer: "B", insurance_companies: ["הראל ביטוח", "כלל ביטוח"] },
+    { id: generateId("agr"), provider_id: demoUnitClinicId, layer: "H" },
+  ],
+  kupah_arrangements: [{ kupah: "כללית", level: "כללית מושלם" }],
+  private_insurance_companies: ["הראל ביטוח", "כלל ביטוח"],
   consultation_types: [
     {
       id: demoClinicCardioId,
@@ -1562,7 +2078,9 @@ export const SEED_AFFILIATIONS: ProviderAffiliation[] = [
     provider_id: "prov_1",
     unit_id: "prov_outpatient",
     role: "יועץ אורתופדי",
-    service_ids: [outpatientServiceIds.consult],
+    // The orthopaedist runs the orthopaedic clinic here — NOT the family-
+    // medicine consult, which belongs to ד"ר תמר אביב.
+    service_ids: [outpatientServiceIds.orthoConsult],
     status: "active",
     initiated_by: "unit",
     requested_at: isoDateDaysFromNow(-30),
@@ -1645,15 +2163,26 @@ function mabarLayerPrices(sPrice: number): PriceByLayer[] {
   ];
 }
 
+// Prices must be STABLE across reloads: a reference catalog that reprices
+// itself every refresh makes the demo impossible to talk about ("it said 412
+// a minute ago"). A tiny deterministic spread off the item index gives variety
+// without randomness, rounded to whole ₪10 like a real price list.
+function priceStep(index: number, base: number, spread: number): number {
+  const offset = ((index * 37) % (spread / 10 + 1)) * 10;
+  return base + offset;
+}
+
 function buildCatalog(): CatalogItem[] {
   const items: CatalogItem[] = [];
   let mabarCode = 100000;
   let healsonCode = 20001;
+  let itemIndex = 0;
   for (const domain of SEED_SKILL_DOMAINS) {
     const subdomains = SEED_SKILL_SUBDOMAINS.filter((s) => s.domain_id === domain.id);
 
     for (const sub of subdomains) {
-      const consultPrice = 350 + Math.round(Math.random() * 150);
+      itemIndex++;
+      const consultPrice = priceStep(itemIndex, 350, 150);
       items.push({
         id: generateId("cat"),
         tavar_code: `HLS-${healsonCode++}`,
@@ -1670,11 +2199,15 @@ function buildCatalog(): CatalogItem[] {
         is_active: true,
       });
 
-      const imagingPrice = 900 + Math.round(Math.random() * 400);
+      const imagingPrice = priceStep(itemIndex, 900, 400);
       items.push({
         id: generateId("cat"),
         tavar_code: String(mabarCode++),
-        name_he: `בדיקת דימות - ${sub.name_he}`,
+        // Deliberately "בדיקת אבחון" and not "בדיקת דימות": this generic entry
+        // is generated for EVERY sub-domain, and there is no such thing as an
+        // imaging scan of פסיכיאטריה or פתולוגיה. The real imaging items are
+        // the curated MoH-coded ones below.
+        name_he: `בדיקת אבחון - ${sub.name_he}`,
         catalog: "mabar",
         skill_domain_id: domain.id,
         skill_subdomain_id: sub.id,
@@ -1686,11 +2219,11 @@ function buildCatalog(): CatalogItem[] {
         is_active: true,
       });
 
-      const extraPrice = 100 + Math.round(Math.random() * 150);
+      const extraPrice = priceStep(itemIndex, 100, 150);
       items.push({
         id: generateId("cat"),
         tavar_code: `HLS-${healsonCode++}`,
-        name_he: `פריט נלווה - ${sub.name_he}`,
+        name_he: `ביקורת מעקב - ${sub.name_he}`,
         catalog: "healson",
         skill_domain_id: domain.id,
         skill_subdomain_id: sub.id,
@@ -1716,10 +2249,17 @@ function buildCatalog(): CatalogItem[] {
     s: number;
     duration: number;
   }> = [
-    { code: "54021", name: "MRI עמוד שדרה מותני", domain: "dom_ortho", subdomain: "sub_ortho_knee", service_type: "diagnostics", s: 390, duration: 45 },
-    { code: "54018", name: "MRI ראש (מוח)", domain: "dom_ortho", subdomain: "sub_ortho_knee", service_type: "diagnostics", s: 420, duration: 40 },
-    { code: "93015", name: "בדיקת מאמץ (ארגומטריה)", domain: "dom_cardio", subdomain: "sub_cardio_general", service_type: "diagnostics", s: 260, duration: 60 },
-    { code: "29866", name: "ארתרוסקופיה של הברך", domain: "dom_ortho", subdomain: "sub_ortho_knee", service_type: "surgery", s: 2450, duration: 90 },
+    // Codes and names must be the SAME strings the MoH code book publishes
+    // (src/lib/moh-codes.ts) — the whole point of a coded catalog is that one
+    // procedure carries one code everywhere on the platform.
+    { code: "54021", name: "MRI עמוד שדרה מותני", domain: "dom_ortho", subdomain: "sub_ortho_spine", service_type: "diagnostics", s: 390, duration: 45 },
+    { code: "54040", name: "MRI ברך", domain: "dom_ortho", subdomain: "sub_ortho_knee", service_type: "diagnostics", s: 380, duration: 40 },
+    { code: "54010", name: "MRI ראש ללא חומר ניגוד", domain: "dom_neuro", subdomain: "sub_neuro_headache", service_type: "diagnostics", s: 420, duration: 40 },
+    { code: "21040", name: "מבחן מאמץ לבבי", domain: "dom_cardio", subdomain: "sub_cardio_general", service_type: "diagnostics", s: 260, duration: 45 },
+    { code: "52040", name: "אקו לב (אקוקרדיוגרפיה)", domain: "dom_cardio", subdomain: "sub_cardio_general", service_type: "diagnostics", s: 240, duration: 30 },
+    { code: "31010", name: "קולונוסקופיה אבחנתית", domain: "dom_gastro", subdomain: "sub_gastro_gi", service_type: "diagnostics", s: 620, duration: 45 },
+    { code: "42010", name: "ארתרוסקופיה של הברך", domain: "dom_ortho", subdomain: "sub_ortho_knee", service_type: "surgery", s: 2450, duration: 90 },
+    { code: "43010", name: "ניתוח קטרקט עם השתלת עדשה", domain: "dom_eyes", subdomain: "sub_eyes_cataract", service_type: "surgery", s: 3100, duration: 45 },
   ];
   for (const c of curatedMabar) {
     items.push({
@@ -1784,24 +2324,28 @@ export const SEED_CATALOG: CatalogItem[] = buildCatalog();
 // Catalog requests — providers asking Ops to add a Healson item they couldn't
 // find. Seeded so the /catalog "בקשות קטלוג" queue isn't empty on first load.
 // ---------------------------------------------------------------------------
+// Each request must come from a provider who could plausibly HAVE made it:
+// the item belongs to that provider's specialty, and the provider is past
+// license verification (a pending_review provider has no catalog stage yet).
 export const SEED_CATALOG_REQUESTS: CatalogRequest[] = [
   {
     id: "creq_1",
-    provider_id: "prov_2",
-    requested_name: "בדיקת הולטר לחץ דם 24 שעות",
+    provider_id: "prov_2", // קרדיולוגית
+    requested_name: "ניטור לחץ דם ביתי מרחוק (טלה-קרדיולוגיה)",
     service_type: "test",
     description:
-      "מבצעת ניטור לחץ דם אמבולטורי במרפאה ולא מצאתי פריט תואם בקטלוג הילסון. משך הבדיקה כ-30 דק' והחזרה למחרת.",
+      "מטופלים מודדים בבית עם מכשיר שאני מנפיקה, והמעקב והפענוח מתבצעים מרחוק. אין פריט תואם בקטלוג הילסון — הולטר לחץ דם מתייחס למדידה רציפה של 24 שעות במרפאה.",
     catalog_kind: "healson",
     status: "pending",
     created_date: isoDateDaysFromNow(-1),
   },
   {
     id: "creq_2",
-    provider_id: "prov_1",
-    requested_name: "ייעוץ תזונה קליני מותאם לסוכרת",
-    service_type: "consultation",
-    description: "ייעוץ ייעודי למטופלי סוכרת, שונה מייעוץ תזונה כללי.",
+    provider_id: "prov_1", // מנתח אורתופד
+    requested_name: "הזרקת PRP לברך (פלזמה עשירה בטסיות)",
+    service_type: "procedure",
+    description:
+      "טיפול נפוץ בשחיקת סחוס בברך, נבדל מהזרקה תוך-מפרקית רגילה בהכנת המנה מדם המטופל ובמשך הפגישה (כ-45 דק').",
     catalog_kind: "healson",
     status: "needs_info",
     admin_note: "נא לפרט האם נדרשת הפניה ומהו משך הפגישה המומלץ.",
@@ -1809,10 +2353,10 @@ export const SEED_CATALOG_REQUESTS: CatalogRequest[] = [
   },
   {
     id: "creq_3",
-    provider_id: "prov_3",
-    requested_name: "טיפול בגלי הלם לכאבי גיד",
-    service_type: "treatment",
-    description: "Shockwave therapy — טיפול נפוץ שאינו קיים כרגע בקטלוג.",
+    provider_id: "prov_6", // רופא עיניים
+    requested_name: "טיפול לייזר YAG לאחר ניתוח קטרקט",
+    service_type: "procedure",
+    description: "טיפול משלים שכיח לאחר ניתוח קטרקט (עכירות הקופסית האחורית), שאינו קיים כיום בקטלוג.",
     catalog_kind: "healson",
     status: "pending",
     created_date: isoDateDaysFromNow(-2),
@@ -1961,13 +2505,16 @@ export const SEED_LEADS: Lead[] = LEAD_NAMES.map((name, i) => ({
 // ---------------------------------------------------------------------------
 // Appointments — spread across the current week and surrounding weeks.
 // ---------------------------------------------------------------------------
+// Last-resort names, used only when a provider has no catalogue at all — kept
+// spelled exactly like the real items so a fallback never invents a service
+// that doesn't exist anywhere on the platform.
 const SERVICE_NAMES = [
-  "ייעוץ אורתופדי - ברך",
-  "בדיקת מאמץ",
+  "ייעוץ אורתופדי — ברך וכתף",
+  "מבחן מאמץ לבבי (ארגומטריה)",
   "ייעוץ קרדיולוגי כללי",
-  "אקו לב",
-  "חוות דעת שנייה",
-  "בדיקת MRI לברך",
+  "אקו לב (אקוקרדיוגרפיה)",
+  "חוות דעת שנייה לפני ניתוח",
+  "אק״ג במנוחה",
 ];
 
 // Cycled across every published demo provider — including the two
@@ -1983,6 +2530,47 @@ const APPOINTMENT_PROVIDERS = [
   providerOutpatient,
 ];
 
+// Which queue an appointment belongs to. Neither calendar in the provider
+// portal can show "where does this happen" without it:
+//   • a unit has no single queue — every appointment is served by one עמדה
+//     (§PRV-08), which is also what makes capacity in the booking flow real
+//     (an occupied עמדה stops offering that slot);
+//   • a solo provider's queue is the מרפאה it was booked at, which is what
+//     separates their own clinic work from the shifts a unit schedules them for.
+function seedPlacement(
+  provider: ProviderProfile,
+  serviceId: string | undefined,
+  pick: number
+): { resource_id?: string; owner_context_id?: string; practitioner_id?: string; clinic_id?: string } {
+  if (!serviceId) return {};
+  if (!isUnitProviderType(provider.provider_type)) {
+    const locations = provider.clinic_locations ?? [];
+    if (locations.length === 0) return {};
+    // Prefer a location the item is actually offered at.
+    const service = provider.consultation_types.find((s) => s.id === serviceId);
+    const linked = service?.linked_clinic_ids?.length
+      ? locations.filter((c) => service.linked_clinic_ids!.includes(c.id))
+      : locations;
+    const pool = linked.length > 0 ? linked : locations;
+    return { clinic_id: pool[pick % pool.length].id };
+  }
+  const candidates: { id: string; practitioner?: string }[] = [
+    ...(provider.facilities ?? [])
+      .filter((f) => f.is_active !== false && (f.service_ids ?? []).includes(serviceId))
+      .map((f) => ({ id: f.id, practitioner: undefined })),
+    ...SEED_AFFILIATIONS.filter(
+      (a) => a.unit_id === provider.id && (a.service_ids ?? []).includes(serviceId)
+    ).map((a) => ({ id: a.id, practitioner: a.provider_id })),
+  ];
+  if (candidates.length === 0) return {};
+  const chosen = candidates[pick % candidates.length];
+  return {
+    resource_id: chosen.id,
+    owner_context_id: chosen.id,
+    practitioner_id: chosen.practitioner,
+  };
+}
+
 export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
   (_, i): Appointment => {
     const dayOffset = Math.floor(i / 3) - 4; // spread -4..+3 days
@@ -1997,26 +2585,32 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
       "בוטל",
     ];
     const status = statusPool[i % statusPool.length];
-    const item = SEED_CATALOG[i % SEED_CATALOG.length];
-    const resolved = resolveCatalogPrice(item.base_price, patient);
     const depositPaid = status === "מאושר" || status === "שולם במלואו" || status === "בוצע";
+    // Prefer a service the provider actually offers, so an institute's
+    // appointments don't read as orthopedic consultations.
+    const service = provider.consultation_types[i % Math.max(1, provider.consultation_types.length)];
+    // The price has to be THIS provider's price for THIS item at the patient's
+    // insurance layer — a price copied from an unrelated catalog row is what
+    // made a 20-minute consultation show up at an MRI's tariff.
+    const price =
+      (service ? resolveProviderPrice(service.prices, provider.agreements, patient)?.price : undefined) ??
+      resolveCatalogPrice(SEED_CATALOG[i % SEED_CATALOG.length].base_price, patient).price;
     return {
       id: generateId("appt"),
       client_name: patient.full_name,
       client_phone: patient.phone,
       provider_id: provider.id,
       provider_name: provider.display_name,
-      // Prefer a service the provider actually offers, so an institute's
-      // appointments don't read as orthopedic consultations.
-      service_name:
-        provider.consultation_types[i % Math.max(1, provider.consultation_types.length)]?.name ??
-        SERVICE_NAMES[i % SERVICE_NAMES.length],
+      service_name: service?.name ?? SERVICE_NAMES[i % SERVICE_NAMES.length],
+      ...seedPlacement(provider, service?.id, i),
       date: isoDateDaysFromNow(dayOffset),
       time: `${String(hour).padStart(2, "0")}:00`,
-      duration_minutes: 30,
+      // A booking lasts as long as the item says it does — a 45-minute MRI and
+      // a 15-minute ECG were both being seeded as flat 30-minute slots.
+      duration_minutes: service?.duration_minutes ?? 30,
       status,
-      price: resolved.price,
-      deposit_amount: Math.round(resolved.price * 0.3),
+      price,
+      deposit_amount: Math.round(price * 0.3),
       // Alternate between "still inside the 48h refund window" and "long past
       // it" so the demo data shows both cancellation-policy states.
       deposit_paid_at: depositPaid ? isoTimestampHoursFromNow(i % 2 === 0 ? -10 : -96) : undefined,
@@ -2037,7 +2631,9 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
     client_phone: SEED_PATIENTS[0].phone,
     provider_id: provider1.id,
     provider_name: provider1.display_name,
-    service_name: "ייעוץ אורתופדי - ברך",
+    // Must be spelled exactly as the item in provider1.consultation_types —
+    // that's what links a booking back to a price list and a catalog entry.
+    service_name: "ייעוץ אורתופדי — ברך וכתף",
     clinic_id: provider1ClinicId,
     date: isoDateDaysFromNow(-10),
     time: "10:30",
@@ -2147,12 +2743,19 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
 // ---------------------------------------------------------------------------
 export const SEED_ORDERS: Order[] = SEED_APPOINTMENTS.slice(0, 16).map(
   (appt, i) => {
-    const item = SEED_CATALOG[i % SEED_CATALOG.length];
     const patient = SEED_PATIENTS.find((p) => p.id === appt.created_by_id);
-    const resolved = resolveCatalogPrice(item.base_price, patient);
     const provider = SEED_PROVIDERS.find((p) => p.id === appt.provider_id);
+    // The order is the money side of THIS appointment, so its price is the
+    // appointment's own resolved price — not a price borrowed from an unrelated
+    // reference-catalog row, which is how an orthopaedic visit ended up billed
+    // at a cardiology item's tariff.
+    const service = provider?.consultation_types.find((s) => s.name === appt.service_name);
+    const price =
+      appt.price ??
+      (service ? resolveProviderPrice(service.prices, provider?.agreements, patient)?.price : undefined) ??
+      0;
     const commissionRate = provider?.commission_rate ?? 15;
-    const commissionAmount = Math.round((resolved.price * commissionRate) / 100);
+    const commissionAmount = Math.round((price * commissionRate) / 100);
     const statusPool: Order["status"][] = [
       "ממתין",
       "מאושר",
@@ -2163,21 +2766,21 @@ export const SEED_ORDERS: Order[] = SEED_APPOINTMENTS.slice(0, 16).map(
     const status = statusPool[i % statusPool.length];
     return {
       id: generateId("ord"),
-      item_id: item.id,
+      item_id: service?.id,
       item_name: appt.service_name,
       provider_id: appt.provider_id,
       provider_name: appt.provider_name,
       created_by_id: appt.created_by_id,
       patient_name: appt.client_name,
-      final_price: resolved.price,
+      final_price: price,
       status,
       created_date: isoDateDaysFromNow(-i * 3),
       payment_status: status === "הושלם" ? "שולם במלואו" : status === "בוטל" ? "הוחזר" : "מקדמה שולמה",
-      deposit_amount: Math.round(resolved.price * 0.3),
-      balance_amount: Math.round(resolved.price * 0.7),
+      deposit_amount: Math.round(price * 0.3),
+      balance_amount: Math.round(price * 0.7),
       commission_rate: commissionRate,
       commission_amount: commissionAmount,
-      provider_payout_amount: resolved.price - commissionAmount,
+      provider_payout_amount: price - commissionAmount,
     };
   }
 );
@@ -2185,6 +2788,37 @@ export const SEED_ORDERS: Order[] = SEED_APPOINTMENTS.slice(0, 16).map(
 // ---------------------------------------------------------------------------
 // Lab referrals
 // ---------------------------------------------------------------------------
+// A referral carries the panel the referring doctor actually orders and the
+// clinical question behind it — an orthopaedist orders pre-op bloods, a
+// cardiologist orders lipids and thyroid. Codes come from the MoH lab codes
+// (src/lib/moh-codes.ts) so a referral and a catalog item speak the same language.
+const REFERRAL_PANELS: Record<string, { tests: string[]; code: string; question: string }[]> = {
+  [provider1.id]: [
+    {
+      tests: ["ספירת דם מלאה", "תפקודי קרישה (PT/INR)"],
+      code: "20010",
+      question: "בדיקות כשירות לקראת ארתרוסקופיה של הברך.",
+    },
+    {
+      tests: ["ספירת דם מלאה", "CRP ושקיעת דם"],
+      code: "20010",
+      question: "מפרק נפוח וחם — לשלול תהליך דלקתי/זיהומי.",
+    },
+  ],
+  [provider2.id]: [
+    {
+      tests: ["פאנל שומנים בדם", "גלוקוז בצום והמוגלובין מסוכרר"],
+      code: "20020",
+      question: "הערכת סיכון קרדיווסקולרי לפני התחלת טיפול.",
+    },
+    {
+      tests: ["תפקודי בלוטת התריס (TSH, T4)"],
+      code: "20030",
+      question: "דפיקות לב ותחושת עייפות — לשלול פעילות יתר של בלוטת התריס.",
+    },
+  ],
+};
+
 export const SEED_LAB_REFERRALS: LabReferral[] = Array.from({ length: 10 }).map(
   (_, i) => {
     const provider = i % 2 === 0 ? provider1 : provider2;
@@ -2196,21 +2830,21 @@ export const SEED_LAB_REFERRALS: LabReferral[] = Array.from({ length: 10 }).map(
       "שגיאה",
     ];
     const status = statusPool[i % statusPool.length];
+    const panels = REFERRAL_PANELS[provider.id];
+    const panel = panels[Math.floor(i / 2) % panels.length];
     return {
       id: generateId("lab"),
       provider_id: provider.id,
       provider_name: provider.display_name,
       patient_id: patient.id,
       patient_name: patient.full_name,
-      test_types: provider.exam_types.length
-        ? [provider.exam_types[0].name]
-        : ["בדיקת דם כללית"],
-      lab_code: provider.exam_types[0]?.lab_code ?? "GEN-01",
+      test_types: panel.tests,
+      lab_code: panel.code,
       status,
       created_date: isoDateDaysFromNow(-i * 5),
       completed_date: status === "הושלם" ? isoDateDaysFromNow(-i * 5 + 2) : undefined,
-      notes: "",
-      results: status === "הושלם" ? "תקין, ללא ממצאים חריגים" : undefined,
+      notes: panel.question,
+      results: status === "הושלם" ? "כל הערכים בטווח התקין, ללא ממצאים חריגים." : undefined,
     };
   }
 ).concat([
@@ -2224,12 +2858,12 @@ export const SEED_LAB_REFERRALS: LabReferral[] = Array.from({ length: 10 }).map(
     provider_name: provider1.display_name,
     patient_id: SEED_PATIENTS[0].id,
     patient_name: SEED_PATIENTS[0].full_name,
-    test_types: ["בדיקת דם כללית"],
-    lab_code: "GEN-01",
+    test_types: ["ספירת דם מלאה", "תפקודי קרישה (PT/INR)"],
+    lab_code: "20010",
     status: "בעיבוד",
     created_date: isoDateDaysFromNow(-4),
     completed_date: undefined,
-    notes: "",
+    notes: "בדיקות כשירות לקראת ניתוח ארתרוסקופי.",
     results: undefined,
   },
   {
@@ -2238,13 +2872,13 @@ export const SEED_LAB_REFERRALS: LabReferral[] = Array.from({ length: 10 }).map(
     provider_name: provider2.display_name,
     patient_id: SEED_PATIENTS[0].id,
     patient_name: SEED_PATIENTS[0].full_name,
-    test_types: ["פרופיל שומנים בדם"],
-    lab_code: "LIP-02",
+    test_types: ["פאנל שומנים בדם"],
+    lab_code: "20020",
     status: "הושלם",
     created_date: isoDateDaysFromNow(-9),
     completed_date: isoDateDaysFromNow(-7),
-    notes: "",
-    results: "תקין, ללא ממצאים חריגים",
+    notes: "מעקב שנתי אחר רמות כולסטרול.",
+    results: "LDL 118 מ״ג/ד״ל, HDL 54, טריגליצרידים 130 — מעט מעל היעד, מומלץ שינוי תזונתי ובדיקה חוזרת בעוד חצי שנה.",
   },
   {
     id: generateId("lab"),
@@ -2252,8 +2886,8 @@ export const SEED_LAB_REFERRALS: LabReferral[] = Array.from({ length: 10 }).map(
     provider_name: provider1.display_name,
     patient_id: SEED_PATIENTS[0].id,
     patient_name: SEED_PATIENTS[0].full_name,
-    test_types: ["בדיקת תפקודי כליה"],
-    lab_code: "REN-03",
+    test_types: ["בדיקת שתן כללית ותרבית"],
+    lab_code: "20050",
     status: "שגיאה",
     created_date: isoDateDaysFromNow(-2),
     completed_date: undefined,

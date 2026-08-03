@@ -42,8 +42,16 @@ export default function ProviderPatientChartPage() {
 
   const patient = patients.find((p) => p.id === patientId);
 
+  // §PRV-10 — a visit this provider PERSONALLY delivered inside a unit is part
+  // of their history with the patient just as much as one booked in their own
+  // clinic, so the chart (and the access guard below) keys on either axis.
   const myAppointments = useMemo(
-    () => appointments.filter((a) => a.created_by_id === patientId && a.provider_id === provider?.id),
+    () =>
+      appointments.filter(
+        (a) =>
+          a.created_by_id === patientId &&
+          (a.provider_id === provider?.id || a.practitioner_id === provider?.id)
+      ),
     [appointments, patientId, provider]
   );
   const myReferrals = useMemo(
@@ -60,12 +68,13 @@ export default function ProviderPatientChartPage() {
 
   // Access guard (INV-SCOPE-GATE-02): a provider may only open a patient's
   // chart if they have some relationship to that patient — assigned to them,
-  // or with at least one appointment/referral tying the two together.
+  // or with at least one appointment (in their own diary OR delivered by them
+  // inside a unit) / referral tying the two together.
   const hasRelationship =
     !!provider &&
     !!patient &&
     (patient.assigned_provider === provider.id ||
-      appointments.some((a) => a.created_by_id === patientId && a.provider_id === provider.id) ||
+      myAppointments.length > 0 ||
       labReferrals.some((r) => r.patient_id === patientId && r.provider_id === provider.id));
 
   useEffect(() => {
