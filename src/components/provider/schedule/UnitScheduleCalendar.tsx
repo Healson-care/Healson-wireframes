@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
@@ -8,17 +8,9 @@ import { EmptyState } from "@/components/ui/Misc";
 import { cn, generateId } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { DAY_LABELS } from "@/lib/medical-tree";
-import { ShiftForm, newShift } from "@/components/provider/AvailabilitySection";
-import {
-  DAY_KEYS,
-  dayKeyForDate,
-  getWeeklySchedule,
-  hasAnyAvailability,
-  validateDayShifts,
-} from "@/lib/schedule";
+import { getWeeklySchedule, hasAnyAvailability, validateDayShifts } from "@/lib/schedule";
 import {
   Appointment,
-  ConsultationType,
   DayKey,
   OrganizationBranch,
   ProviderProfile,
@@ -33,12 +25,10 @@ import {
   CalendarView,
   NO_DEPT,
   ScheduleMutation,
-  VIEW_LABELS,
   addShiftToDay,
   deptColor,
   formatMin,
   rangeDays,
-  rangeLabel,
   removeShiftFromDay,
   replaceShiftInDay,
   shiftAnchor,
@@ -46,15 +36,16 @@ import {
 } from "@/lib/schedule-calendar";
 import { ScheduleTimeGrid } from "./ScheduleTimeGrid";
 import { ScheduleMonthView } from "./ScheduleMonthView";
+import { FilterSelect } from "./FilterSelect";
+import { CalendarNav, ViewSwitch } from "./CalendarToolbar";
+import { CreateAvailabilityDialog, EditAvailabilityDialog } from "./AvailabilityDialogs";
+import { ScheduleContextMenu } from "./ScheduleContextMenu";
 import {
   CalendarClock,
   CalendarDays,
-  ChevronLeft,
-  ChevronRight,
   Copy,
   Link2,
   Lock,
-  Pencil,
   Plus,
   Trash2,
   Undo2,
@@ -473,42 +464,10 @@ export function UnitScheduleCalendar({
     <div className="flex flex-col gap-3">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5">
-          <div className="flex items-center rounded-lg border border-slate-200 bg-white p-0.5">
-            <Button variant="ghost" size="sm" aria-label="הקודם" onClick={() => setAnchor((a) => shiftAnchor(view, a, -1))}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-            <button
-              type="button"
-              onClick={() => setAnchor(new Date())}
-              className="focus-ring rounded-md px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
-            >
-              היום
-            </button>
-            <Button variant="ghost" size="sm" aria-label="הבא" onClick={() => setAnchor((a) => shiftAnchor(view, a, 1))}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-          </div>
-          <p className="min-w-[8rem] text-sm font-bold text-slate-900">{rangeLabel(view, anchor)}</p>
-        </div>
+        <CalendarNav view={view} anchor={anchor} onAnchorChange={setAnchor} />
 
         <div className="flex items-center gap-2">
-          {/* View switch */}
-          <div className="flex items-center rounded-lg border border-slate-200 bg-white p-0.5">
-            {(Object.keys(VIEW_LABELS) as CalendarView[]).map((v) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => setView(v)}
-                className={cn(
-                  "focus-ring rounded-md px-3 py-1.5 text-xs font-semibold transition-colors",
-                  view === v ? "bg-primary text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"
-                )}
-              >
-                {VIEW_LABELS[v]}
-              </button>
-            ))}
-          </div>
+          <ViewSwitch view={view} onChange={setView} />
           <Button
             variant="outline"
             size="sm"
@@ -648,9 +607,10 @@ export function UnitScheduleCalendar({
 
       {/* Right-click context menu */}
       {menu && (
-        <ContextMenu
+        <ScheduleContextMenu
           menu={menu}
           selectedCount={selected.size}
+          detailsLabel="פרטי העמדה"
           onClose={() => setMenu(null)}
           onEdit={() => setEditBlock(menu.block)}
           onDuplicate={() => duplicateBlock(menu.block)}
@@ -690,7 +650,8 @@ export function UnitScheduleCalendar({
         state={createState}
         lanes={editableLanes}
         services={services}
-        defaultResourceId={filters.resource !== "all" ? filters.resource : undefined}
+        laneLabel="עמדה"
+        defaultLaneId={filters.resource !== "all" ? filters.resource : undefined}
         onClose={() => setCreateState(null)}
         onCreate={(laneId, dayKey, shift) => {
           if (commitCreate(laneId, dayKey, shift)) setCreateState(null);
@@ -701,6 +662,7 @@ export function UnitScheduleCalendar({
       <EditAvailabilityDialog
         block={editBlock}
         services={services}
+        laneLabel="עמדה"
         onClose={() => setEditBlock(null)}
         onSave={(shift) => {
           if (editBlock && commitEdit(editBlock, shift)) setEditBlock(null);
@@ -762,274 +724,5 @@ export function UnitScheduleCalendar({
         )}
       </Dialog>
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Right-click context menu
-// ---------------------------------------------------------------------------
-function ContextMenu({
-  menu,
-  selectedCount,
-  onClose,
-  onEdit,
-  onDuplicate,
-  onDelete,
-  onDetails,
-  onDeleteSelected,
-}: {
-  menu: { block: CalendarBlock; x: number; y: number };
-  selectedCount: number;
-  onClose: () => void;
-  onEdit: () => void;
-  onDuplicate: () => void;
-  onDelete: () => void;
-  onDetails: () => void;
-  onDeleteSelected: () => void;
-}) {
-  const { block, x, y } = menu;
-  // Keep the menu inside the viewport.
-  const left = Math.min(x, (typeof window !== "undefined" ? window.innerWidth : 1200) - 200);
-  const top = Math.min(y, (typeof window !== "undefined" ? window.innerHeight : 800) - 220);
-  const item =
-    "flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-start text-sm text-slate-700 hover:bg-slate-100";
-  return (
-    <>
-      <div className="fixed inset-0 z-40" onClick={onClose} onContextMenu={(e) => e.preventDefault()} />
-      <div
-        className="fixed z-50 w-52 rounded-xl border border-slate-200 bg-white p-1 shadow-xl"
-        style={{ left, top }}
-        onClick={onClose}
-      >
-        {block.editable ? (
-          <>
-            <button type="button" className={item} onClick={onEdit}>
-              <Pencil className="h-3.5 w-3.5 text-slate-400" /> עריכה
-            </button>
-            <button type="button" className={item} onClick={onDuplicate}>
-              <Copy className="h-3.5 w-3.5 text-slate-400" /> שכפול
-            </button>
-            <button type="button" className={cn(item, "text-danger hover:bg-danger-bg")} onClick={onDelete}>
-              <Trash2 className="h-3.5 w-3.5" /> מחיקה
-            </button>
-            {selectedCount > 1 && (
-              <>
-                <div className="my-1 h-px bg-slate-100" />
-                <button
-                  type="button"
-                  className={cn(item, "text-danger hover:bg-danger-bg")}
-                  onClick={onDeleteSelected}
-                >
-                  <Trash2 className="h-3.5 w-3.5" /> מחיקת הנבחרים ({selectedCount})
-                </button>
-              </>
-            )}
-          </>
-        ) : (
-          <button type="button" className={item} onClick={onDetails}>
-            <Link2 className="h-3.5 w-3.5 text-slate-400" /> פרטי העמדה
-          </button>
-        )}
-      </div>
-    </>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Compact filter select
-// ---------------------------------------------------------------------------
-function FilterSelect({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: { value: string; label: string }[];
-}) {
-  return (
-    <label className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs">
-      <span className="font-medium text-slate-500">{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="focus-ring max-w-[10rem] cursor-pointer truncate bg-transparent text-xs font-medium text-slate-800 outline-none"
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Create dialog — pick a resource + weekday, then the shift form
-// ---------------------------------------------------------------------------
-function CreateAvailabilityDialog({
-  open,
-  state,
-  lanes,
-  services,
-  defaultResourceId,
-  onClose,
-  onCreate,
-}: {
-  open: boolean;
-  state: { date: Date; startMin: number } | null;
-  lanes: CalendarLane[];
-  services: ConsultationType[];
-  defaultResourceId?: string;
-  onClose: () => void;
-  onCreate: (laneId: string, dayKey: DayKey, shift: ScheduleShift) => void;
-}) {
-  return (
-    <Dialog open={open} onClose={onClose} title="הוספת זמינות" className="max-w-lg">
-      {state && (
-        <CreateBody
-          state={state}
-          lanes={lanes}
-          services={services}
-          defaultResourceId={defaultResourceId}
-          onCreate={onCreate}
-        />
-      )}
-    </Dialog>
-  );
-}
-
-function CreateBody({
-  state,
-  lanes,
-  services,
-  defaultResourceId,
-  onCreate,
-}: {
-  state: { date: Date; startMin: number };
-  lanes: CalendarLane[];
-  services: ConsultationType[];
-  defaultResourceId?: string;
-  onCreate: (laneId: string, dayKey: DayKey, shift: ScheduleShift) => void;
-}) {
-  const initialLane =
-    (defaultResourceId && lanes.find((l) => l.id === defaultResourceId)?.id) || lanes[0]?.id || "";
-  const [laneId, setLaneId] = useState(initialLane);
-  const [dayKey, setDayKey] = useState<DayKey>(dayKeyForDate(state.date));
-
-  const lane = lanes.find((l) => l.id === laneId);
-  const existing = lane ? getWeeklySchedule(lane)[dayKey] ?? [] : [];
-  const base = newShift(existing);
-  // Seed the clicked start time when it doesn't collide with the auto default.
-  const initial: ScheduleShift = {
-    ...base,
-    start: formatMin(state.startMin),
-    end: formatMin(state.startMin + 60),
-  };
-  const laneServices = lane ? services.filter((s) => lane.service_ids.includes(s.id)) : services;
-
-  if (lanes.length === 0) {
-    return (
-      <p className="rounded-lg bg-warning-bg px-3 py-2 text-sm text-warning-text">
-        אין עמדות עם לו״ז עצמאי להוספת זמינות. עמדות העוקבות אחרי לו״ז משותף נערכות בלשונית ‚לו״זים משותפים‘.
-      </p>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium text-slate-700">עמדה</span>
-          <select
-            value={laneId}
-            onChange={(e) => setLaneId(e.target.value)}
-            className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-          >
-            {lanes.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-                {l.service_array ? ` · ${l.service_array}` : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium text-slate-700">יום בשבוע</span>
-          <select
-            value={dayKey}
-            onChange={(e) => setDayKey(e.target.value as DayKey)}
-            className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-          >
-            {DAY_KEYS.map((d) => (
-              <option key={d} value={d}>
-                {DAY_LABELS[d]}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      <p className="rounded-lg bg-info-bg px-3 py-2 text-xs leading-relaxed text-info-text">
-        הזמינות תתווסף לכל יום {DAY_LABELS[dayKey]} בלו״ז של העמדה (תבנית שבועית חוזרת).
-      </p>
-
-      <ShiftForm
-        key={`${laneId}-${dayKey}`}
-        initial={initial}
-        services={laneServices}
-        serviceScopeLabel="כל הפריטים של העמדה"
-        saveLabel="הוספת זמינות"
-        onSave={(shift) => onCreate(laneId, dayKey, shift)}
-      />
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Edit dialog
-// ---------------------------------------------------------------------------
-function EditAvailabilityDialog({
-  block,
-  services,
-  onClose,
-  onSave,
-  onDelete,
-}: {
-  block: CalendarBlock | null;
-  services: ConsultationType[];
-  onClose: () => void;
-  onSave: (shift: ScheduleShift) => void;
-  onDelete: () => void;
-}) {
-  return (
-    <Dialog open={!!block} onClose={onClose} title="עריכת זמינות" className="max-w-lg">
-      {block && (
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2">
-            <div>
-              <p className="text-sm font-medium text-slate-800">{block.laneName}</p>
-              <p className="text-xs text-slate-500">
-                {block.deptName} · כל יום {DAY_LABELS[block.dayKey]}
-              </p>
-            </div>
-            <Button variant="ghost" size="sm" onClick={onDelete} className="text-danger hover:bg-danger-bg">
-              <Trash2 className="h-4 w-4" /> מחיקה
-            </Button>
-          </div>
-          <ShiftForm
-            key={block.key}
-            initial={block.shift}
-            services={services}
-            serviceScopeLabel="כל הפריטים של העמדה"
-            saveLabel="שמירת שינויים"
-            onSave={onSave}
-          />
-        </div>
-      )}
-    </Dialog>
   );
 }
