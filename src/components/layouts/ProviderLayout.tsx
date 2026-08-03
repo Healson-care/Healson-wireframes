@@ -7,8 +7,6 @@ import {
   LayoutDashboard,
   Users,
   CalendarDays,
-  FileText,
-  ShoppingCart,
   UserRound,
   LogOut,
   Home,
@@ -30,12 +28,15 @@ import { getProfileSections } from "@/components/provider/profile-sections";
 // Operational (daily-work) destinations only — profile configuration lives
 // behind the "פרופיל" dropdown (getProfileSections), so there's exactly one
 // visible top nav and no duplicated navigation.
+//
+// The provider's operational day is deliberately narrow: the diary and the
+// people in it. Standalone "הזמנות" and "הפניות" boards were removed — orders
+// are settled in the profile's payments/reports screens, and lab referrals are
+// read in the patient's own chart, where the clinical context lives.
 const OPERATIONAL_NAV = [
   { href: "/provider/dashboard", label: "ראשי", icon: LayoutDashboard },
   { href: "/provider/patients", label: "מטופלים", icon: Users },
   { href: "/provider/appointments", label: "תורים", icon: CalendarDays },
-  { href: "/provider/orders", label: "הזמנות", icon: ShoppingCart },
-  { href: "/provider/referrals", label: "הפניות", icon: FileText },
 ];
 
 export function ProviderLayout({ children }: { children: ReactNode }) {

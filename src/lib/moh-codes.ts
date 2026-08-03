@@ -49,6 +49,8 @@ export const MOH_CODES: MohCode[] = [
   { code: "52010", name_he: "אולטרסאונד בטן שלמה", service_type: "imaging", group: "הדמיה — אולטרסאונד", aliases: ["us", "אולטרה", "סונר"] },
   { code: "52020", name_he: "אולטרסאונד בלוטת התריס", service_type: "imaging", group: "הדמיה — אולטרסאונד", aliases: ["us", "תריס", "טירואיד"] },
   { code: "52030", name_he: "אולטרסאונד דופלר עורקי צוואר", service_type: "imaging", group: "הדמיה — אולטרסאונד", aliases: ["דופלר", "doppler", "צוואר"] },
+  { code: "52040", name_he: "אקו לב (אקוקרדיוגרפיה)", service_type: "imaging", group: "הדמיה — אולטרסאונד", aliases: ["אקו", "echo", "לב", "מסתמים"] },
+  { code: "52050", name_he: "OCT — טומוגרפיה אופטית של הרשתית", service_type: "imaging", group: "הדמיה — עיניים", aliases: ["oct", "רשתית", "עיניים", "מקולה"] },
   { code: "51010", name_he: "צילום חזה", service_type: "imaging", group: "הדמיה — רנטגן", aliases: ["רנטגן", "xray", "ריאות"] },
   { code: "51020", name_he: "צילום עמוד שדרה מותני", service_type: "imaging", group: "הדמיה — רנטגן", aliases: ["רנטגן", "xray", "גב"] },
   { code: "51500", name_he: "ממוגרפיה דו-צדדית", service_type: "imaging", group: "הדמיה — ממוגרפיה", aliases: ["שד", "סקר"] },
@@ -68,6 +70,9 @@ export const MOH_CODES: MohCode[] = [
   { code: "21040", name_he: "מבחן מאמץ לבבי", service_type: "test", group: "בדיקות אבחון", aliases: ["ארגומטריה", "מאמץ", "לב"] },
   { code: "21050", name_he: "הולטר לחץ דם 24 שעות", service_type: "test", group: "בדיקות אבחון", aliases: ["הולטר", "לחץ דם"] },
   { code: "21060", name_he: "בדיקת שמיעה (אודיומטריה)", service_type: "test", group: "בדיקות אבחון", aliases: ["שמיעה", "אודיו"] },
+  { code: "21070", name_he: "מיפוי שומות דיגיטלי (דרמוסקופיה)", service_type: "test", group: "בדיקות אבחון", aliases: ["שומות", "דרמוסקופיה", "עור", "מלנומה"] },
+  { code: "21080", name_he: "שדה ראייה ממוחשב (פרימטריה)", service_type: "test", group: "בדיקות אבחון", aliases: ["עיניים", "פרימטריה", "גלאוקומה"] },
+  { code: "21090", name_he: "הולטר קצב לב 24 שעות", service_type: "test", group: "בדיקות אבחון", aliases: ["הולטר", "קצב", "הפרעות קצב"] },
 
   // ---- פעולות ----
   { code: "31010", name_he: "קולונוסקופיה אבחנתית", service_type: "procedure", group: "פעולות — גסטרו", aliases: ["מעי", "קולונו", "colonoscopy"] },
