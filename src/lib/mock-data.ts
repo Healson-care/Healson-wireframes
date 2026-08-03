@@ -372,7 +372,10 @@ const provider1: ProviderProfile = {
     { id: generateId("agr"), provider_id: "prov_1", layer: "K" },
     // A private surgery is what B cover is actually FOR — without this layer the
     // surgery below would only ever price at the full private rate.
-    { id: generateId("agr"), provider_id: "prov_1", layer: "B", insurance_companies: ["הראל ביטוח", "כלל ביטוח", "מנורה מבטחים"] },
+    // Includes מגדל ביטוח — the demo patient's own policy — so her knee
+    // arthroscopy demonstrates route B settled by an insurer undertaking:
+    // the form is collected and no deposit is charged.
+    { id: generateId("agr"), provider_id: "prov_1", layer: "B", insurance_companies: ["הראל ביטוח", "כלל ביטוח", "מנורה מבטחים", "מגדל ביטוח"] },
     { id: generateId("agr"), provider_id: "prov_1", layer: "H" },
   ],
   // Same קופה, two שב"ן plans — a provider can hold more than one plan of
@@ -2456,7 +2459,10 @@ SEED_PATIENTS[0].kupah = "מכבי";
 SEED_PATIENTS[0].k_level = "מכבי שלי";
 // One private policy, from the recognised carrier list — the demo patient
 // should read as a realistic profile, so no free-text placeholder carrier.
-SEED_PATIENTS[0].b_insurances = [{ company: "מגדל", policy_number: "POL-100000" }];
+// The company MUST be a canonical B_INSURANCE_COMPANIES string — the B price
+// is matched against it, so the short form "מגדל" would silently never match
+// a provider's "מגדל ביטוח" agreement.
+SEED_PATIENTS[0].b_insurances = [{ company: "מגדל ביטוח", policy_number: "POL-100000" }];
 
 // ---------------------------------------------------------------------------
 // Consent records (§4.2, §11.1) — required consents granted at signup for

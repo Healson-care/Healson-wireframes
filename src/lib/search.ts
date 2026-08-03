@@ -32,12 +32,10 @@ import {
 } from "@/types";
 import { FundingKind, PriceBreakdown, resolvePriceBreakdown } from "@/lib/pricing";
 import { getRegionForCity } from "@/lib/constants";
+import { resolveDepositAmount } from "@/lib/deposit";
 import { requiresReferral } from "@/lib/referral";
 import { nextAvailableInDays } from "@/lib/scheduling";
 
-// The deposit taken to hold an appointment — the remaining 70% is charged at
-// the appointment itself (see CLAUDE.local.md's status model).
-export const DEPOSIT_RATE = 0.3;
 
 // ---------------------------------------------------------------------------
 // Offer
@@ -190,11 +188,12 @@ export function offerPricing(offer: Offer, patient?: Patient | null): OfferPrici
     offer.service.prices,
     offer.provider.agreements,
     patient,
-    offer.service.price_full
+    offer.service.price_full,
+    offer.service
   );
   if (!breakdown) return null;
 
-  const deposit = Math.round(breakdown.price * DEPOSIT_RATE);
+  const deposit = resolveDepositAmount(breakdown.price, offer.service);
   return {
     kind: breakdown.kind,
     price: breakdown.price,

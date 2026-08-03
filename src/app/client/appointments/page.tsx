@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ClientLayout } from "@/components/layouts/ClientLayout";
 import { useStore } from "@/lib/store";
 import { useCurrentPatient } from "@/lib/useCurrentPatient";
+import { resolveDepositAmount } from "@/lib/deposit";
 import { PageHeader, EmptyState } from "@/components/ui/Misc";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -232,7 +233,7 @@ function PayDepositDialog({
   const [saveCard, setSaveCard] = useState(false);
 
   const price = appointment?.price ?? 0;
-  const depositAmount = appointment?.deposit_amount ?? Math.round(price * 0.3);
+  const depositAmount = appointment?.deposit_amount ?? resolveDepositAmount(price);
   const balanceAmount = price - depositAmount;
 
   return (
@@ -298,7 +299,7 @@ function PayBalanceDialog({
   const [saveCard, setSaveCard] = useState(false);
 
   const price = appointment?.price ?? 0;
-  const depositAmount = appointment?.deposit_amount ?? Math.round(price * 0.3);
+  const depositAmount = appointment?.deposit_amount ?? resolveDepositAmount(price);
   const balanceAmount = price - depositAmount;
 
   return (

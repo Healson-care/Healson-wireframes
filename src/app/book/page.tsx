@@ -8,10 +8,12 @@ import { ArrowRight, LogOut } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useCurrentPatient } from "@/lib/useCurrentPatient";
 import { resolvePriceBreakdown } from "@/lib/pricing";
+import { resolveDepositAmount, resolveBalanceAmount } from "@/lib/deposit";
 import { BOOK_RESUME_ITEM_KEY, BOOK_RESUME_PROVIDER_KEY, POST_REGISTER_REDIRECT_KEY } from "@/lib/constants";
 import { Logo } from "@/components/shared/Logo";
 import { ConfirmDialog } from "@/components/ui/Dialog";
-import { BookingStepper, REFERRAL_FLOW_STEPS, SEARCH_FLOW_STEPS } from "@/components/book/BookingStepper";
+import { BookingStepper, flowStepsFor } from "@/components/book/BookingStepper";
+import { CommitmentStep } from "@/components/book/CommitmentStep";
 import { ReferralStep } from "@/components/book/ReferralStep";
 import { UnitApprovalPending } from "@/components/book/UnitApprovalPending";
 import { ServiceSearch } from "@/components/search/ServiceSearch";
@@ -75,6 +77,11 @@ export default function BookPage() {
   // Held here rather than inside PaymentPanel: leaving the payment step and
   // coming back shouldn't silently drop a referral the patient already picked.
   const [referralFile, setReferralFile] = useState<File | null>(null);
+  // Route S's counterpart to the referral: the kupah's commitment (טופס 17).
+  const [commitmentFile, setCommitmentFile] = useState<File | null>(null);
+  // Set when the patient takes the "no commitment yet" fallback and pays a
+  // refundable deposit instead — an open product decision, sketched only.
+  const [commitmentFallback, setCommitmentFallback] = useState(false);
   // Sticky once the patient has moved past the search even one time — used to
   // drop first-visit copy when she comes back to change something. Reset only
   // by a full flow restart.
@@ -89,7 +96,13 @@ export default function BookPage() {
   const consultation = selectedService ?? undefined;
   const priceBreakdown =
     consultation && selectedProvider
-      ? resolvePriceBreakdown(consultation.prices, selectedProvider.agreements, patient, consultation.price_full)
+      ? resolvePriceBreakdown(
+          consultation.prices,
+          selectedProvider.agreements,
+          patient,
+          consultation.price_full,
+          consultation
+        )
       : null;
   const price = priceBreakdown?.price ?? 0;
   // The base price (P), regardless of which layer this patient actually
@@ -101,7 +114,12 @@ export default function BookPage() {
   // referral upload and the unit's review — so the meter has to describe a
   // different journey for it.
   const referralFlow = requiresReferral(consultation);
-  const flowSteps = referralFlow ? REFERRAL_FLOW_STEPS : SEARCH_FLOW_STEPS;
+  // Routes settled by an undertaking — the kupah's טופס 17 for a basket
+  // service, the insurer's for surgery under a private policy — collect that
+  // document in place of a payment, and take no deposit.
+  const commitment = priceBreakdown?.commitment;
+  const commitmentFlow = !!commitment;
+  const flowSteps = flowStepsFor({ referral: referralFlow, commitment: commitmentFlow });
 
   // step: 0 search · 1 referral · 2 slot · 5 unit approval · 3 payment · 4 done
   const visualStep = referralFlow
@@ -173,6 +191,7 @@ export default function BookPage() {
     // Clear the location and referral picked for a *previous* offer.
     setDiscoveryClinicId(null);
     setReferralFile(null);
+    setCommitmentFile(null);
     setHasAdvanced(true);
     // Non-consultations must produce a referral before a slot is even shown.
     setStep(requiresReferral(offer.service) ? 1 : 2);
@@ -229,7 +248,7 @@ export default function BookPage() {
       // it enters the patient's history in the waiting state instead.
       status: referralFlow ? "ממתין לאישור היחידה הרפואית" : "ממתין לתשלום מקדמה",
       price,
-      deposit_amount: Math.round(price * 0.3),
+      deposit_amount: resolveDepositAmount(price, consultation),
       kupah: patient.kupah,
       notes: "",
       created_by_id: patient?.id ?? currentUser?.id,
@@ -274,6 +293,44 @@ export default function BookPage() {
     setStep(2);
   }, [pendingAppointmentId, showToast, updateAppointment]);
 
+  /**
+   * Route S has nothing to charge — the kupah funds it — so the appointment is
+   * confirmed by the commitment form instead of by a deposit, and the form is
+   * filed alongside it. No Order is created: nothing was sold here.
+   */
+  function confirmWithCommitment() {
+    if (!selectedProvider || !selectedSlot || !pendingAppointmentId) return;
+    if (!commitmentFile) return;
+    setPaying(true);
+    void (async () => {
+      const dataUrl = await fileToDataUrl(commitmentFile);
+      updateAppointment(pendingAppointmentId, { status: "מאושר" });
+      const patientId = patient?.id ?? currentUser?.id;
+      if (patientId) {
+        addDocument({
+          patient_id: patientId,
+          category: "referral_personal",
+          title: commitment?.formLabel ?? "התחייבות",
+          uploaded_by: "patient",
+          appointment_id: pendingAppointmentId,
+          status: "זמין",
+          file: { file_name: commitmentFile.name, uploaded_at: new Date().toISOString(), data_url: dataUrl },
+        });
+      }
+      const icsUrl = buildIcsDataUrl({
+        title: `תור ל-${selectedProvider.display_name}`,
+        description: consultation?.name,
+        location: selectedProvider.clinic_locations[0]?.address,
+        date: selectedSlot.date,
+        time: selectedSlot.time,
+        durationMinutes: consultation?.duration_minutes ?? 30,
+      });
+      setConfirmation({ fileNumber: Math.random().toString(36).slice(2, 8).toUpperCase(), price: 0, icsUrl });
+      setPaying(false);
+      setStep(4);
+    })();
+  }
+
   async function handlePay() {
     if (!selectedProvider || !selectedSlot || !pendingAppointmentId || !patient) return;
     if (patient.processing_restricted) {
@@ -303,8 +360,8 @@ export default function BookPage() {
         final_price: price,
         status: "מאושר",
         payment_status: "מקדמה שולמה",
-        deposit_amount: Math.round(price * 0.3),
-        balance_amount: Math.round(price * 0.7),
+        deposit_amount: resolveDepositAmount(price, consultation),
+        balance_amount: resolveBalanceAmount(price, consultation),
         commission_rate: commissionRate,
         commission_amount: commissionAmount,
         provider_payout_amount: price - commissionAmount,
@@ -502,6 +559,27 @@ export default function BookPage() {
             >
               <ArrowRight className="h-3.5 w-3.5" /> שינוי תור
             </button>
+            {commitment && !commitmentFallback ? (
+              <CommitmentStep
+                provider={selectedProvider}
+                consultation={consultation}
+                selectedSlot={selectedSlot}
+                commitment={commitment}
+                coverageLabel={priceBreakdown?.label ?? "מכוסה"}
+                clinicName={
+                  selectedProvider.clinic_locations.find((c) => c.id === discoveryClinicId)?.name ??
+                  selectedProvider.clinic_locations[0]?.name
+                }
+                basePrice={fullPrice}
+                holdExpiresAt={holdExpiresAt}
+                onExpire={handleHoldExpire}
+                file={commitmentFile}
+                onFileChange={setCommitmentFile}
+                submitting={paying}
+                onConfirmWithCommitment={confirmWithCommitment}
+                onPayDepositInstead={() => setCommitmentFallback(true)}
+              />
+            ) : (
             <PaymentPanel
               provider={selectedProvider}
               itemName={consultation?.name}
@@ -521,6 +599,7 @@ export default function BookPage() {
               referralFile={referralFile}
               onReferralFileChange={setReferralFile}
             />
+            )}
           </motion.div>
         )}
         {step === 4 && confirmation && selectedProvider && selectedSlot && pendingAppointmentId && (

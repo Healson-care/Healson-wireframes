@@ -17,6 +17,21 @@ export const SEARCH_FLOW_STEPS = ["בחירה", "מיקום", "שעה", "תשל�
 export const REFERRAL_FLOW_STEPS = ["בחירה", "הפניה", "מיקום", "שעה", "אישור יחידה", "תשלום", "סיום"];
 
 /**
+ * The route decides the journey. Where the payer settles by undertaking —
+ * the kupah for a basket service, the insurer for surgery — nothing is
+ * charged, so that stage collects the document instead of money: same
+ * position in the flow, different act.
+ */
+export function flowStepsFor({ referral, commitment }: { referral: boolean; commitment: boolean }): string[] {
+  const steps = [...(referral ? REFERRAL_FLOW_STEPS : SEARCH_FLOW_STEPS)];
+  if (commitment) {
+    const payIndex = steps.indexOf("תשלום");
+    if (payIndex !== -1) steps[payIndex] = "התחייבות";
+  }
+  return steps;
+}
+
+/**
  * Every stage, named, on one screen — including the ones still ahead, so the
  * patient can see what she's committing to before she starts. Completed
  * stages are buttons: going back is part of the journey, not an escape from

@@ -6,11 +6,11 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { HoldTimer } from "@/components/book/HoldTimer";
 import { PreparationRequirements } from "@/components/book/PreparationRequirements";
+import { resolveBalanceAmount, resolveDepositAmount } from "@/lib/deposit";
 import { requiresReferral } from "@/lib/referral";
 import { formatCurrency } from "@/lib/utils";
 import { ConsultationType, InsuranceLayer, Kupah, LAYER_LABELS, ProviderProfile } from "@/types";
 
-const DEPOSIT_PERCENT = 30;
 
 export function PaymentPanel({
   provider,
@@ -55,8 +55,8 @@ export function PaymentPanel({
   onReferralFileChange?: (file: File | null) => void;
 }) {
   const [saveCard, setSaveCard] = useState(false);
-  const depositAmount = Math.round((price * DEPOSIT_PERCENT) / 100);
-  const balanceAmount = price - depositAmount;
+  const depositAmount = resolveDepositAmount(price, consultation);
+  const balanceAmount = resolveBalanceAmount(price, consultation);
   const clinic = provider.clinic_locations.find((c) => c.id === clinicId) ?? provider.clinic_locations[0];
   const resolvedFullPrice = fullPrice ?? price;
   const hasArrangement = !!layer && layer !== "H" && price < resolvedFullPrice;
@@ -165,19 +165,18 @@ export function PaymentPanel({
               </p>
             )}
             <div className="h-px bg-slate-100 my-3" />
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-500">אחוז מקדמה</span>
-              <span className="font-medium text-slate-900">{DEPOSIT_PERCENT}%</span>
-            </div>
-            <div className="flex items-center justify-between mt-2">
-              <span className="text-sm font-semibold text-slate-700">מקדמה לתשלום</span>
+            {/* One number, never a rate: how the deposit is worked out is a
+                business rule (see lib/deposit.ts), and showing the percentage
+                would let anyone derive what the platform keeps. */}
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-slate-700">לתשלום עכשיו</span>
               <span className="text-lg font-bold text-primary">{formatCurrency(depositAmount)}</span>
             </div>
             <p className="text-[11px] text-slate-400 mt-1">
-              לשריון התור נדרש תשלום מקדמה עכשיו. היתרה תיגבה במועד התור.
+              התשלום הזה משריין את התור. את היתרה משלמים במועד הביקור.
             </p>
             <div className="flex items-center justify-between mt-2">
-              <span className="text-[11px] text-slate-400">יתרה לתשלום בתור</span>
+              <span className="text-[11px] text-slate-400">יתרה במועד הביקור</span>
               <span className="text-[11px] text-slate-400">{formatCurrency(balanceAmount)}</span>
             </div>
           </>
