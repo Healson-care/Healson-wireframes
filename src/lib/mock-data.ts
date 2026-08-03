@@ -18,6 +18,7 @@ import {
   Order,
   Patient,
   PatientDocument,
+  PayerPrice,
   PriceByLayer,
   OrganizationBranch,
   ProviderAffiliation,
@@ -27,6 +28,7 @@ import {
   ProviderType,
   User,
   VisitRecord,
+  depositForPrice,
   emptyWeeklySchedule,
   isUnitProviderType,
 } from "@/types";
@@ -34,6 +36,8 @@ import { generateId, isoDateDaysFromNow, isoTimestampHoursFromNow } from "./util
 import { SEED_SKILL_DOMAINS, SEED_SKILL_SUBDOMAINS } from "./medical-tree";
 import { scheduleToLegacyHours } from "./schedule";
 import { resolveCatalogPrice, resolveProviderPrice } from "./pricing";
+import { balanceDueAt } from "./appointment-payments";
+import { DEFAULT_COMMISSION_RATE, FixedFeeRule } from "./commission";
 
 // -------------------------------------------------------------------------
 // Demo accounts — used by the mock auth flow (see src/lib/store.ts).
@@ -69,6 +73,18 @@ export const DEMO_PROVIDER_USER: User = {
   created_date: isoDateDaysFromNow(-300),
 };
 
+// The specialist behind the payments-meeting examples (§9): a ₪2,000
+// consultation with a real doctor. Given its own login so the deposit /
+// balance flow can be demoed from the PROVIDER side, not only from admin.
+export const DEMO_NEURO_USER: User = {
+  id: "user_provider_neuro",
+  email: "neuro@demo.co.il",
+  full_name: 'ד"ר יערה בן-דוד',
+  role: "provider",
+  phone: "052-8112340",
+  created_date: isoDateDaysFromNow(-150),
+};
+
 // Organization provider demo accounts — a מכון רפואי and a מרפאת חוץ. The
 // "כניסה מאובטחת של ספק" demo offers these as the "יחידה רפואית" option,
 // next to the single-practitioner account above.
@@ -88,6 +104,19 @@ export const DEMO_OUTPATIENT_USER: User = {
   role: "provider",
   phone: "02-5558080",
   created_date: isoDateDaysFromNow(-210),
+};
+
+// A THIRD unit account, deliberately mid-הקמה: the credentials Ops hands a
+// newly-signed unit, before the unit has entered anything. The two accounts
+// above are fully built and open on a finished profile, so neither can show
+// what a unit actually does on day one — see prov_org_unit_setup below.
+export const DEMO_UNIT_SETUP_USER: User = {
+  id: "user_provider_unit_setup",
+  email: "setup@demo.co.il",
+  full_name: "מכון אורתופדי רמת גן",
+  role: "provider",
+  phone: "03-7000009",
+  created_date: isoDateDaysFromNow(-2),
 };
 
 export const DEMO_ADMIN_USER: User = {
@@ -114,8 +143,10 @@ export const SEED_USERS: User[] = [
   DEMO_PATIENT_USER,
   DEMO_NEW_PATIENT_USER,
   DEMO_PROVIDER_USER,
+  DEMO_NEURO_USER,
   DEMO_INSTITUTE_USER,
   DEMO_OUTPATIENT_USER,
+  DEMO_UNIT_SETUP_USER,
   DEMO_ADMIN_USER,
   DEMO_ADMIN_USER_2,
 ];
@@ -889,6 +920,119 @@ const provider6: ProviderProfile = {
 };
 
 // ---------------------------------------------------------------------------
+// The reference examples the payments meeting asked every wireframe to use
+// (§9): a high-value specialist CONSULTATION with a doctor — never an
+// examination — priced at ₪2,000 with a ₪400 deposit under the percentage rule,
+// plus its ₪1,200 follow-up. Imaging and lab work belong to a מכון (see
+// providerInstitute below); a doctor sells opinions and in-clinic procedures.
+// ---------------------------------------------------------------------------
+const provider7ClinicId = generateId("clinic");
+const provider7ConsultId = "ct_p7_consult";
+const provider7FollowUpId = "ct_p7_followup";
+
+const provider7: ProviderProfile = {
+  id: "prov_7",
+  provider_type: "doctor",
+  user_id: DEMO_NEURO_USER.id,
+  display_name: "ד\"ר יערה בן-דוד",
+  title: "ד\"ר",
+  specialty: "נוירולוגיה",
+  sub_specialties: ["נוירולוגיית ילדים", "אפילפסיה בילדים"],
+  bio: "נוירולוגית ילדים בכירה, מתמחה באפילפסיה, עיכובים התפתחותיים והפרעות תנועה בגיל הרך.",
+  languages: ["עברית", "אנגלית", "רוסית"],
+  rating: 4.9,
+  review_count: 64,
+  license_number: "MD-70455",
+  license_issuer: "משרד הבריאות",
+  license_issue_date: isoDateDaysFromNow(-2600),
+  license_expiry_date: isoDateDaysFromNow(900),
+  doctor_subtype: "physician",
+  is_published: true,
+  status: "approved",
+  commission_rate: 20,
+  created_date: isoDateDaysFromNow(-150),
+  agreements: [
+    { id: generateId("agr"), provider_id: "prov_7", layer: "K", kupah_list: ["כללית", "מכבי"] },
+    { id: generateId("agr"), provider_id: "prov_7", layer: "B", insurance_companies: ["הראל ביטוח", "מגדל ביטוח"] },
+    { id: generateId("agr"), provider_id: "prov_7", layer: "H" },
+  ],
+  kupah_arrangements: [
+    { kupah: "כללית", level: "כללית פלטינום" },
+    { kupah: "מכבי", level: "מכבי שלי" },
+  ],
+  private_insurance_companies: ["הראל ביטוח", "מגדל ביטוח"],
+  consultation_types: [
+    {
+      id: provider7ConsultId,
+      name: "ייעוץ נוירולוגיית ילדים",
+      duration_minutes: 45,
+      prices: [
+        { layer: "K", price: 340 },
+        { layer: "B", price: 180 },
+        { layer: "H", price: 2000 },
+      ],
+      price_full: 2000,
+      service_type: "consultation",
+      linked_clinic_ids: [provider7ClinicId],
+    },
+    {
+      id: provider7FollowUpId,
+      name: "ייעוץ חוזר — נוירולוגיית ילדים",
+      duration_minutes: 25,
+      prices: [
+        { layer: "K", price: 200 },
+        { layer: "B", price: 110 },
+        { layer: "H", price: 1200 },
+      ],
+      price_full: 1200,
+      service_type: "consultation",
+      linked_clinic_ids: [provider7ClinicId],
+    },
+  ],
+  exam_types: [],
+  clinic_locations: [
+    clinicWithSchedule({
+      id: provider7ClinicId,
+      name: "מרפאת נוירולוגיית ילדים רעננה",
+      address: "אחוזה 108",
+      city: "רעננה",
+      phone: "09-7712340",
+      is_primary: true,
+      location_type: "clinic",
+      schedule: weekly({
+        sunday: [
+          shift("sh_p7_sun", "09:00", "15:00", {
+            label: "מרפאת ייעוצים",
+            slot_minutes: 45,
+            service_ids: [provider7ConsultId],
+          }),
+        ],
+        tuesday: [
+          shift("sh_p7_tue_am", "09:00", "13:00", {
+            label: "מרפאת ייעוצים",
+            slot_minutes: 45,
+            service_ids: [provider7ConsultId],
+          }),
+          shift("sh_p7_tue_pm", "14:00", "17:00", {
+            label: "מרפאת מעקב",
+            slot_minutes: 25,
+            service_ids: [provider7FollowUpId],
+          }),
+        ],
+        thursday: [
+          shift("sh_p7_thu", "09:00", "14:00", {
+            label: "מרפאת מעקב",
+            slot_minutes: 25,
+            service_ids: [provider7FollowUpId],
+          }),
+        ],
+      }),
+    }),
+  ],
+  referral_forms: [],
+};
+
+// ---------------------------------------------------------------------------
 // Organization demo accounts (§PRV-07) — a מכון רפואי and a מרפאת חוץ, both
 // live, so the "כניסה מאובטחת של ספק" demo can show a medical *unit* portal
 // (affiliated doctors, a per-type service catalogue, a real multi-shift
@@ -1383,6 +1527,9 @@ const providerOutpatient: ProviderProfile = {
   is_published: true,
   status: "approved",
   commission_rate: 12,
+  // This unit collects the balance at its own counter (payments meeting §5) —
+  // the מכון opposite it keeps the Healson default, so the demo shows both.
+  balance_collector: "unit",
   location_count: 1,
   created_date: isoDateDaysFromNow(-210),
   agreements: [
@@ -1879,6 +2026,42 @@ function facilityArrayLabel(kind?: string): string {
   }
 }
 
+// The blank-slate unit — the ONLY seeded record that shows הקמה from the unit
+// side. Exactly what addOrganizationUnit + createProviderUnitUser leave behind:
+// Healson signed the unit off-platform, opened the profile with the identity it
+// already knows (name, ח.פ., איש קשר) and handed over credentials — so there is
+// no רישום phase, license_verified_at is already stamped, and status starts at
+// "onboarding". Everything the UNIT itself owns is deliberately empty: no
+// branches or מערכים (they live in their own slices, so simply seeding none),
+// no facilities/schedules, no catalogue, no agreements, no signature, no photo.
+// Do not "enrich" this record — its emptiness is the demo.
+const demoUnitSetup: ProviderProfile = {
+  id: "prov_org_unit_setup",
+  parent_organization_id: demoOrgId,
+  provider_type: "medical_institute",
+  user_id: DEMO_UNIT_SETUP_USER.id,
+  display_name: "מכון אורתופדי רמת גן",
+  contact_name: "שירן לוי",
+  contact_phone: "03-7000009",
+  contact_email: "setup@demo.co.il",
+  business_reg_number: "515740233",
+  specialty: "אורתופדיה והדמיה",
+  license_number: "INST-4417",
+  license_issuer: "משרד הבריאות",
+  is_published: false,
+  onboarding_path: "unit",
+  status: "onboarding",
+  license_verified_at: isoDateDaysFromNow(-2),
+  application_submitted_at: isoDateDaysFromNow(-2),
+  created_date: isoDateDaysFromNow(-2),
+  agreements: [],
+  consultation_types: [],
+  exam_types: [],
+  clinic_locations: [],
+  referral_forms: [],
+  facilities: [],
+};
+
 function buildUnitHierarchy(
   unit: ProviderProfile,
   branch: { id: string; name: string; city?: string; address?: string; phone?: string }
@@ -2109,6 +2292,26 @@ export const SEED_AFFILIATIONS: ProviderAffiliation[] = [
   },
 ];
 
+// Flat commissions that replace the 20% default for a slice of the business
+// (payments meeting §8). Both rules below are the kind a real agreement
+// actually contains: a flat platform fee per scan at an imaging institute
+// (where 20% of a ₪2,000 MRI would be absurd), and a flat fee negotiated with
+// one high-ticket specialist.
+export const SEED_FIXED_FEE_RULES: FixedFeeRule[] = [
+  {
+    id: "fee_institute_imaging",
+    provider_type: "medical_institute",
+    service_type: "diagnostics",
+    amount: 150,
+  },
+  {
+    id: "fee_p7_consult",
+    provider_id: "prov_7",
+    service_type: "consultation",
+    amount: 200,
+  },
+];
+
 export const SEED_PROVIDERS: ProviderProfile[] = [
   provider1,
   provider2,
@@ -2116,6 +2319,7 @@ export const SEED_PROVIDERS: ProviderProfile[] = [
   provider4,
   provider5,
   provider6,
+  provider7,
   providerInstitute,
   instituteDoctor1,
   instituteDoctor2,
@@ -2124,6 +2328,7 @@ export const SEED_PROVIDERS: ProviderProfile[] = [
   demoOrg,
   demoUnitInstitute,
   demoUnitClinic,
+  demoUnitSetup,
 ];
 
 // ---------------------------------------------------------------------------
@@ -2150,6 +2355,25 @@ function healsonLayerPrices(fullPrice: number): PriceByLayer[] {
     { layer: "K", price: Math.round(fullPrice * 0.55) },
     { layer: "B", price: Math.round(fullPrice * 0.4) },
     { layer: "H", price: Math.round(fullPrice * 0.9) },
+  ];
+}
+
+// The per-payer breakdown behind a Healson item's K/B headline tariffs
+// (payments meeting §6/§8): Healson negotiates each שב"ן plan and each private
+// carrier separately, so the same item is an הסדר with a small co-pay at one
+// payer and a pure החזר (patient pays in full, claims it back themselves) at
+// another. Providers read this table; only Healson ops maintains it.
+function healsonPayerPrices(fullPrice: number): PayerPrice[] {
+  const copay = (factor: number) => Math.round((fullPrice * factor) / 5) * 5;
+  return [
+    { layer: "K", kupah: "כללית", level: "כללית מושלם", price: copay(0.3), mode: "הסדר" },
+    { layer: "K", kupah: "כללית", level: "כללית פלטינום", price: copay(0.2), mode: "הסדר" },
+    { layer: "K", kupah: "מכבי", level: "מכבי שלי", price: copay(0.25), mode: "הסדר" },
+    { layer: "K", kupah: "מאוחדת", level: "מאוחדת עדיף", price: copay(0.35), mode: "שניהם" },
+    { layer: "K", kupah: "לאומית", level: "לאומית זהב", mode: "החזר" },
+    { layer: "B", insurer: "הראל ביטוח", price: copay(0.15), mode: "הסדר" },
+    { layer: "B", insurer: "מגדל ביטוח", price: copay(0.2), mode: "הסדר" },
+    { layer: "B", insurer: "כלל ביטוח", mode: "החזר" },
   ];
 }
 
@@ -2192,6 +2416,7 @@ function buildCatalog(): CatalogItem[] {
         base_price: consultPrice,
         price_full: consultPrice,
         layer_prices: healsonLayerPrices(consultPrice),
+        payer_prices: healsonPayerPrices(consultPrice),
         typical_duration_min: 30,
         requires_referral: false,
         is_active: true,
@@ -2229,6 +2454,7 @@ function buildCatalog(): CatalogItem[] {
         base_price: extraPrice,
         price_full: extraPrice,
         layer_prices: healsonLayerPrices(extraPrice),
+        payer_prices: healsonPayerPrices(extraPrice),
         typical_duration_min: 20,
         requires_referral: false,
         is_active: true,
@@ -2291,6 +2517,7 @@ function buildCatalog(): CatalogItem[] {
     base_price: 600,
     price_full: 600,
     layer_prices: healsonLayerPrices(600),
+    payer_prices: healsonPayerPrices(600),
     typical_duration_min: 45,
     requires_referral: false,
     provider_id: provider1.id,
@@ -2307,6 +2534,7 @@ function buildCatalog(): CatalogItem[] {
     base_price: 1200,
     price_full: 1200,
     layer_prices: healsonLayerPrices(1200),
+    payer_prices: healsonPayerPrices(1200),
     typical_duration_min: 60,
     requires_referral: true,
     provider_id: provider2.id,
@@ -2587,17 +2815,34 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
       "בוצע",
       "בוטל",
     ];
-    const status = statusPool[i % statusPool.length];
-    const depositPaid = status === "מאושר" || status === "שולם במלואו" || status === "בוצע";
+    const rawStatus = statusPool[i % statusPool.length];
+    const depositPaid = rawStatus === "מאושר" || rawStatus === "שולם במלואו" || rawStatus === "בוצע";
     // Prefer a service the provider actually offers, so an institute's
     // appointments don't read as orthopedic consultations.
     const service = provider.consultation_types[i % Math.max(1, provider.consultation_types.length)];
     // The price has to be THIS provider's price for THIS item at the patient's
     // insurance layer — a price copied from an unrelated catalog row is what
     // made a 20-minute consultation show up at an MRI's tariff.
+    const resolved = service
+      ? resolveProviderPrice(service.prices, provider.agreements, patient)
+      : null;
     const price =
-      (service ? resolveProviderPrice(service.prices, provider.agreements, patient)?.price : undefined) ??
+      resolved?.price ??
       resolveCatalogPrice(SEED_CATALOG[i % SEED_CATALOG.length].base_price, patient).price;
+    // Payments model (02.08.2026). Route S never sees money at all — it is
+    // settled with a commitment form (טופס 17), so seeding it with a deposit
+    // and a balance would describe a flow that does not exist. Every other
+    // route pays 20% up front and the rest the day before, unless the unit
+    // collects it itself.
+    const commitmentRoute = resolved?.layer === "S";
+    const deposit = commitmentRoute ? undefined : depositForPrice(price);
+    const balance = commitmentRoute ? undefined : Math.max(0, price - (deposit ?? 0));
+    const collector = provider.balance_collector ?? "healson";
+    // "waiting for a deposit" is meaningless on a route that never takes one —
+    // there it means "waiting for the commitment form".
+    const status: Appointment["status"] =
+      commitmentRoute && rawStatus === "ממתין לתשלום מקדמה" ? "ממתין להתחייבות" : rawStatus;
+    const settled = status === "שולם במלואו" || status === "בוצע";
     return {
       id: generateId("appt"),
       client_name: patient.full_name,
@@ -2613,10 +2858,30 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
       duration_minutes: service?.duration_minutes ?? 30,
       status,
       price,
-      deposit_amount: Math.round(price * 0.3),
+      funding_layer: resolved?.layer,
+      deposit_amount: deposit,
       // Alternate between "still inside the 48h refund window" and "long past
       // it" so the demo data shows both cancellation-policy states.
-      deposit_paid_at: depositPaid ? isoTimestampHoursFromNow(i % 2 === 0 ? -10 : -96) : undefined,
+      deposit_paid_at: commitmentRoute || !depositPaid
+        ? undefined
+        : isoTimestampHoursFromNow(i % 2 === 0 ? -10 : -96),
+      // Route S carries the commitment form instead of any money — present
+      // once the booking is confirmed, still missing while it waits.
+      commitment_document:
+        commitmentRoute && depositPaid
+          ? {
+              file_name: `טופס_17_${patient.kupah ?? "קופה"}.pdf`,
+              uploaded_at: isoTimestampHoursFromNow(-60),
+              data_url: "data:application/pdf;base64,",
+            }
+          : undefined,
+      balance_amount: balance,
+      balance_due_at:
+        !commitmentRoute && collector === "healson"
+          ? balanceDueAt(isoDateDaysFromNow(dayOffset))
+          : undefined,
+      balance_paid_at: !commitmentRoute && settled ? isoTimestampHoursFromNow(-8) : undefined,
+      balance_collector: commitmentRoute ? undefined : collector,
       kupah: patient.kupah,
       notes: "",
       created_by_id: patient.id,
@@ -2738,6 +3003,408 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
     notes: "",
     created_by_id: SEED_PATIENTS[4].id,
   },
+
+  // -------------------------------------------------------------------------
+  // The payments model from the 02.08.2026 meeting, one booking per state, on
+  // the reference examples of §9. Together these make every provider-side
+  // screen (the diary, "בקשות ממתינות", the payment chip) open with a real
+  // case instead of an empty list.
+  // -------------------------------------------------------------------------
+
+  // §9 — a ₪2,000 paediatric-neurology CONSULTATION with a doctor. Deposit is
+  // the 20% rule (₪400) and the ₪1,600 balance is charged by Healson at 12:00
+  // the day before, which is exactly the disclosure the patient signed.
+  {
+    id: generateId("appt"),
+    client_name: SEED_PATIENTS[1].full_name,
+    client_phone: SEED_PATIENTS[1].phone,
+    provider_id: provider7.id,
+    provider_name: provider7.display_name,
+    service_name: "ייעוץ נוירולוגיית ילדים",
+    clinic_id: provider7ClinicId,
+    practitioner_id: provider7.id,
+    owner_context_id: provider7.id,
+    date: isoDateDaysFromNow(1),
+    time: "09:00",
+    duration_minutes: 45,
+    status: "ממתין לתשלום יתרה",
+    funding_layer: "H",
+    price: 2000,
+    deposit_amount: 400,
+    deposit_paid_at: isoTimestampHoursFromNow(-72),
+    balance_amount: 1600,
+    balance_due_at: balanceDueAt(isoDateDaysFromNow(1)),
+    balance_collector: "healson",
+    kupah: SEED_PATIENTS[1].kupah,
+    notes: "",
+    created_by_id: SEED_PATIENTS[1].id,
+  },
+  // The same item under the FLAT deposit rule (₪200) — the second half of the
+  // "מקדמה 200/400 לפי הכלל" example, still waiting for that deposit.
+  {
+    id: generateId("appt"),
+    client_name: SEED_PATIENTS[5].full_name,
+    client_phone: SEED_PATIENTS[5].phone,
+    provider_id: provider7.id,
+    provider_name: provider7.display_name,
+    service_name: "ייעוץ נוירולוגיית ילדים",
+    clinic_id: provider7ClinicId,
+    practitioner_id: provider7.id,
+    owner_context_id: provider7.id,
+    date: isoDateDaysFromNow(4),
+    time: "10:30",
+    duration_minutes: 45,
+    status: "ממתין לתשלום מקדמה",
+    funding_layer: "H",
+    price: 2000,
+    deposit_amount: 200,
+    balance_amount: 1800,
+    balance_due_at: balanceDueAt(isoDateDaysFromNow(4)),
+    balance_collector: "healson",
+    kupah: SEED_PATIENTS[5].kupah,
+    notes: "",
+    created_by_id: SEED_PATIENTS[5].id,
+  },
+  // §9 — the ₪1,200 follow-up consultation, fully settled.
+  {
+    id: generateId("appt"),
+    client_name: SEED_PATIENTS[1].full_name,
+    client_phone: SEED_PATIENTS[1].phone,
+    provider_id: provider7.id,
+    provider_name: provider7.display_name,
+    service_name: "ייעוץ חוזר — נוירולוגיית ילדים",
+    clinic_id: provider7ClinicId,
+    practitioner_id: provider7.id,
+    owner_context_id: provider7.id,
+    date: isoDateDaysFromNow(-6),
+    time: "14:30",
+    duration_minutes: 25,
+    status: "בוצע",
+    funding_layer: "H",
+    price: 1200,
+    deposit_amount: 240,
+    deposit_paid_at: isoTimestampHoursFromNow(-200),
+    balance_amount: 960,
+    balance_due_at: balanceDueAt(isoDateDaysFromNow(-6)),
+    balance_paid_at: isoTimestampHoursFromNow(-170),
+    balance_collector: "healson",
+    kupah: SEED_PATIENTS[1].kupah,
+    notes: "",
+    created_by_id: SEED_PATIENTS[1].id,
+  },
+
+  // §9 + §2 — an MRI at a מכון on route S: a referral was uploaded and the
+  // unit has not decided yet, so the slot is only HELD. This is the row the
+  // "בקשות ממתינות" queue opens on.
+  {
+    id: generateId("appt"),
+    client_name: SEED_PATIENTS[6].full_name,
+    client_phone: SEED_PATIENTS[6].phone,
+    provider_id: providerInstitute.id,
+    provider_name: providerInstitute.display_name,
+    service_name: "MRI ראש ללא חומר ניגוד",
+    resource_id: "fac_inst_mri_1",
+    owner_context_id: "fac_inst_mri_1",
+    date: isoDateDaysFromNow(5),
+    time: "11:00",
+    duration_minutes: 40,
+    status: "ממתין לאישור הפניה",
+    funding_layer: "S",
+    price: 420,
+    referral_document: {
+      file_name: "הפניה_MRI_ראש.pdf",
+      uploaded_at: isoTimestampHoursFromNow(-6),
+      data_url: "data:application/pdf;base64,",
+    },
+    slot_hold_expires_at: isoTimestampHoursFromNow(18),
+    kupah: SEED_PATIENTS[6].kupah,
+    notes: "",
+    created_by_id: SEED_PATIENTS[6].id,
+  },
+  // §9 — CT at a מכון on route S: referral approved, now waiting on the
+  // commitment (טופס 17). No deposit is taken on this route at all.
+  {
+    id: generateId("appt"),
+    client_name: SEED_PATIENTS[7].full_name,
+    client_phone: SEED_PATIENTS[7].phone,
+    provider_id: providerInstitute.id,
+    provider_name: providerInstitute.display_name,
+    service_name: "CT בטן ואגן עם חומר ניגוד",
+    resource_id: "fac_inst_ct_1",
+    owner_context_id: "fac_inst_ct_1",
+    date: isoDateDaysFromNow(6),
+    time: "08:30",
+    duration_minutes: 30,
+    status: "ממתין להתחייבות",
+    funding_layer: "S",
+    price: 560,
+    referral_document: {
+      file_name: "הפניה_CT_בטן.pdf",
+      uploaded_at: isoTimestampHoursFromNow(-50),
+      data_url: "data:application/pdf;base64,",
+    },
+    referral_decision: "approved",
+    referral_decided_at: isoTimestampHoursFromNow(-48),
+    kupah: SEED_PATIENTS[7].kupah,
+    notes: "",
+    created_by_id: SEED_PATIENTS[7].id,
+  },
+  // Route S with the commitment already in hand — the appointment is simply
+  // confirmed, and no money ever changes hands in the portal.
+  {
+    id: generateId("appt"),
+    client_name: SEED_PATIENTS[8].full_name,
+    client_phone: SEED_PATIENTS[8].phone,
+    provider_id: providerInstitute.id,
+    provider_name: providerInstitute.display_name,
+    service_name: "MRI עמוד שדרה מותני",
+    resource_id: "fac_inst_mri_1",
+    owner_context_id: "fac_inst_mri_1",
+    date: isoDateDaysFromNow(2),
+    time: "13:00",
+    duration_minutes: 45,
+    status: "מאושר",
+    funding_layer: "S",
+    price: 390,
+    referral_document: {
+      file_name: "הפניה_MRI_מותני.pdf",
+      uploaded_at: isoTimestampHoursFromNow(-120),
+      data_url: "data:application/pdf;base64,",
+    },
+    referral_decision: "approved",
+    referral_decided_at: isoTimestampHoursFromNow(-118),
+    commitment_document: {
+      file_name: "טופס_17_מכבי.pdf",
+      uploaded_at: isoTimestampHoursFromNow(-90),
+      data_url: "data:application/pdf;base64,",
+    },
+    kupah: SEED_PATIENTS[8].kupah,
+    notes: "",
+    created_by_id: SEED_PATIENTS[8].id,
+  },
+
+  // §5 — the same balance, at a unit that collects it ITSELF: Healson takes
+  // only the deposit and the counter takes the rest, so no automatic charge is
+  // ever scheduled here.
+  {
+    id: generateId("appt"),
+    client_name: SEED_PATIENTS[9].full_name,
+    client_phone: SEED_PATIENTS[9].phone,
+    provider_id: providerOutpatient.id,
+    provider_name: providerOutpatient.display_name,
+    service_name: "ייעוץ קרדיולוגי",
+    resource_id: "affil_out_avi",
+    practitioner_id: "prov_1",
+    owner_context_id: "affil_out_avi",
+    date: isoDateDaysFromNow(3),
+    time: "11:00",
+    duration_minutes: 30,
+    status: "מאושר",
+    funding_layer: "H",
+    price: 450,
+    deposit_amount: 90,
+    deposit_paid_at: isoTimestampHoursFromNow(-40),
+    balance_amount: 360,
+    balance_collector: "unit",
+    kupah: SEED_PATIENTS[9].kupah,
+    notes: "",
+    created_by_id: SEED_PATIENTS[9].id,
+  },
+  // The collection failure the new terminal state exists for: the balance was
+  // not paid by 12:00 the day before, so the booking cancelled itself.
+  {
+    id: generateId("appt"),
+    client_name: SEED_PATIENTS[10].full_name,
+    client_phone: SEED_PATIENTS[10].phone,
+    provider_id: provider7.id,
+    provider_name: provider7.display_name,
+    service_name: "ייעוץ נוירולוגיית ילדים",
+    clinic_id: provider7ClinicId,
+    practitioner_id: provider7.id,
+    owner_context_id: provider7.id,
+    date: isoDateDaysFromNow(-2),
+    time: "12:00",
+    duration_minutes: 45,
+    status: "בוטל — יתרה לא שולמה",
+    funding_layer: "H",
+    price: 2000,
+    deposit_amount: 400,
+    deposit_paid_at: isoTimestampHoursFromNow(-260),
+    balance_amount: 1600,
+    balance_due_at: balanceDueAt(isoDateDaysFromNow(-2)),
+    balance_collector: "healson",
+    kupah: SEED_PATIENTS[10].kupah,
+    notes: "",
+    created_by_id: SEED_PATIENTS[10].id,
+  },
+
+  // A second referral in the מכון's queue, so the queue reads as a queue —
+  // and an ultrasound is the everyday case next to the MRI above.
+  {
+    id: generateId("appt"),
+    client_name: SEED_PATIENTS[11].full_name,
+    client_phone: SEED_PATIENTS[11].phone,
+    provider_id: providerInstitute.id,
+    provider_name: providerInstitute.display_name,
+    service_name: "אולטרסאונד בטן שלמה",
+    resource_id: "fac_inst_us_1",
+    owner_context_id: "fac_inst_us_1",
+    date: isoDateDaysFromNow(4),
+    time: "09:30",
+    duration_minutes: 30,
+    status: "ממתין לאישור הפניה",
+    funding_layer: "K",
+    price: 260,
+    deposit_amount: 52,
+    balance_amount: 208,
+    balance_due_at: balanceDueAt(isoDateDaysFromNow(4)),
+    balance_collector: "healson",
+    referral_document: {
+      file_name: "הפניה_US_בטן.pdf",
+      uploaded_at: isoTimestampHoursFromNow(-3),
+      data_url: "data:application/pdf;base64,",
+    },
+    slot_hold_expires_at: isoTimestampHoursFromNow(21),
+    kupah: SEED_PATIENTS[11].kupah,
+    notes: "",
+    created_by_id: SEED_PATIENTS[11].id,
+  },
+  // A referral the unit REJECTED — the audit trail a provider needs when the
+  // patient calls to ask why their appointment disappeared.
+  {
+    id: generateId("appt"),
+    client_name: SEED_PATIENTS[2].full_name,
+    client_phone: SEED_PATIENTS[2].phone,
+    provider_id: providerInstitute.id,
+    provider_name: providerInstitute.display_name,
+    service_name: "CT חזה",
+    resource_id: "fac_inst_ct_1",
+    owner_context_id: "fac_inst_ct_1",
+    date: isoDateDaysFromNow(-1),
+    time: "15:00",
+    duration_minutes: 30,
+    status: "בוטל",
+    funding_layer: "S",
+    price: 480,
+    referral_document: {
+      file_name: "הפניה_CT_חזה.pdf",
+      uploaded_at: isoTimestampHoursFromNow(-96),
+      data_url: "data:application/pdf;base64,",
+    },
+    referral_decision: "rejected",
+    referral_decided_at: isoTimestampHoursFromNow(-90),
+    referral_rejection_reason: "ההפניה פגת תוקף (הונפקה לפני יותר מ-6 חודשים) — נדרשת הפניה מעודכנת מרופא/ת המשפחה.",
+    kupah: SEED_PATIENTS[2].kupah,
+    notes: "",
+    created_by_id: SEED_PATIENTS[2].id,
+  },
+
+  // The מרפאת חוץ collects at its own counter: an ergometry that still needs a
+  // referral decision, and a blood test whose balance is paid at reception.
+  {
+    id: generateId("appt"),
+    client_name: SEED_PATIENTS[5].full_name,
+    client_phone: SEED_PATIENTS[5].phone,
+    provider_id: providerOutpatient.id,
+    provider_name: providerOutpatient.display_name,
+    service_name: "מבחן מאמץ לבבי (ארגומטריה)",
+    date: isoDateDaysFromNow(5),
+    time: "08:00",
+    duration_minutes: 45,
+    status: "ממתין לאישור הפניה",
+    funding_layer: "K",
+    price: 180,
+    deposit_amount: 36,
+    balance_amount: 144,
+    balance_collector: "unit",
+    referral_document: {
+      file_name: "הפניה_ארגומטריה.pdf",
+      uploaded_at: isoTimestampHoursFromNow(-9),
+      data_url: "data:application/pdf;base64,",
+    },
+    slot_hold_expires_at: isoTimestampHoursFromNow(15),
+    kupah: SEED_PATIENTS[5].kupah,
+    notes: "",
+    created_by_id: SEED_PATIENTS[5].id,
+  },
+  {
+    id: generateId("appt"),
+    client_name: SEED_PATIENTS[8].full_name,
+    client_phone: SEED_PATIENTS[8].phone,
+    provider_id: providerOutpatient.id,
+    provider_name: providerOutpatient.display_name,
+    service_name: "בדיקות דם שגרתיות",
+    date: isoDateDaysFromNow(1),
+    time: "07:30",
+    duration_minutes: 10,
+    status: "מאושר",
+    funding_layer: "H",
+    price: 150,
+    deposit_amount: 30,
+    deposit_paid_at: isoTimestampHoursFromNow(-26),
+    balance_amount: 120,
+    balance_collector: "unit",
+    kupah: SEED_PATIENTS[8].kupah,
+    notes: "",
+    created_by_id: SEED_PATIENTS[8].id,
+  },
+
+  // ד"ר אבי לוי (the provider@ demo login) — an arthroscopy referral waiting on
+  // HIS decision, so the requests queue is not empty on the main provider demo.
+  {
+    id: generateId("appt"),
+    client_name: SEED_PATIENTS[7].full_name,
+    client_phone: SEED_PATIENTS[7].phone,
+    provider_id: provider1.id,
+    provider_name: provider1.display_name,
+    service_name: "ארתרוסקופיה של הברך",
+    clinic_id: provider1ClinicId,
+    practitioner_id: provider1.id,
+    owner_context_id: provider1.id,
+    date: isoDateDaysFromNow(7),
+    time: "08:00",
+    duration_minutes: 90,
+    status: "ממתין לאישור הפניה",
+    funding_layer: "B",
+    price: 2450,
+    referral_document: {
+      file_name: "הפניה_ארתרוסקופיה.pdf",
+      uploaded_at: isoTimestampHoursFromNow(-11),
+      data_url: "data:application/pdf;base64,",
+    },
+    slot_hold_expires_at: isoTimestampHoursFromNow(13),
+    kupah: SEED_PATIENTS[7].kupah,
+    notes: "",
+    created_by_id: SEED_PATIENTS[7].id,
+  },
+  // ד"ר יערה — a follow-up already settled in full, so her diary shows the
+  // whole arc: waiting for a deposit, waiting for a balance, and closed.
+  {
+    id: generateId("appt"),
+    client_name: SEED_PATIENTS[3].full_name,
+    client_phone: SEED_PATIENTS[3].phone,
+    provider_id: provider7.id,
+    provider_name: provider7.display_name,
+    service_name: "ייעוץ חוזר — נוירולוגיית ילדים",
+    clinic_id: provider7ClinicId,
+    practitioner_id: provider7.id,
+    owner_context_id: provider7.id,
+    date: isoDateDaysFromNow(2),
+    time: "14:00",
+    duration_minutes: 25,
+    status: "שולם במלואו",
+    funding_layer: "H",
+    price: 1200,
+    deposit_amount: 200,
+    deposit_paid_at: isoTimestampHoursFromNow(-120),
+    balance_amount: 1000,
+    balance_due_at: balanceDueAt(isoDateDaysFromNow(2)),
+    balance_paid_at: isoTimestampHoursFromNow(-4),
+    balance_collector: "healson",
+    kupah: SEED_PATIENTS[3].kupah,
+    notes: "",
+    created_by_id: SEED_PATIENTS[3].id,
+  },
 ]);
 
 // ---------------------------------------------------------------------------
@@ -2757,8 +3424,13 @@ export const SEED_ORDERS: Order[] = SEED_APPOINTMENTS.slice(0, 16).map(
       appt.price ??
       (service ? resolveProviderPrice(service.prices, provider?.agreements, patient)?.price : undefined) ??
       0;
-    const commissionRate = provider?.commission_rate ?? 15;
-    const commissionAmount = Math.round((price * commissionRate) / 100);
+    const commissionRate = provider?.commission_rate ?? DEFAULT_COMMISSION_RATE;
+    // The order's money must be the SAME money the appointment collected
+    // (payments meeting §8): the deposit is the commission, so both are read
+    // off the booking rather than recomputed here at a second percentage.
+    const deposit = appt.deposit_amount ?? Math.round((price * commissionRate) / 100);
+    const balance = appt.balance_amount ?? Math.max(0, price - deposit);
+    const commissionAmount = deposit;
     const statusPool: Order["status"][] = [
       "ממתין",
       "מאושר",
@@ -2779,8 +3451,8 @@ export const SEED_ORDERS: Order[] = SEED_APPOINTMENTS.slice(0, 16).map(
       status,
       created_date: isoDateDaysFromNow(-i * 3),
       payment_status: status === "הושלם" ? "שולם במלואו" : status === "בוטל" ? "הוחזר" : "מקדמה שולמה",
-      deposit_amount: Math.round(price * 0.3),
-      balance_amount: Math.round(price * 0.7),
+      deposit_amount: deposit,
+      balance_amount: balance,
       commission_rate: commissionRate,
       commission_amount: commissionAmount,
       provider_payout_amount: price - commissionAmount,

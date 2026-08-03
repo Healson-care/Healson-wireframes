@@ -22,7 +22,7 @@ export const B_INSURANCE_COMPANIES = [
   "שירביט",
   "AIG",
   "ליברה",
-];
+] as const;
 
 export type CommunicationLanguage = "he" | "en";
 export const COMMUNICATION_LANGUAGES: CommunicationLanguage[] = ["he", "en"];
@@ -51,33 +51,35 @@ export const LAYER_LABELS: Record<InsuranceLayer, string> = {
   S: "סל קופה",
   K: 'ביטוח קופה (שב"ן)',
   B: "ביטוח בריאות פרטי",
-  H: "מחיר מלא לתייר",
+  // Not "לתייר": this is the out-of-pocket price anyone pays with no cover
+  // that applies — an Israeli paying privately, and a tourist alike.
+  H: "מחיר מלא (פרטי)",
 };
 
 // Supplemental HMO insurance (שב"ן) plan names are branded per-kupah, not a
 // shared generic tier list — e.g. מאוחדת sells "מאוחדת עדיף"/"מאוחדת שיא",
 // כללית sells "כללית זהב"/"כללית מושלם"/"כללית פלטינום".
+// The plans actually sold in Israel today — a שב"ן is a paid programme, so
+// there is no "בסיס" tier: a member either holds one of these or holds no שב"ן
+// at all (layer S only).
 export const K_LEVELS_BY_KUPAH = {
-  "כללית": ["כללית בסיס", "כללית מושלם", "כללית פלטינום"],
-  "מכבי": ["מכבי בסיס", "מכבי שלי", "מכבי כסף"],
-  "מאוחדת": ["מאוחדת בסיס", "מאוחדת עדיף", "מאוחדת שיא"],
-  "לאומית": ["לאומית בסיס", "לאומית זהב"],
+  "כללית": ["כללית מושלם", "כללית פלטינום"],
+  "מכבי": ["מכבי שלי", "מכבי כסף", "מכבי זהב"],
+  "מאוחדת": ["מאוחדת עדיף", "מאוחדת שיא"],
+  "לאומית": ["לאומית כסף", "לאומית זהב"],
 } as const satisfies Record<Kupah, readonly string[]>;
 
 export type KLevel = (typeof K_LEVELS_BY_KUPAH)[Kupah][number];
 
-// Private health-insurance carriers (§B layer) a provider may hold a
-// billing arrangement with — a provider can have more than one.
-export const PRIVATE_INSURANCE_COMPANIES = [
-  "הראל",
-  "כלל",
-  "מגדל",
-  "הפניקס",
-  "מנורה מבטחים",
-  "איילון",
-  "AIG",
-  "שירביט",
-] as const;
+// Private health-insurance carriers (§B layer) a provider may hold a billing
+// arrangement with — a provider can have more than one.
+//
+// Deliberately THE SAME list the patient records their policy from: layer-B
+// pricing matches a provider's `insurance_companies` against the patient's
+// `b_insurances[].company` by exact string (see resolveProviderPrice), so a
+// second, shorter-spelled list ("הראל" vs "הראל ביטוח") would silently make
+// every B arrangement unmatchable and quietly bill patients the full price.
+export const PRIVATE_INSURANCE_COMPANIES = B_INSURANCE_COMPANIES;
 
 export type PrivateInsuranceCompany = (typeof PRIVATE_INSURANCE_COMPANIES)[number];
 
@@ -140,6 +142,33 @@ export interface PriceByLayer {
   price: number;
 }
 
+// How a specific payer settles a specific item (payments meeting §1/§8):
+//   הסדר — the payer pays the provider directly and the patient is left with a
+//          co-pay only (the price recorded here IS that co-pay);
+//   החזר — the patient pays the full price and claims it back from the payer
+//          themselves, outside Healson — so no co-pay is ever shown;
+//   שניהם — the payer offers both, depending on the patient's plan.
+export const PAYER_ARRANGEMENT_MODES = ["הסדר", "החזר", "שניהם"] as const;
+export type PayerArrangementMode = (typeof PAYER_ARRANGEMENT_MODES)[number];
+
+/** A price row for one payer — a קופה+שב"ן plan on layer K, or a private
+ * carrier on layer B. Owned by the Healson catalog and negotiated by Healson
+ * with the payer: a provider only ever READS these (payments meeting §6). */
+export interface PayerPrice {
+  layer: Extract<InsuranceLayer, "K" | "B">;
+  kupah?: Kupah; // layer K
+  level?: KLevel; // layer K — the specific שב"ן plan
+  insurer?: string; // layer B
+  /** The patient's co-pay under an הסדר. Absent on a pure החזר row. */
+  price?: number;
+  mode: PayerArrangementMode;
+}
+
+/** Display name of the payer a PayerPrice row belongs to. */
+export function payerPriceLabel(p: PayerPrice): string {
+  return p.level ?? p.insurer ?? p.kupah ?? "משלם";
+}
+
 /** @deprecated kept only for reference — superseded by PriceByLayer (SKBH model) */
 export interface PriceByKupah {
   kupah: Kupah;
@@ -147,26 +176,88 @@ export interface PriceByKupah {
   discount?: number;
 }
 
-// Booking-lifecycle status from the patient's point of view (§waitlist/booking):
-// slot picked -> ממתין לתשלום מקדמה -> (deposit payment succeeds) -> מאושר ->
-// (balance paid, via the "שלם יתרה" action) -> שולם במלואו -> (service
-// rendered) -> בוצע. בוטל is reachable from any pre-בוצע state (patient/admin/
-// provider cancel, or a payment hold expiring unpaid).
+// Booking lifecycle (payments meeting 02.08.2026). Which states a booking
+// actually passes through depends on the item and on the funding route:
 //
-// TODO(product, unresolved as of 2026-07-12): what should happen if the
-// appointment date arrives while status is still "מאושר" (deposit paid,
-// balance never collected)? No automatic enforcement exists yet — this is a
-// fully local mock app with no background jobs, so nothing currently flags
-// or blocks an appointment whose balance is overdue. See README.md.
-export type AppointmentStatus = "ממתין לתשלום מקדמה" | "מאושר" | "שולם במלואו" | "בוצע" | "בוטל";
+//   referral gate (every item EXCEPT a consultation)
+//     ממתין לאישור הפניה   — referral uploaded, the medical unit reviews it and
+//                             approves/rejects; the slot is held meanwhile
+//                             (slot_hold_expires_at).
+//   funding gate
+//     route S, and route B backed by an insurer commitment (mostly surgery):
+//       ממתין להתחייבות  — waiting for the commitment document (טופס 17 /
+//                          כתב התחייבות). No deposit is taken on this route.
+//     every other route (K / B בהחזר / H):
+//       ממתין לתשלום מקדמה -> מאושר
+//   balance
+//     ממתין לתשלום יתרה — the balance is charged automatically to the saved card
+//                          the day before the appointment (12:00), UNLESS the
+//                          unit collects it itself (balance_collector = "unit").
+//     שולם במלואו -> בוצע
+//
+// Off-ramps: בוטל (anyone cancels, or the hold expires) and
+// "בוטל — יתרה לא שולמה" (the automatic balance charge did not go through in
+// time — kept distinct because it is a collection failure, not a decision).
+export type AppointmentStatus =
+  | "ממתין לאישור הפניה"
+  | "ממתין להתחייבות"
+  | "ממתין לתשלום מקדמה"
+  | "מאושר"
+  | "ממתין לתשלום יתרה"
+  | "שולם במלואו"
+  | "בוצע"
+  | "בוטל"
+  | "בוטל — יתרה לא שולמה";
 
 export const APPOINTMENT_STATUSES: AppointmentStatus[] = [
+  "ממתין לאישור הפניה",
+  "ממתין להתחייבות",
   "ממתין לתשלום מקדמה",
   "מאושר",
+  "ממתין לתשלום יתרה",
   "שולם במלואו",
   "בוצע",
   "בוטל",
+  "בוטל — יתרה לא שולמה",
 ];
+
+/** The two cancellation states, kept together so callers never test one and
+ * forget the other (a cancelled slot is free again either way). */
+export const CANCELLED_APPOINTMENT_STATUSES: AppointmentStatus[] = [
+  "בוטל",
+  "בוטל — יתרה לא שולמה",
+];
+
+export function isCancelledAppointment(status: AppointmentStatus): boolean {
+  return CANCELLED_APPOINTMENT_STATUSES.includes(status);
+}
+
+/** Who collects the balance left after the deposit — a policy set per medical
+ * unit (payments meeting §5). Healson is the default: the balance is charged
+ * automatically to the card saved at booking, the day before the appointment.
+ * A unit may instead collect it at the counter, and then Healson never charges
+ * the patient a second time. */
+export type BalanceCollector = "healson" | "unit";
+
+export const BALANCE_COLLECTORS: BalanceCollector[] = ["healson", "unit"];
+
+export const BALANCE_COLLECTOR_LABELS: Record<BalanceCollector, string> = {
+  healson: "Healson — חיוב אוטומטי יום לפני התור",
+  unit: "גבייה עצמית במעמד הפגישה",
+};
+
+/** Payment picture of a single appointment, as the provider sees it on every
+ * booking in the diary (payments meeting §7). Derived, never stored — see
+ * src/lib/appointment-payments.ts. */
+export type AppointmentPaymentState =
+  | "ממתין למקדמה"
+  | "מקדמה שולמה"
+  | "ממתין להתחייבות"
+  | "התחייבות הועלתה"
+  | "יתרה ממתינה"
+  | "יתרה שולמה"
+  | 'נגבית ע"י היחידה'
+  | "בוטל";
 
 export type PatientStatus = "פעיל" | "לא פעיל" | "ממתין";
 export const PATIENT_STATUSES: PatientStatus[] = ["פעיל", "לא פעיל", "ממתין"];
@@ -731,6 +822,10 @@ export const PROVIDER_TYPE_DESCRIPTIONS: Record<ProviderType, string> = {
 // ---------------------------------------------------------------------------
 export const PROVIDER_TYPE_SERVICE_CATEGORIES: Partial<Record<ProviderType, string[]>> = {
   outpatient_clinic: ["ייעוץ", "חוות דעת נוספת", "ייעוץ חוזר", "אבחונים", "בדיקות", "טיפולים"],
+  // A מכון sells examinations and procedures, not opinions: the consultation
+  // categories were removed here deliberately (payments meeting §6/§9). A
+  // patient books an MRI/CT at a מכון and a ייעוץ with a doctor — never the
+  // other way around.
   medical_institute: [
     "טיפולים",
     "פעולות",
@@ -739,16 +834,35 @@ export const PROVIDER_TYPE_SERVICE_CATEGORIES: Partial<Record<ProviderType, stri
     "ניתוחים",
     "בחירת מנתח",
     "שירותים נוספים",
-    "ייעוץ",
-    "חוות דעת נוספת",
     "טיפולים עד הבית",
     "ציוד רפואי",
-    "ייעוץ עד הבית",
   ],
 };
 
 export function getProviderServiceCategories(type?: ProviderType): string[] | undefined {
   return type ? PROVIDER_TYPE_SERVICE_CATEGORIES[type] : undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Who may sell a consultation (payments meeting §6/§9).
+//
+// A consultation is delivered by a named physician, so it belongs to a doctor
+// or to an outpatient clinic (which sells it through one of its affiliated
+// doctors). A מכון רפואי / lab / pharmacy never lists one — its catalog is the
+// examination-and-procedure world. This gates BOTH the item-type picker and
+// the reference-catalog search in the provider portal, so a מכון cannot even
+// find a consultation item to add.
+// ---------------------------------------------------------------------------
+export const CONSULTATION_PROVIDER_TYPES: ProviderType[] = [
+  "doctor",
+  "caregiver",
+  "outpatient_clinic",
+  "hospital",
+  "medical_call_center",
+];
+
+export function canSellConsultations(type?: ProviderType): boolean {
+  return !type || CONSULTATION_PROVIDER_TYPES.includes(type);
 }
 
 // ---------------------------------------------------------------------------
@@ -831,7 +945,7 @@ export const AFFILIATION_STATUSES: AffiliationStatus[] = [
 
 export const AFFILIATION_STATUS_LABELS: Record<AffiliationStatus, string> = {
   invited_by_unit: "ממתין לאישור נותן/ת השירות",
-  requested_by_provider: "ממתין לאישור היחידה",
+  requested_by_provider: "ממתין לאישור הפניה",
   active: "פעיל",
   suspended: "מושהה",
   declined: "נדחה",
@@ -1162,6 +1276,9 @@ export interface ProviderProfile {
   go_live_requested_at?: string;
   rejection_reason?: string;
   commission_rate?: number; // percent Healson takes on this provider's orders
+  // Medical units only (payments meeting §5) — who collects the balance left
+  // after the deposit. Undefined means the default, "healson".
+  balance_collector?: BalanceCollector;
   bank_account?: ProviderBankAccount;
   monthly_settlements?: MonthlySettlement[];
   agreements: ProviderAgreement[];
@@ -1254,6 +1371,10 @@ export interface CatalogItem {
   // Per-layer list prices. "mabar": S + H (both from the MoH price list).
   // "healson": K + B are Healson tariffs; S + H always mirror the MoH list.
   layer_prices?: PriceByLayer[];
+  // Per-payer breakdown behind the K/B headline tariffs — one row per שב"ן plan
+  // or private carrier, with the arrangement type Healson negotiated with it.
+  // Maintained by Healson ops; read-only everywhere in the provider portal.
+  payer_prices?: PayerPrice[];
   typical_duration_min?: number;
   requires_referral: boolean;
   provider_id?: string;
@@ -1349,7 +1470,7 @@ export interface Appointment {
   duration_minutes: number;
   status: AppointmentStatus;
   price?: number; // total consultation price, resolved at booking time
-  deposit_amount?: number; // 30% of price, charged to hold the slot
+  deposit_amount?: number; // deposit charged to hold the slot (see DEPOSIT_RATE)
   // ISO timestamp of the deposit charge — starts the 48h cancellation/refund
   // window (see CANCELLATION_WINDOW_HOURS in client/appointments/page.tsx).
   deposit_paid_at?: string;
@@ -1357,6 +1478,40 @@ export interface Appointment {
   notes?: string;
   created_by_id?: string; // patient id
   referral_document?: UploadedFile;
+  // --- payments meeting 02.08.2026 -----------------------------------------
+  // Which funding route this booking runs on, resolved from the patient's
+  // insurance profile at booking time. It decides whether the patient pays a
+  // deposit at all (K/B-refund/H) or uploads a commitment instead (S, and B
+  // backed by an insurer commitment).
+  funding_layer?: InsuranceLayer;
+  // The unit's decision on the uploaded referral (§7). A rejection frees the
+  // slot, so it always comes with a reason the patient can act on.
+  referral_decision?: "approved" | "rejected";
+  referral_decided_at?: string;
+  referral_rejection_reason?: string;
+  // While the referral is under review the slot is held rather than booked —
+  // roughly a day, after which it is released back to the calendar.
+  slot_hold_expires_at?: string;
+  // Route S / B-with-commitment: טופס 17 or the insurer's כתב התחייבות.
+  commitment_document?: UploadedFile;
+  // What is left after the deposit, when it falls due, and whether it was
+  // collected. balance_collector is snapshotted from the unit's policy at
+  // booking time so changing the policy never rewrites past bookings.
+  balance_amount?: number;
+  balance_due_at?: string;
+  balance_paid_at?: string;
+  balance_collector?: BalanceCollector;
+}
+
+// Deposit rule (payments meeting §3/§8): the deposit is derived from the
+// commission — either a percentage of the price or a flat amount for the
+// provider/item category. It is never presented to the patient as "commission"
+// or as a percentage, only as a shekel figure.
+export const DEPOSIT_RATE = 0.2;
+
+/** The deposit for a price under the percentage rule, rounded to whole shekels. */
+export function depositForPrice(price: number, rate: number = DEPOSIT_RATE): number {
+  return Math.round(price * rate);
 }
 
 export type WaitlistStatus = "ממתין" | "נוצר קשר" | "בוטל";

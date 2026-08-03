@@ -239,7 +239,14 @@ export function getFirstIncompleteStepKey(provider: ProviderProfile): string | u
 // banner on both /provider/onboarding and the dashboard's overview tab, so a
 // provider always sees the same prioritized message regardless of which page
 // they're on. Returns null once there's nothing outstanding.
-export function getNextProviderAction(provider: ProviderProfile): string | null {
+export function getNextProviderAction(
+  provider: ProviderProfile,
+  // A provider who works only inside medical units doesn't declare insurance
+  // arrangements at all — the unit does, and they inherit them (payments
+  // meeting §5). Asking them for arrangements they cannot enter would be a
+  // dead end, so the caller (which can see the affiliations slice) waives it.
+  opts: { inheritsArrangements?: boolean } = {}
+): string | null {
   const config = getProviderSetupConfig(provider.provider_type);
 
   if (provider.status === "pending_review") {
@@ -250,7 +257,11 @@ export function getNextProviderAction(provider: ProviderProfile): string | null 
 
   if (provider.status === "onboarding") {
     if (!provider.agreement_signed_at) return "יש לחתום על ההסכם עם Healson כדי להמשיך.";
-    if (config.showAgreements && (provider.agreements?.length ?? 0) === 0) {
+    if (
+      config.showAgreements &&
+      !opts.inheritsArrangements &&
+      (provider.agreements?.length ?? 0) === 0
+    ) {
       return "הגדירו הסדרי ביטוח (S/K/B/H) לפני שתוכלו לפרסם פריטים.";
     }
     if (!isCatalogComplete(provider)) {

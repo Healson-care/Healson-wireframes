@@ -12,7 +12,15 @@ import {
   timeRangeLabel,
 } from "@/lib/appointment-calendar";
 import { HOUR_PX, MIN_BLOCK_MIN, clampMin, snap, timeBounds } from "@/lib/schedule-calendar";
-import { AlertTriangle, Building2, Lock, User } from "lucide-react";
+import { Appointment, isCancelledAppointment } from "@/types";
+import { getAppointmentPaymentState } from "@/lib/appointment-payments";
+import { AlertTriangle, Building2, Lock, User, Wallet } from "lucide-react";
+
+/** Payment states that mean somebody still owes something on this booking. */
+function paymentIsOutstanding(a: Appointment): boolean {
+  const state = getAppointmentPaymentState(a);
+  return state === "ממתין למקדמה" || state === "ממתין להתחייבות" || state === "יתרה ממתינה";
+}
 
 /** One column of the grid. In week view a column is a DATE; in a unit's day
  * view it's an עמדה (same date, one queue each) — the classic clinic day
@@ -384,7 +392,7 @@ export function AppointmentTimeGrid({
                 const outsideHours =
                   showOpenHours &&
                   b.owned &&
-                  b.status !== "בוטל" &&
+                  !isCancelledAppointment(b.status) &&
                   (!!col.blockedReason || !isInsideBands(col.openBands ?? [], b.startMin, endMin));
                 return (
                   <AppointmentBlockView
@@ -527,9 +535,19 @@ function AppointmentBlockView({
             <p className="truncate text-[10px] leading-tight opacity-60">{block.laneName}</p>
           )}
         </div>
+        {/* Money still outstanding on this booking (payments meeting §7) — a
+            deposit, a commitment document or the balance. The status fill
+            already carries the lifecycle; this is the one extra bit a provider
+            scans a day board for. */}
+        {block.owned && paymentIsOutstanding(a) && (
+          <Wallet
+            className="h-2.5 w-2.5 shrink-0 opacity-70"
+            aria-label={getAppointmentPaymentState(a)}
+          />
+        )}
         {!block.owned ? (
           <Lock className="h-2.5 w-2.5 shrink-0 opacity-50" />
-        ) : block.status === "בוטל" ? (
+        ) : isCancelledAppointment(block.status) ? (
           <Lock className="h-2.5 w-2.5 shrink-0 opacity-60" />
         ) : (
           outsideHours && <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-amber-600" />

@@ -3,6 +3,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import {
   AffiliatedDoctor,
   Appointment,
+  AppointmentStatus,
   Branch,
   CatalogItem,
   CatalogRequest,
@@ -54,6 +55,7 @@ import {
   SEED_SERVICE_ARRAYS,
   SEED_CATALOG,
   SEED_CATALOG_REQUESTS,
+  SEED_FIXED_FEE_RULES,
   SEED_CONSENT_RECORDS,
   SEED_DOCUMENTS,
   SEED_DSR_REQUESTS,
@@ -67,6 +69,8 @@ import {
 } from "./mock-data";
 import { SEED_SKILL_DOMAINS, SEED_SKILL_SUBDOMAINS } from "./medical-tree";
 import { generateId, maskPhone } from "./utils";
+import { usesCommitment } from "./appointment-payments";
+import { DEFAULT_COMMISSION_RATE, FixedFeeRule } from "./commission";
 
 // ---------------------------------------------------------------------------
 // Auth slice
@@ -299,6 +303,9 @@ interface EntitiesState {
   otpIssueReports: OtpIssueReport[];
   defaultCommissionRate: number;
   commissionRateByServiceType: Partial<Record<ServiceType, number>>;
+  // Flat commissions that replace the percentage for a slice of the business
+  // (payments meeting §8) — the deposit follows them automatically.
+  fixedFeeRules: FixedFeeRule[];
   reminderSettings: ReminderSettings;
 
   addPatient: (p: Omit<Patient, "id" | "created_date">) => Patient;
@@ -522,9 +529,15 @@ interface EntitiesState {
   setProviderCommission: (id: string, rate: number) => void;
   setDefaultCommissionRate: (rate: number) => void;
   setServiceTypeCommissionRate: (type: ServiceType, rate: number | undefined) => void;
+  addFixedFeeRule: (rule: Omit<FixedFeeRule, "id">) => void;
+  removeFixedFeeRule: (id: string) => void;
 
   addAppointment: (a: Omit<Appointment, "id">) => Appointment;
   updateAppointment: (id: string, data: Partial<Appointment>) => void;
+  /** Unit approves the referral attached to a booking (payments meeting §7). */
+  approveAppointmentReferral: (id: string) => void;
+  /** Unit rejects it — the held slot is released and the patient gets the reason. */
+  rejectAppointmentReferral: (id: string, reason: string) => void;
   updateReminderSettings: (data: Partial<ReminderSettings>) => void;
 
   addOrder: (o: Omit<Order, "id" | "created_date">) => Order;
@@ -1085,8 +1098,9 @@ export const useStore = create<Store>()(
       consentRecords: SEED_CONSENT_RECORDS,
       dsrRequests: SEED_DSR_REQUESTS,
       otpIssueReports: [],
-      defaultCommissionRate: 15,
+      defaultCommissionRate: DEFAULT_COMMISSION_RATE,
       commissionRateByServiceType: {},
+      fixedFeeRules: SEED_FIXED_FEE_RULES,
       reminderSettings: DEFAULT_REMINDER_SETTINGS,
 
       addPatient: (p) => {
@@ -1662,6 +1676,11 @@ export const useStore = create<Store>()(
 
       setProviderCommission: (id, rate) => get().updateProviderById(id, { commission_rate: rate }),
       setDefaultCommissionRate: (rate) => set({ defaultCommissionRate: rate }),
+      addFixedFeeRule: (rule) =>
+        set((s) => ({ fixedFeeRules: [...s.fixedFeeRules, { ...rule, id: generateId("fee") }] })),
+      removeFixedFeeRule: (id) =>
+        set((s) => ({ fixedFeeRules: s.fixedFeeRules.filter((r) => r.id !== id) })),
+
       setServiceTypeCommissionRate: (type, rate) =>
         set((s) => {
           const next = { ...s.commissionRateByServiceType };
@@ -1900,6 +1919,49 @@ export const useStore = create<Store>()(
       updateAppointment: (id, data) =>
         set((s) => ({
           appointments: s.appointments.map((a) => (a.id === id ? { ...a, ...data } : a)),
+        })),
+
+      // --- Referral review by the medical unit (payments meeting §7) --------
+      // A booking for anything other than a consultation arrives with a
+      // referral attached and waits in "ממתין לאישור הפניה". Approving it
+      // moves the booking on to whatever its funding route needs next; rejecting
+      // it releases the held slot back to the calendar.
+      approveAppointmentReferral: (id) =>
+        set((s) => ({
+          appointments: s.appointments.map((a) => {
+            if (a.id !== id) return a;
+            const nextStatus: AppointmentStatus = usesCommitment(a)
+              ? a.commitment_document
+                ? "מאושר"
+                : "ממתין להתחייבות"
+              : a.deposit_paid_at
+              ? "מאושר"
+              : "ממתין לתשלום מקדמה";
+            return {
+              ...a,
+              status: nextStatus,
+              referral_decision: "approved",
+              referral_decided_at: new Date().toISOString(),
+              referral_rejection_reason: undefined,
+              slot_hold_expires_at: undefined,
+            };
+          }),
+        })),
+
+      rejectAppointmentReferral: (id, reason) =>
+        set((s) => ({
+          appointments: s.appointments.map((a) =>
+            a.id === id
+              ? {
+                  ...a,
+                  status: "בוטל",
+                  referral_decision: "rejected",
+                  referral_decided_at: new Date().toISOString(),
+                  referral_rejection_reason: reason,
+                  slot_hold_expires_at: undefined,
+                }
+              : a
+          ),
         })),
       updateReminderSettings: (data) =>
         set((s) => ({ reminderSettings: { ...s.reminderSettings, ...data } })),
@@ -2163,7 +2225,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 33,
+      version: 35,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
       // records), the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER seed
       // account, the v3 -> v4 AppointmentStatus rename ("ממתין לאישור" ->
@@ -2262,7 +2324,19 @@ export const useStore = create<Store>()(
       // item, canonical insurer names so layer-B pricing actually matches, real
       // shift-based weeks with per-shift slot lengths, and appointment/order
       // prices resolved from the provider's own price list — reseed clean.
-      migrate: (persistedState, version) => (version < 33 ? ({} as Store) : (persistedState as Store)),
+      // v33 -> v34 is the payments model from the 02.08.2026 meeting: the
+      // booking lifecycle gained the referral-approval, commitment and balance
+      // states (AppointmentStatus), Appointment gained the funding route,
+      // referral decision, commitment document and balance fields, CatalogItem
+      // gained per-payer prices, and a medical unit now declares who collects
+      // the balance (ProviderProfile.balance_collector). Appointments persisted
+      // under v33 carry none of it — reseed clean.
+      // v34 -> v35 seeds the blank-slate unit account (prov_org_unit_setup /
+      // setup@demo.co.il): a מכון that Healson opened and handed credentials to,
+      // sitting in הקמה with nothing entered yet. Every other unit in the seed is
+      // already fully built, so this is the only record that can demo the setup
+      // itself from the unit's side — reseed clean so it appears.
+      migrate: (persistedState, version) => (version < 35 ? ({} as Store) : (persistedState as Store)),
       // Uploaded files (photos/PDFs) are stored as base64 data URLs inside
       // this same persisted blob (no real backend — see file.ts). If a
       // single write ever still exceeds the browser's localStorage quota

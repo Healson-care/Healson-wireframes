@@ -27,16 +27,21 @@ import {
   History,
 } from "lucide-react";
 
-// Same 5 statuses/tones StatusBadge already uses for AppointmentStatus (Badge.tsx's
-// APPOINTMENT_TONE) — mirrored here as hex so the status donut on this page reads
-// the exact same color for the exact same status as every StatusBadge elsewhere,
-// instead of an arbitrary categorical palette that has no relation to meaning.
+// The same statuses/tones StatusBadge already uses for AppointmentStatus
+// (Badge.tsx's APPOINTMENT_TONE) — mirrored here as hex so the status donut on
+// this page reads the exact same color for the exact same status as every
+// StatusBadge elsewhere, instead of an arbitrary categorical palette that has
+// no relation to meaning.
 const APPOINTMENT_STATUS_COLOR: Record<string, string> = {
+  "ממתין לאישור הפניה": "#4f46e5", // indigo
+  "ממתין להתחייבות": "#d97706", // warning
   "ממתין לתשלום מקדמה": "#d97706", // warning
   "מאושר": "#2563eb", // info
+  "ממתין לתשלום יתרה": "#ea580c", // orange
   "שולם במלואו": "#9333ea", // purple
   "בוצע": "#059669", // success
   "בוטל": "#dc2626", // danger
+  "בוטל — יתרה לא שולמה": "#dc2626", // danger
 };
 
 interface ActivityEvent {

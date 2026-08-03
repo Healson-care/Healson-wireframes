@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Bell } from "lucide-react";
 import { DropdownMenu } from "@/components/ui/DropdownMenu";
 import { cn, formatDateHe } from "@/lib/utils";
-import { Appointment, DsrRequest, ProviderProfile } from "@/types";
+import { Appointment, DsrRequest, ProviderProfile, isCancelledAppointment } from "@/types";
 
 export interface AppNotification {
   id: string;
@@ -110,9 +110,28 @@ export function buildProviderNotifications(
       href: "/provider/profile/payments",
     });
   }
+  // A held slot with an unreviewed referral expires on its own (payments
+  // meeting §7), so it is the most time-critical thing in the portal — it is
+  // announced before the routine "you have N appointments" line.
+  const awaitingReferral = appointments.filter(
+    (a) => a.provider_id === provider.id && a.status === "ממתין לאישור הפניה"
+  ).length;
+  if (awaitingReferral > 0) {
+    list.push({
+      id: "referrals",
+      tone: "warning",
+      title:
+        awaitingReferral === 1
+          ? "הפניה אחת ממתינה לאישור"
+          : `${awaitingReferral} הפניות ממתינות לאישור`,
+      description: "המועד משוריין למטופל עד להחלטה — אישור או דחייה",
+      href: "/provider/requests",
+    });
+  }
+
   const todayStr = new Date().toISOString().slice(0, 10);
   const upcoming = appointments.filter(
-    (a) => a.provider_id === provider.id && a.status !== "בוטל" && a.date >= todayStr
+    (a) => a.provider_id === provider.id && !isCancelledAppointment(a.status) && a.date >= todayStr
   ).length;
   if (upcoming > 0) {
     list.push({

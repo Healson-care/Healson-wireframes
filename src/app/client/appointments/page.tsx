@@ -48,6 +48,7 @@ import {
   AppointmentStatus,
   documentAppointmentIds,
   DOCUMENT_CATEGORIES,
+  isCancelledAppointment,
   PatientDocument,
   WaitlistEntry,
   WaitlistStatus,
@@ -102,11 +103,15 @@ function getCancellationInfo(appointment: Appointment): CancellationInfo {
 // lifecycle means and when it changes — shown both in the legend panel and
 // as a hover tooltip on each item's badge.
 const APPOINTMENT_STATUS_DESCRIPTIONS: Record<AppointmentStatus, string> = {
+  "ממתין לאישור הפניה": "ההפניה שהעליתם ממתינה לאישור היחידה הרפואית — המועד שמור לכם עד לתשובה",
+  "ממתין להתחייבות": "צריך להעלות טופס התחייבות (טופס 17 / כתב התחייבות מהמבטח) כדי לאשר את התור",
   "ממתין לתשלום מקדמה": "בחרתם מועד — המקום שמור זמנית עד שתשלימו את תשלום המקדמה",
   "מאושר": "תשלום המקדמה התקבל, התור נקבע סופית",
+  "ממתין לתשלום יתרה": "היתרה תחויב אוטומטית מהכרטיס השמור יום לפני התור עד השעה 12:00",
   "שולם במלואו": "היתרה שולמה במלואה לפני מועד התור",
   "בוצע": "התור התקיים והשירות ניתן",
   "בוטל": "התור בוטל, או שהזמן שנשמר לתשלום פג ולא שולם",
+  "בוטל — יתרה לא שולמה": "היתרה לא נגבתה עד המועד שנקבע, ולכן התור בוטל",
 };
 
 const WAITLIST_STATUS_LABELS: Record<WaitlistStatus, string> = {
@@ -413,11 +418,24 @@ function historySortKey(item: HistoryItem) {
 // linger under "תורים קרובים" forever.
 type ItemBucket = "upcoming" | "pending" | "history";
 
+// Everything the booking is still waiting on — a referral decision, a
+// commitment document or money — belongs under "ממתינים", not under confirmed
+// upcoming appointments.
+const PENDING_APPOINTMENT_STATUSES: AppointmentStatus[] = [
+  "ממתין לאישור הפניה",
+  "ממתין להתחייבות",
+  "ממתין לתשלום מקדמה",
+  "ממתין לתשלום יתרה",
+];
+
 function classifyItem(item: HistoryItem): ItemBucket {
   const { status } = item.data;
   if (item.kind === "appointment") {
-    if (status === "בוטל" || status === "בוצע" || isPastDate(item.data.date)) return "history";
-    return status === "ממתין לתשלום מקדמה" ? "pending" : "upcoming";
+    const appointmentStatus = status as AppointmentStatus;
+    if (isCancelledAppointment(appointmentStatus) || status === "בוצע" || isPastDate(item.data.date)) {
+      return "history";
+    }
+    return PENDING_APPOINTMENT_STATUSES.includes(appointmentStatus) ? "pending" : "upcoming";
   }
   if (status === "בוטל" || isPastDate(item.data.date)) return "history";
   return "pending";
@@ -774,19 +792,21 @@ function AppointmentListCard({
                 )}
 
                 {item.kind === "appointment" &&
-                  item.data.status !== "בוטל" &&
+                  !isCancelledAppointment(item.data.status) &&
                   item.data.status !== "בוצע" && (
                     <AppointmentReminderPlan appointment={item.data} provider={provider} />
                   )}
 
-                {item.kind === "appointment" && item.data.status !== "בוטל" && item.data.status !== "בוצע" && (
+                {item.kind === "appointment" &&
+                  !isCancelledAppointment(item.data.status) &&
+                  item.data.status !== "בוצע" && (
                   <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 pt-3">
                     {/* "שלם יתרה" only appears once the deposit is paid ("מאושר").
                         TODO(product, unresolved): nothing here flags or blocks an
                         appointment whose date arrives with the balance still
                         unpaid — see the note on AppointmentStatus in types/index.ts
                         and README.md. */}
-                    {item.data.status === "מאושר" && (
+                    {(item.data.status === "מאושר" || item.data.status === "ממתין לתשלום יתרה") && (
                       <Button size="sm" onClick={() => onPayBalance(item.data)}>
                         שלם יתרה
                       </Button>
@@ -804,7 +824,7 @@ function AppointmentListCard({
                   </div>
                 )}
 
-                {item.data.status === "בוטל" && (
+                {(item.data.status === "בוטל" || item.data.status === "בוטל — יתרה לא שולמה") && (
                   <div className="flex justify-end border-t border-slate-100 pt-3">
                     <Link href="/client/search">
                       <Button size="sm">

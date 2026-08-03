@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { isoDate, monthGridDays, WEEKDAY_LABELS } from "@/lib/calendar";
-import { Appointment } from "@/types";
+import { Appointment, isCancelledAppointment } from "@/types";
 import { APPOINTMENT_STATUS_COLORS } from "@/lib/appointment-calendar";
 
 /** Month overview of the diary — "which days are full, which are empty".
@@ -45,7 +45,7 @@ export function AppointmentMonthView({
           const inMonth = d.getMonth() === anchor.getMonth();
           const isToday = iso === todayIso;
           const dayAppointments = byDay.get(iso) ?? [];
-          const active = dayAppointments.filter((a) => a.status !== "בוטל");
+          const active = dayAppointments.filter((a) => !isCancelledAppointment(a.status));
           return (
             <button
               key={iso}

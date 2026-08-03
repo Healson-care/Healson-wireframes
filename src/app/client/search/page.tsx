@@ -8,6 +8,8 @@ import { ClientLayout } from "@/components/layouts/ClientLayout";
 import { Button } from "@/components/ui/Button";
 import { useStore } from "@/lib/store";
 import { useCurrentPatient } from "@/lib/useCurrentPatient";
+import { resolveDeposit } from "@/lib/commission";
+import { balanceDueAt } from "@/lib/appointment-payments";
 import { resolveProviderPrice } from "@/lib/pricing";
 import { BookingStepper, BookingStepperMode } from "@/components/book/BookingStepper";
 import { ServiceDiscovery, SelectedServiceItem } from "@/components/book/ServiceDiscovery";
@@ -38,6 +40,10 @@ export default function ClientSearchPage() {
   const addOrder = useStore((s) => s.addOrder);
   const addDocument = useStore((s) => s.addDocument);
   const showToast = useStore((s) => s.showToast);
+  const catalog = useStore((s) => s.catalog);
+  const fixedFeeRules = useStore((s) => s.fixedFeeRules);
+  const defaultCommissionRate = useStore((s) => s.defaultCommissionRate);
+  const commissionRateByServiceType = useStore((s) => s.commissionRateByServiceType);
   const currentUser = useStore((s) => s.currentUser);
   const patient = useCurrentPatient();
 
@@ -76,6 +82,18 @@ export default function ClientSearchPage() {
   const resolvedPrice =
     consultation && selectedProvider ? resolveProviderPrice(consultation.prices, selectedProvider.agreements, patient) : null;
   const price = resolvedPrice?.price ?? consultation?.prices.find((p) => p.layer === "H")?.price ?? 0;
+  // The deposit IS Healson's commission (payments meeting §3/§8) — resolved
+  // from the same rules the admin sets, never a hard-coded percentage. The
+  // patient only ever sees the shekel figure.
+  const depositAmount = resolveDeposit({
+    provider: selectedProvider,
+    serviceType: catalog.find((c) => c.id === consultation?.catalog_item_id)?.service_type,
+    price,
+    fixedFeeRules,
+    defaultRate: defaultCommissionRate,
+    rateByServiceType: commissionRateByServiceType,
+  });
+  const balanceAmount = Math.max(0, price - depositAmount);
   // Always the private/out-of-pocket price, regardless of which layer this
   // patient actually qualifies for — shown alongside `price` so the payment
   // summary can show "full price" vs. "your price" as two distinct lines.
@@ -121,7 +139,14 @@ export default function ClientSearchPage() {
       duration_minutes: consultation?.duration_minutes ?? 30,
       status: "ממתין לתשלום מקדמה",
       price,
-      deposit_amount: Math.round(price * 0.3),
+      funding_layer: resolvedPrice?.layer,
+      deposit_amount: depositAmount,
+      // The balance and its charge deadline are fixed at booking, because that
+      // is exactly what the patient is shown and agrees to (payments §3).
+      balance_amount: balanceAmount,
+      balance_collector: selectedProvider.balance_collector ?? "healson",
+      balance_due_at:
+        (selectedProvider.balance_collector ?? "healson") === "healson" ? balanceDueAt(date) : undefined,
       kupah: patient?.kupah,
       notes: "",
       created_by_id: patient?.id ?? currentUser?.id,
@@ -189,8 +214,10 @@ export default function ClientSearchPage() {
     }
     setPaying(true);
     setTimeout(() => {
-      const commissionRate = selectedProvider.commission_rate ?? 15;
-      const commissionAmount = Math.round((price * commissionRate) / 100);
+      const commissionRate = selectedProvider.commission_rate ?? defaultCommissionRate;
+      // The deposit already collected IS the commission (payments meeting §8),
+      // so it is never recomputed here — the two figures cannot disagree.
+      const commissionAmount = depositAmount;
       // Payment success is the moment the pending hold becomes a confirmed
       // appointment — and the moment this lead becomes a client in practice.
       updateAppointment(pendingAppointmentId, { status: "מאושר", deposit_paid_at: new Date().toISOString() });
@@ -203,8 +230,8 @@ export default function ClientSearchPage() {
         final_price: price,
         status: "מאושר",
         payment_status: "מקדמה שולמה",
-        deposit_amount: Math.round(price * 0.3),
-        balance_amount: Math.round(price * 0.7),
+        deposit_amount: depositAmount,
+        balance_amount: balanceAmount,
         commission_rate: commissionRate,
         commission_amount: commissionAmount,
         provider_payout_amount: price - commissionAmount,
