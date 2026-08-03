@@ -40,6 +40,16 @@ export interface StatusColor {
 // (APPOINTMENT_CHIP_TONE in lib/calendar.ts, APPOINTMENT_TONE in ui/Badge) —
 // full static class strings, since Tailwind can't see composed names.
 export const APPOINTMENT_STATUS_COLORS: Record<AppointmentStatus, StatusColor> = {
+  // Waiting on the unit to review a referral — the same amber family as the
+  // other "not settled yet" state, but violet so a unit can tell at a glance
+  // which of its slots are waiting on IT rather than on the patient's wallet.
+  "ממתין לאישור היחידה הרפואית": {
+    dot: "bg-violet-500",
+    chip: "bg-violet-50 text-violet-700 border-violet-200",
+    block: "bg-violet-50 border-violet-200 text-violet-900 hover:bg-violet-100",
+    accent: "bg-violet-500",
+    ring: "ring-violet-500",
+  },
   "ממתין לתשלום מקדמה": {
     dot: "bg-amber-500",
     chip: "bg-amber-50 text-amber-700 border-amber-200",

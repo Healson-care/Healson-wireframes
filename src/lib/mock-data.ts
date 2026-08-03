@@ -33,7 +33,7 @@ import {
 import { generateId, isoDateDaysFromNow, isoTimestampHoursFromNow } from "./utils";
 import { SEED_SKILL_DOMAINS, SEED_SKILL_SUBDOMAINS } from "./medical-tree";
 import { scheduleToLegacyHours } from "./schedule";
-import { resolveCatalogPrice, resolveProviderPrice } from "./pricing";
+import { resolveCatalogPrice, resolvePriceBreakdown } from "./pricing";
 
 // -------------------------------------------------------------------------
 // Demo accounts — used by the mock auth flow (see src/lib/store.ts).
@@ -182,8 +182,9 @@ const provider2: ProviderProfile = {
       prices: [
         { layer: "K", price: 130 },
         { layer: "B", price: 60 },
-        { layer: "H", price: 420 },
+        { layer: "H", price: 480 },
       ],
+      price_full: 420,
       service_type: "consultation",
       linked_clinic_ids: [provider2ClinicId],
       requires_questionnaire: true,
@@ -200,8 +201,9 @@ const provider2: ProviderProfile = {
       prices: [
         { layer: "K", price: 55 },
         { layer: "B", price: 25 },
-        { layer: "H", price: 180 },
+        { layer: "H", price: 210 },
       ],
+      price_full: 180,
       service_type: "test",
       moh_code: "21030",
       linked_clinic_ids: [provider2ClinicId],
@@ -213,8 +215,9 @@ const provider2: ProviderProfile = {
       prices: [
         { layer: "K", price: 200 },
         { layer: "B", price: 90 },
-        { layer: "H", price: 650 },
+        { layer: "H", price: 750 },
       ],
+      price_full: 650,
       service_type: "test",
       moh_code: "21040",
       linked_clinic_ids: [provider2ClinicId],
@@ -229,8 +232,9 @@ const provider2: ProviderProfile = {
       prices: [
         { layer: "K", price: 260 },
         { layer: "B", price: 120 },
-        { layer: "H", price: 800 },
+        { layer: "H", price: 920 },
       ],
+      price_full: 800,
       service_type: "imaging",
       moh_code: "52040",
       linked_clinic_ids: [provider2ClinicId],
@@ -242,8 +246,9 @@ const provider2: ProviderProfile = {
       prices: [
         { layer: "K", price: 180 },
         { layer: "B", price: 80 },
-        { layer: "H", price: 520 },
+        { layer: "H", price: 600 },
       ],
+      price_full: 520,
       service_type: "test",
       moh_code: "21090",
       linked_clinic_ids: [provider2ClinicId],
@@ -386,11 +391,12 @@ const provider1: ProviderProfile = {
       name: "ייעוץ אורתופדי — ברך וכתף",
       duration_minutes: 30,
       prices: [
-        { layer: "S", price: 35 },
+        { layer: "S", price: 0 },
         { layer: "K", price: 120 },
         { layer: "B", price: 60 },
-        { layer: "H", price: 450 },
+        { layer: "H", price: 520 },
       ],
+      price_full: 450,
       service_type: "consultation",
       linked_clinic_ids: [provider1ClinicId, provider1ClinicId2],
       requires_referral: true,
@@ -407,8 +413,9 @@ const provider1: ProviderProfile = {
       duration_minutes: 30,
       prices: [
         { layer: "K", price: 100 },
-        { layer: "H", price: 390 },
+        { layer: "H", price: 450 },
       ],
+      price_full: 390,
       service_type: "consultation",
       linked_clinic_ids: [provider1ClinicId, provider1ClinicId2],
       required_documents: [{ id: generateId("reqdoc"), label: "מסמכי הייעוץ/הניתוח המוצע" }],
@@ -424,8 +431,9 @@ const provider1: ProviderProfile = {
       prices: [
         { layer: "K", price: 180 },
         { layer: "B", price: 90 },
-        { layer: "H", price: 650 },
+        { layer: "H", price: 750 },
       ],
+      price_full: 650,
       service_type: "procedure",
       moh_code: "32020",
       linked_clinic_ids: [provider1ClinicId],
@@ -436,8 +444,9 @@ const provider1: ProviderProfile = {
       duration_minutes: 90,
       prices: [
         { layer: "B", price: 1500 },
-        { layer: "H", price: 18500 },
+        { layer: "H", price: 21280 },
       ],
+      price_full: 18500,
       service_type: "surgery",
       moh_code: "42010",
       linked_clinic_ids: [provider1ClinicId],
@@ -605,7 +614,8 @@ const provider4: ProviderProfile = {
       id: generateId("ct"),
       name: "ייעוץ עור כללי",
       duration_minutes: 20,
-      prices: [{ layer: "H", price: 350 }],
+      prices: [{ layer: "H", price: 400 }],
+      price_full: 350,
       service_type: "consultation",
     },
     // Mole mapping is the one item every dermatology clinic sells alongside the
@@ -615,7 +625,8 @@ const provider4: ProviderProfile = {
       id: generateId("ct"),
       name: "מיפוי שומות דיגיטלי (דרמוסקופיה)",
       duration_minutes: 30,
-      prices: [{ layer: "H", price: 550 }],
+      prices: [{ layer: "H", price: 630 }],
+      price_full: 550,
       service_type: "test",
       moh_code: "21070",
     },
@@ -666,8 +677,9 @@ const provider5: ProviderProfile = {
       prices: [
         { layer: "K", price: 150 },
         { layer: "B", price: 70 },
-        { layer: "H", price: 480 },
+        { layer: "H", price: 550 },
       ],
+      price_full: 480,
       service_type: "consultation",
       linked_clinic_ids: [provider5ClinicId],
     },
@@ -680,8 +692,9 @@ const provider5: ProviderProfile = {
       prices: [
         { layer: "K", price: 450 },
         { layer: "B", price: 200 },
-        { layer: "H", price: 1500 },
+        { layer: "H", price: 1730 },
       ],
+      price_full: 1500,
       service_type: "procedure",
       moh_code: "31020",
       linked_clinic_ids: [provider5ClinicId],
@@ -696,8 +709,9 @@ const provider5: ProviderProfile = {
       prices: [
         { layer: "K", price: 650 },
         { layer: "B", price: 300 },
-        { layer: "H", price: 2200 },
+        { layer: "H", price: 2530 },
       ],
+      price_full: 2200,
       service_type: "procedure",
       moh_code: "31010",
       linked_clinic_ids: [provider5ClinicId],
@@ -804,7 +818,8 @@ const provider6: ProviderProfile = {
       id: provider6ConsultId,
       name: "ייעוץ רפואת עיניים",
       duration_minutes: 20,
-      prices: [{ layer: "H", price: 390 }],
+      prices: [{ layer: "H", price: 450 }],
+      price_full: 390,
       service_type: "consultation",
       linked_clinic_ids: [provider6ClinicId],
     },
@@ -814,7 +829,8 @@ const provider6: ProviderProfile = {
       id: provider6OctId,
       name: "בדיקת OCT — טומוגרפיה של הרשתית",
       duration_minutes: 20,
-      prices: [{ layer: "H", price: 450 }],
+      prices: [{ layer: "H", price: 520 }],
+      price_full: 450,
       service_type: "imaging",
       moh_code: "52050",
       linked_clinic_ids: [provider6ClinicId],
@@ -823,7 +839,8 @@ const provider6: ProviderProfile = {
       id: provider6CataractId,
       name: "ניתוח קטרקט עם השתלת עדשה",
       duration_minutes: 45,
-      prices: [{ layer: "H", price: 13500 }],
+      prices: [{ layer: "H", price: 15530 }],
+      price_full: 13500,
       service_type: "surgery",
       moh_code: "43010",
       linked_clinic_ids: [provider6ClinicId],
@@ -1020,8 +1037,9 @@ const providerInstitute: ProviderProfile = {
       duration_minutes: 45,
       prices: [
         { layer: "K", price: 390 },
-        { layer: "H", price: 1450 },
+        { layer: "H", price: 1670 },
       ],
+      price_full: 1450,
       service_type: "imaging",
       service_category: "בדיקות",
       moh_code: "54021",
@@ -1034,8 +1052,9 @@ const providerInstitute: ProviderProfile = {
       duration_minutes: 40,
       prices: [
         { layer: "K", price: 410 },
-        { layer: "H", price: 1520 },
+        { layer: "H", price: 1750 },
       ],
+      price_full: 1520,
       service_type: "imaging",
       service_category: "בדיקות",
       moh_code: "54010",
@@ -1048,8 +1067,9 @@ const providerInstitute: ProviderProfile = {
       duration_minutes: 30,
       prices: [
         { layer: "K", price: 320 },
-        { layer: "H", price: 1100 },
+        { layer: "H", price: 1270 },
       ],
+      price_full: 1100,
       service_type: "imaging",
       service_category: "בדיקות",
       moh_code: "53020",
@@ -1063,8 +1083,9 @@ const providerInstitute: ProviderProfile = {
       duration_minutes: 20,
       prices: [
         { layer: "K", price: 280 },
-        { layer: "H", price: 950 },
+        { layer: "H", price: 1090 },
       ],
+      price_full: 950,
       service_type: "imaging",
       service_category: "בדיקות",
       moh_code: "53030",
@@ -1077,8 +1098,9 @@ const providerInstitute: ProviderProfile = {
       duration_minutes: 25,
       prices: [
         { layer: "K", price: 150 },
-        { layer: "H", price: 480 },
+        { layer: "H", price: 550 },
       ],
+      price_full: 480,
       service_type: "imaging",
       service_category: "בדיקות",
       moh_code: "52010",
@@ -1095,8 +1117,9 @@ const providerInstitute: ProviderProfile = {
       duration_minutes: 40,
       prices: [
         { layer: "K", price: 480 },
-        { layer: "H", price: 1750 },
+        { layer: "H", price: 2010 },
       ],
+      price_full: 1750,
       service_type: "procedure",
       service_category: "פעולות",
       moh_code: "31030",
@@ -1114,8 +1137,9 @@ const providerInstitute: ProviderProfile = {
       duration_minutes: 60,
       prices: [
         { layer: "K", price: 650 },
-        { layer: "H", price: 2400 },
+        { layer: "H", price: 2760 },
       ],
+      price_full: 2400,
       service_type: "procedure",
       service_category: "פעולות",
       moh_code: "31010",
@@ -1129,8 +1153,9 @@ const providerInstitute: ProviderProfile = {
       duration_minutes: 20,
       prices: [
         { layer: "K", price: 90 },
-        { layer: "H", price: 260 },
+        { layer: "H", price: 300 },
       ],
+      price_full: 260,
       service_type: "test",
       service_category: "בדיקות עד הבית",
       moh_code: "20010",
@@ -1142,7 +1167,8 @@ const providerInstitute: ProviderProfile = {
       id: instituteServiceIds.surgeonPick,
       name: "בחירת מנתח — ניתוח בקע",
       duration_minutes: 90,
-      prices: [{ layer: "H", price: 14500 }],
+      prices: [{ layer: "H", price: 16680 }],
+      price_full: 14500,
       service_type: "surgery",
       service_category: "בחירת מנתח",
       moh_code: "41010",
@@ -1402,10 +1428,11 @@ const providerOutpatient: ProviderProfile = {
       name: "ייעוץ רפואת משפחה",
       duration_minutes: 20,
       prices: [
-        { layer: "S", price: 30 },
+        { layer: "S", price: 0 },
         { layer: "K", price: 90 },
-        { layer: "H", price: 320 },
+        { layer: "H", price: 370 },
       ],
+      price_full: 320,
       service_type: "consultation",
       service_category: "ייעוץ",
       linked_clinic_ids: [outpatientClinicId],
@@ -1416,8 +1443,9 @@ const providerOutpatient: ProviderProfile = {
       duration_minutes: 15,
       prices: [
         { layer: "K", price: 60 },
-        { layer: "H", price: 210 },
+        { layer: "H", price: 240 },
       ],
+      price_full: 210,
       service_type: "consultation",
       service_category: "ייעוץ חוזר",
       linked_clinic_ids: [outpatientClinicId],
@@ -1426,7 +1454,8 @@ const providerOutpatient: ProviderProfile = {
       id: outpatientServiceIds.secondOpinion,
       name: "חוות דעת נוספת",
       duration_minutes: 30,
-      prices: [{ layer: "H", price: 480 }],
+      prices: [{ layer: "H", price: 550 }],
+      price_full: 480,
       service_type: "consultation",
       service_category: "חוות דעת נוספת",
       linked_clinic_ids: [outpatientClinicId],
@@ -1436,10 +1465,11 @@ const providerOutpatient: ProviderProfile = {
       name: "ייעוץ קרדיולוגי",
       duration_minutes: 30,
       prices: [
-        { layer: "S", price: 35 },
+        { layer: "S", price: 0 },
         { layer: "K", price: 140 },
-        { layer: "H", price: 450 },
+        { layer: "H", price: 520 },
       ],
+      price_full: 450,
       service_type: "consultation",
       service_category: "ייעוץ",
       linked_clinic_ids: [outpatientClinicId],
@@ -1450,10 +1480,11 @@ const providerOutpatient: ProviderProfile = {
       name: "ייעוץ אורתופדי",
       duration_minutes: 20,
       prices: [
-        { layer: "S", price: 35 },
+        { layer: "S", price: 0 },
         { layer: "K", price: 130 },
-        { layer: "H", price: 430 },
+        { layer: "H", price: 500 },
       ],
+      price_full: 430,
       service_type: "consultation",
       service_category: "ייעוץ",
       linked_clinic_ids: [outpatientClinicId],
@@ -1467,8 +1498,9 @@ const providerOutpatient: ProviderProfile = {
       duration_minutes: 45,
       prices: [
         { layer: "K", price: 180 },
-        { layer: "H", price: 620 },
+        { layer: "H", price: 710 },
       ],
+      price_full: 620,
       service_type: "test",
       service_category: "אבחונים",
       moh_code: "21040",
@@ -1481,8 +1513,9 @@ const providerOutpatient: ProviderProfile = {
       duration_minutes: 10,
       prices: [
         { layer: "S", price: 0 },
-        { layer: "H", price: 150 },
+        { layer: "H", price: 170 },
       ],
+      price_full: 150,
       service_type: "test",
       service_category: "בדיקות",
       moh_code: "20010",
@@ -1495,8 +1528,9 @@ const providerOutpatient: ProviderProfile = {
       duration_minutes: 30,
       prices: [
         { layer: "K", price: 120 },
-        { layer: "H", price: 380 },
+        { layer: "H", price: 440 },
       ],
+      price_full: 380,
       service_type: "treatment",
       service_category: "טיפולים",
       linked_clinic_ids: [outpatientClinicId],
@@ -1719,8 +1753,9 @@ const demoUnitInstitute = demoUnit({
       prices: [
         { layer: "K", price: 380 },
         { layer: "B", price: 190 },
-        { layer: "H", price: 1400 },
+        { layer: "H", price: 1610 },
       ],
+      price_full: 1400,
       service_type: "imaging",
       service_category: "בדיקות",
       moh_code: "54040",
@@ -1733,8 +1768,9 @@ const demoUnitInstitute = demoUnit({
       prices: [
         { layer: "K", price: 390 },
         { layer: "B", price: 195 },
-        { layer: "H", price: 1450 },
+        { layer: "H", price: 1670 },
       ],
+      price_full: 1450,
       service_type: "imaging",
       service_category: "בדיקות",
       moh_code: "54021",
@@ -1747,8 +1783,9 @@ const demoUnitInstitute = demoUnit({
       prices: [
         { layer: "K", price: 260 },
         { layer: "B", price: 130 },
-        { layer: "H", price: 890 },
+        { layer: "H", price: 1020 },
       ],
+      price_full: 890,
       service_type: "imaging",
       service_category: "בדיקות",
       moh_code: "53010",
@@ -1831,8 +1868,9 @@ const demoUnitClinic = demoUnit({
       prices: [
         { layer: "K", price: 140 },
         { layer: "B", price: 70 },
-        { layer: "H", price: 440 },
+        { layer: "H", price: 510 },
       ],
+      price_full: 440,
       service_type: "consultation",
       service_array_ids: ["sarr_clinic_consult"],
     },
@@ -2593,7 +2631,9 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
     // insurance layer — a price copied from an unrelated catalog row is what
     // made a 20-minute consultation show up at an MRI's tariff.
     const price =
-      (service ? resolveProviderPrice(service.prices, provider.agreements, patient)?.price : undefined) ??
+      (service
+        ? resolvePriceBreakdown(service.prices, provider.agreements, patient, service.price_full)?.price
+        : undefined) ??
       resolveCatalogPrice(SEED_CATALOG[i % SEED_CATALOG.length].base_price, patient).price;
     return {
       id: generateId("appt"),
@@ -2752,7 +2792,9 @@ export const SEED_ORDERS: Order[] = SEED_APPOINTMENTS.slice(0, 16).map(
     const service = provider?.consultation_types.find((s) => s.name === appt.service_name);
     const price =
       appt.price ??
-      (service ? resolveProviderPrice(service.prices, provider?.agreements, patient)?.price : undefined) ??
+      (service
+        ? resolvePriceBreakdown(service.prices, provider?.agreements, patient, service.price_full)?.price
+        : undefined) ??
       0;
     const commissionRate = provider?.commission_rate ?? 15;
     const commissionAmount = Math.round((price * commissionRate) / 100);
