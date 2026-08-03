@@ -29,7 +29,7 @@ import { DAY_LABELS } from "@/lib/medical-tree";
 import { isoDate } from "@/lib/calendar";
 import { dayKeyForDate, minutesToTime, shiftsForDate, timeToMinutes } from "@/lib/schedule";
 import { getUnitResources, isUnitProvider } from "@/lib/unit-resources";
-import { resolveProviderPrice } from "@/lib/pricing";
+import { resolvePriceBreakdown } from "@/lib/pricing";
 import {
   CalendarView,
   NO_DEPT,
@@ -1384,7 +1384,9 @@ function NewAppointmentBody({
     [appointments, provider.id, resourceId, practitionerId, date, startMin, duration]
   );
 
-  const priced = service ? resolveProviderPrice(service.prices, provider.agreements, patient ?? null) : null;
+  const priced = service
+    ? resolvePriceBreakdown(service.prices, provider.agreements, patient ?? null, service.price_full)
+    : null;
   const canSubmit = !!clientName && !!service && !!date && !!time && !conflict;
 
   // Booking outside your own shifts is allowed — squeezing someone in is a real

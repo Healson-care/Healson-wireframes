@@ -158,15 +158,29 @@ export interface PriceByKupah {
 // balance never collected)? No automatic enforcement exists yet — this is a
 // fully local mock app with no background jobs, so nothing currently flags
 // or blocks an appointment whose balance is overdue. See README.md.
-export type AppointmentStatus = "ממתין לתשלום מקדמה" | "מאושר" | "שולם במלואו" | "בוצע" | "בוטל";
+// "ממתין לאישור היחידה הרפואית" precedes payment for every item that needs a
+// referral: the patient uploads it and picks a slot, the unit reviews the
+// referral, and only then is the deposit charged. The slot is held meanwhile
+// (see UNIT_APPROVAL_HOLD_HOURS) rather than being sold to someone else.
+export type AppointmentStatus =
+  | "ממתין לאישור היחידה הרפואית"
+  | "ממתין לתשלום מקדמה"
+  | "מאושר"
+  | "שולם במלואו"
+  | "בוצע"
+  | "בוטל";
 
 export const APPOINTMENT_STATUSES: AppointmentStatus[] = [
+  "ממתין לאישור היחידה הרפואית",
   "ממתין לתשלום מקדמה",
   "מאושר",
   "שולם במלואו",
   "בוצע",
   "בוטל",
 ];
+
+/** How long a slot stays reserved while the medical unit reviews the referral. */
+export const UNIT_APPROVAL_HOLD_HOURS = 24;
 
 export type PatientStatus = "פעיל" | "לא פעיל" | "ממתין";
 export const PATIENT_STATUSES: PatientStatus[] = ["פעיל", "לא פעיל", "ממתין"];

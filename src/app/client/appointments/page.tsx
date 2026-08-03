@@ -102,6 +102,8 @@ function getCancellationInfo(appointment: Appointment): CancellationInfo {
 // lifecycle means and when it changes — shown both in the legend panel and
 // as a hover tooltip on each item's badge.
 const APPOINTMENT_STATUS_DESCRIPTIONS: Record<AppointmentStatus, string> = {
+  "ממתין לאישור היחידה הרפואית":
+    "ההפניה נשלחה לבדיקת היחידה. המועד שמור עבורכם עד יממה, ולא ייגבה תשלום עד שתתקבל תשובה",
   "ממתין לתשלום מקדמה": "בחרתם מועד — המקום שמור זמנית עד שתשלימו את תשלום המקדמה",
   "מאושר": "תשלום המקדמה התקבל, התור נקבע סופית",
   "שולם במלואו": "היתרה שולמה במלואה לפני מועד התור",
