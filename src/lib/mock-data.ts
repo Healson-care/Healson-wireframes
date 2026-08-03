@@ -128,6 +128,7 @@ const provider2: ProviderProfile = {
   display_name: "ד\"ר מיכל ברק",
   title: "ד\"ר",
   specialty: "קרדיולוגיה",
+  sub_specialties: ["קרדיולוגיה התערבותית", "מעקב מטופלי לב כרוניים"],
   bio: "מומחית ברפואת לב עם ניסיון של מעל 15 שנה, בעלת תואר נוסף בקרדיולוגיה התערבותית. מתמחה באבחון מוקדם ומעקב מטופלי לב כרוניים.",
   languages: ["עברית", "אנגלית", "רוסית"],
   rating: 4.9,
@@ -244,6 +245,7 @@ const provider1: ProviderProfile = {
   display_name: "ד\"ר אבי לוי",
   title: "ד\"ר",
   specialty: "אורתופדיה",
+  sub_specialties: ["כירורגיית ברך", "כירורגיית כתף", "ניתוחים זעיר-פולשניים"],
   bio: "מנתח אורתופד בכיר המתמחה בכירורגיית ברך וכתף, כולל ניתוחים זעיר-פולשניים. ליווה אלפי מטופלים בדרך להחלמה מלאה.",
   languages: ["עברית", "אנגלית"],
   rating: 4.8,
@@ -430,6 +432,7 @@ const provider5: ProviderProfile = {
   display_name: "ד\"ר עדי רון",
   title: "ד\"ר",
   specialty: "גסטרואנטרולוגיה",
+  sub_specialties: ["אנדוסקופיה", "מחלות מעי דלקתיות"],
   bio: "מומחית לגסטרואנטרולוגיה ואנדוסקופיה, עם התמקדות באבחון וטיפול במחלות מערכת העיכול.",
   languages: ["עברית", "אנגלית"],
   rating: 4.7,
@@ -495,6 +498,7 @@ const provider6: ProviderProfile = {
   display_name: "ד\"ר יובל שרון",
   title: "ד\"ר",
   specialty: "רפואת עיניים",
+  sub_specialties: ["ניתוחי קטרקט", "טיפולי לייזר"],
   bio: "רופא עיניים בכיר המתמחה בניתוחי קטרקט ובטיפול לייזר, עובד באופן פרטי בלבד.",
   languages: ["עברית", "אנגלית"],
   rating: 4.9,
@@ -1868,14 +1872,9 @@ SEED_PATIENTS[0].email = DEMO_PATIENT_USER.email;
 SEED_PATIENTS[0].status = "פעיל";
 SEED_PATIENTS[0].kupah = "מכבי";
 SEED_PATIENTS[0].k_level = "מכבי שלי";
-// Two policies — demonstrates that a patient can hold more than one private
-// insurance at once, unlike kupah which stays single. The second is
-// deliberately not in B_INSURANCE_COMPANIES, to demonstrate the "אחר"
-// free-text company flow in InsuranceProfileForm right away.
-SEED_PATIENTS[0].b_insurances = [
-  { company: "מגדל ביטוח", policy_number: "POL-100000" },
-  { company: "ביטוח ישיר", policy_number: "POL-100001" },
-];
+// One private policy, from the recognised carrier list — the demo patient
+// should read as a realistic profile, so no free-text placeholder carrier.
+SEED_PATIENTS[0].b_insurances = [{ company: "מגדל", policy_number: "POL-100000" }];
 
 // ---------------------------------------------------------------------------
 // Consent records (§4.2, §11.1) — required consents granted at signup for

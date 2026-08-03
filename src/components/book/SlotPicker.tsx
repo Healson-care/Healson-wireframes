@@ -110,10 +110,14 @@ export function SlotPicker({
   if (!selectedClinic) {
     return (
       <div>
+        {/* The patient already picked a specific service, so this is about
+            where THAT service is given — not a statement about the provider,
+            which also read wrong for institutes and clinics. */}
         <div className="text-center mb-6">
-          <h2 className="text-xl font-bold text-slate-900">בחרו סניף</h2>
+          <h2 className="text-xl font-bold text-slate-900">בחרו מיקום</h2>
           <p className="text-slate-500 text-sm mt-1">
-            ל{provider.title} {provider.display_name} יש כמה סניפים — באיזה מהם תרצו לקבוע תור?
+            {service ? `"${service.name}" ניתן ב-${bookableClinics.length} מיקומים` : "השירות ניתן בכמה מיקומים"} — היכן
+            תרצו לקבוע?
           </p>
         </div>
         <div className="flex flex-col gap-2.5">
@@ -144,14 +148,20 @@ export function SlotPicker({
         <p className="text-slate-500 text-sm mt-1">
           זמינות אצל {provider.title} {provider.display_name}
         </p>
-        {bookableClinics.length > 1 && (
-          <button
-            onClick={() => setSelectedClinicId(null)}
-            className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-          >
-            <MapPin className="h-3.5 w-3.5" /> {selectedClinic.name} · שינוי סניף
-          </button>
-        )}
+        {/* Always shown, so the chosen location is visible even when the
+            service is only given at one — she shouldn't have to guess where
+            the slots she's looking at actually are. */}
+        <p className="mt-2 inline-flex items-center gap-1 text-xs text-slate-500">
+          <MapPin className="h-3.5 w-3.5 shrink-0" /> {selectedClinic.name}
+          {bookableClinics.length > 1 && (
+            <button
+              onClick={() => setSelectedClinicId(null)}
+              className="focus-ring font-medium text-primary hover:underline"
+            >
+              · שינוי מיקום
+            </button>
+          )}
+        </p>
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">

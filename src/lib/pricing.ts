@@ -1,51 +1,104 @@
-// SKBH pricing resolution (§2.2, §7.1) — centralizes what used to be 3
-// duplicated per-kupah price lookups. A patient's price for a given
-// provider+service depends on which insurance layer(s) they hold *and* which
-// layers that specific provider has an active agreement for.
+// SKBH+P pricing resolution (§2.2, §7.1, and מודל התמחור.pdf) — the funding
+// ROUTE is the primary entity; the number is a product of the route.
+//
+// The six routes, in the order the resolver considers them:
+//
+//   S  — covered by the health basket: no payable price at all, the patient
+//        needs a kupah commitment (התחייבות / טופס 17).
+//   K  — kupah arrangement: the displayed price is the copay only.
+//   B  — private-insurance arrangement: same, gated by the insurer.
+//   H  — tourist price: an EXCLUSIVE classification. A tourist has no Israeli
+//        kupah, so H replaces the whole insurance profile — it is not a
+//        fallback layer that insured patients ever land on.
+//   P  — the base/full price. Every item has one; it is the anchor every
+//        other presentation is measured against.
+//   "ייתכן החזר" — not a price: an informational hint that the patient's own
+//        שב"ן/private policy MAY reimburse a full-price service. The system
+//        never calculates or displays reimbursement amounts, and the hint is
+//        NOT derived from provider agreements — eligibility is between the
+//        patient and her insurer.
 import { InsuranceLayer, Patient, PriceByLayer, ProviderAgreement } from "@/types";
 
-const LAYER_PRIORITY: InsuranceLayer[] = ["S", "K", "B", "H"];
+const ARRANGEMENT_PRIORITY: InsuranceLayer[] = ["S", "K", "B"];
 
-/** Which SKBH layers a patient holds. H is always available (fallback/full
- * private price); S only applies if the patient actually has a kupah on
- * file — a patient with none (tourist / no institutional coverage) holds
- * at most B (if privately insured) plus H, never S or K. */
+/** A patient with no Israeli kupah on file is priced as a tourist (route H). */
+export function isTourist(patient?: Patient | null): boolean {
+  return !patient?.kupah;
+}
+
+/** Which SKBH layers a patient holds — S/K/B only; tourists hold none. */
 export function getPatientLayers(patient?: Patient | null): InsuranceLayer[] {
   const layers: InsuranceLayer[] = [];
   if (patient?.kupah) layers.push("S");
   if (patient?.k_level) layers.push("K");
   if (patient?.b_insurances?.length) layers.push("B");
-  layers.push("H");
   return layers;
 }
 
 /**
- * Resolves the price a patient actually pays for a specific provider's
- * service, matching their held layers against what the provider accepts.
- * Returns the cheapest layer the patient is eligible for at this provider,
- * falling back to H (full price) — mirrors §7.1's pricing principle.
+ * The item's base price (P). Prefer the dedicated price_full field; fall back
+ * to the highest listed tier so legacy items without one still resolve.
  */
-export function resolveProviderPrice(
+export function resolveBasePrice(prices: PriceByLayer[], priceFull?: number): number {
+  if (priceFull) return priceFull;
+  return prices.reduce((max, p) => Math.max(max, p.price), 0);
+}
+
+export type FundingKind = "basket" | "arrangement" | "tourist" | "base";
+
+export interface PriceBreakdown {
+  kind: FundingKind;
+  /** P — always present, the reference everything else is anchored on. */
+  basePrice: number;
+  /** What the patient actually pays now. 0 for a basket-covered service. */
+  price: number;
+  /** S/K/B for basket/arrangement, H for tourist, undefined for base. */
+  layer?: InsuranceLayer;
+  /** The route, phrased for the patient: "מחיר הסדר · מכבי שלי" and so on. */
+  label: string;
+  /**
+   * Plans worth checking for reimbursement when paying the base price — the
+   * patient's own שב"ן / insurer names. Informational only: presence of the
+   * hint never implies eligibility, and no amount is ever attached to it.
+   */
+  reimbursementHint?: string[];
+}
+
+/**
+ * Resolves how a specific provider's item is funded for this patient. One
+ * route wins, automatically — the patient never picks: basket, else the best
+ * arrangement in S→K→B priority, else tourist for tourists, else base price.
+ */
+export function resolvePriceBreakdown(
   prices: PriceByLayer[],
   agreements: ProviderAgreement[] | undefined,
-  patient: Patient | null | undefined
-): { layer: InsuranceLayer; price: number; matchedInsuranceCompany?: string } | null {
+  patient: Patient | null | undefined,
+  priceFull?: number
+): PriceBreakdown | null {
   if (!patient) return null;
-  const heldLayers = new Set(getPatientLayers(patient));
+  const basePrice = resolveBasePrice(prices, priceFull);
+  if (basePrice === 0) return null;
 
-  for (const layer of LAYER_PRIORITY) {
-    if (!heldLayers.has(layer)) continue;
+  if (isTourist(patient)) {
+    const touristEntry = prices.find((p) => p.layer === "H");
+    return {
+      kind: "tourist",
+      basePrice,
+      price: touristEntry?.price ?? basePrice,
+      layer: "H",
+      label: "מחיר תייר",
+    };
+  }
+
+  const held = new Set(getPatientLayers(patient));
+  for (const layer of ARRANGEMENT_PRIORITY) {
+    if (!held.has(layer)) continue;
     const entry = prices.find((p) => p.layer === layer);
     if (!entry) continue;
-
-    if (layer === "H") return { layer, price: entry.price };
-
     const agreement = agreements?.find((a) => a.layer === layer);
     if (!agreement) continue;
 
     if (layer === "S" || layer === "K") {
-      // patient.kupah is guaranteed set here — "S"/"K" only ever land in
-      // heldLayers (above) when it is.
       if (
         agreement.kupah_list &&
         agreement.kupah_list.length > 0 &&
@@ -54,85 +107,43 @@ export function resolveProviderPrice(
         continue;
       }
     }
-    if (layer === "B") {
-      const companies = agreement.insurance_companies ?? [];
-      const patientCompanies = (patient.b_insurances ?? []).map((ins) => ins.company);
-      // No agreement.insurance_companies list at all = the provider takes
-      // any private insurer, so any held policy matches (first one, since
-      // there's only one "B" price tier regardless of which company).
-      const matchedInsuranceCompany =
-        companies.length === 0 ? patientCompanies[0] : patientCompanies.find((c) => companies.includes(c));
-      if (companies.length > 0 && !matchedInsuranceCompany) continue;
-      return { layer, price: entry.price, matchedInsuranceCompany };
+    if (layer === "S") {
+      // Basket coverage is not a price — the service is covered, conditional
+      // on a kupah commitment. The S entry's amount is deliberately ignored.
+      return { kind: "basket", basePrice, price: 0, layer, label: "מכוסה בסל הבריאות" };
     }
-    return { layer, price: entry.price };
-  }
-  return null;
-}
-
-export interface PriceBreakdown {
-  /** Full/out-of-pocket price (layer H) — always shown as the baseline reference. */
-  privatePrice: number;
-  /**
-   * A negotiated lower price this provider bills the patient directly, matched
-   * against the patient's held S/K/B layer — patient pays this instead of the
-   * private price up front.
-   */
-  arrangement?: { price: number; layer: InsuranceLayer; label: string };
-  /**
-   * No negotiated price at this provider, but the patient holds a plan under
-   * a layer this provider generally engages with (declares an agreement for,
-   * just not one matching this patient's specific kupah/insurer) — patient
-   * pays the private price and can separately file for reimbursement.
-   */
-  reimbursementSources?: string[];
-}
-
-/**
- * Richer counterpart to resolveProviderPrice (§7.1): instead of collapsing
- * straight to a single number, separates "you pay less here" (an arrangement)
- * from "you pay full price but can claim it back" (reimbursement) so the UI
- * can explain *why* a price is what it is.
- */
-export function resolvePriceBreakdown(
-  prices: PriceByLayer[],
-  agreements: ProviderAgreement[] | undefined,
-  patient: Patient | null | undefined
-): PriceBreakdown | null {
-  const privateEntry = prices.find((p) => p.layer === "H");
-  if (!patient || !privateEntry) return null;
-  const privatePrice = privateEntry.price;
-
-  const resolved = resolveProviderPrice(prices, agreements, patient);
-  if (resolved && resolved.layer !== "H") {
-    const label =
-      resolved.layer === "S"
-        ? "מחיר סל קופה"
-        : resolved.layer === "K"
-        ? `מחיר הסדר · ${patient.k_level}`
-        : `מחיר הסדר · ${resolved.matchedInsuranceCompany}`;
-    return { privatePrice, arrangement: { price: resolved.price, layer: resolved.layer, label } };
+    if (layer === "K") {
+      return { kind: "arrangement", basePrice, price: entry.price, layer, label: `מחיר הסדר · ${patient.k_level}` };
+    }
+    // layer === "B"
+    const companies = agreement.insurance_companies ?? [];
+    const patientCompanies = (patient.b_insurances ?? []).map((ins) => ins.company);
+    const matched = companies.length === 0 ? patientCompanies[0] : patientCompanies.find((c) => companies.includes(c));
+    if (companies.length > 0 && !matched) continue;
+    return { kind: "arrangement", basePrice, price: entry.price, layer, label: `מחיר הסדר · ${matched}` };
   }
 
-  // No arrangement matched this patient specifically — but if the provider
-  // still declares that layer (just gated to other kupot/insurers), the
-  // patient's own plan(s) can still be claimed back from directly.
-  const providerLayers = new Set((agreements ?? []).map((a) => a.layer));
-  const reimbursementSources: string[] = [];
-  if (patient.k_level && providerLayers.has("K")) reimbursementSources.push(patient.k_level);
-  if (patient.b_insurances?.length && providerLayers.has("B")) {
-    reimbursementSources.push(...patient.b_insurances.map((ins) => ins.company));
-  }
-  if (reimbursementSources.length > 0) return { privatePrice, reimbursementSources };
+  // No arrangement — the patient pays the base price. Her own plans may
+  // reimburse her; we say only that, never how much, and independently of
+  // anything the provider declared.
+  const reimbursementHint: string[] = [];
+  if (patient.k_level) reimbursementHint.push(patient.k_level);
+  for (const ins of patient.b_insurances ?? []) reimbursementHint.push(ins.company);
 
-  return { privatePrice };
+  return {
+    kind: "base",
+    basePrice,
+    price: basePrice,
+    label: "מחיר מלא",
+    reimbursementHint: reimbursementHint.length > 0 ? reimbursementHint : undefined,
+  };
 }
 
 /**
- * Generic reference-catalog pricing (§5.3 items aren't tied to one booking
- * provider) — approximates the copay a patient would pay under their best
- * held layer, using typical Israeli supplemental/private insurance copay
- * ratios off the MOH tariff base price.
+ * Staff-facing approximation ONLY (/catalog, /medical lookup tools): rough
+ * copay ratios off the MOH tariff. Never show this to a patient — it invents
+ * numbers the real resolver doesn't stand behind, and the product rule is
+ * that reimbursements/copays are never estimated.
  */
 export function resolveCatalogPrice(
   basePrice: number,

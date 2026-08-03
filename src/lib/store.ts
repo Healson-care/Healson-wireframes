@@ -2163,7 +2163,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 30,
+      version: 32,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
       // records), the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER seed
       // account, the v3 -> v4 AppointmentStatus rename ("ממתין לאישור" ->
@@ -2249,7 +2249,14 @@ export const useStore = create<Store>()(
       // slice (single source of truth) and seeds a provider-side demo.
       // v29 -> v30 stamps provider_type "doctor" on the legacy solo demo doctors
       // (prov_1/prov_2) so they read as practitioners — reseed clean.
-      migrate: (persistedState, version) => (version < 30 ? ({} as Store) : (persistedState as Store)),
+      // v30 -> v31 adds sub_specialties to the published solo doctors, which the
+      // faceted search shows on each provider card — persisted v30 state has the
+      // old provider rows without them, so reseed clean.
+      // v31 -> v32 migrates seed prices to the SKBHP model (price_full base
+      // price on every item, H repurposed as a dedicated tourist price, S
+      // entries zeroed as basket coverage) and drops the placeholder
+      // "ביטוח ישיר" policy from the demo patient — reseed clean.
+      migrate: (persistedState, version) => (version < 32 ? ({} as Store) : (persistedState as Store)),
       // Uploaded files (photos/PDFs) are stored as base64 data URLs inside
       // this same persisted blob (no real backend — see file.ts). If a
       // single write ever still exceeds the browser's localStorage quota
