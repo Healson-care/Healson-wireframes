@@ -58,18 +58,26 @@ export function OnboardingProgress({ provider, className }: { provider: Provider
   const updateProviderById = useStore((s) => s.updateProviderById);
   const organizationBranches = useStore((s) => s.organizationBranches);
   const serviceArrays = useStore((s) => s.serviceArrays);
+  const affiliations = useStore((s) => s.affiliations);
   const [signDialogOpen, setSignDialogOpen] = useState(false);
   const [photoDialogOpen, setPhotoDialogOpen] = useState(false);
 
   const setupConfig = getProviderSetupConfig(provider.provider_type);
   const unitPath = isUnitPath(provider);
+  // Works only inside units → the units own the insurance arrangements
+  // (payments meeting §5), so that step isn't theirs to complete.
+  const inheritsArrangements =
+    provider.clinic_locations.length === 0 &&
+    affiliations.some(
+      (a) => a.provider_id === provider.id && (a.status === "active" || a.status === "unclaimed")
+    );
   // Branches and מערכים live in their own store slices, not on the profile.
   const unitBranches = organizationBranches.filter((b) => b.unit_id === provider.id);
   const unitBranchIds = new Set(unitBranches.map((b) => b.id));
   const unitArrays = serviceArrays.filter((a) => unitBranchIds.has(a.branch_id));
   const steps: Step[] = [
     { key: "sign", ok: !!provider.agreement_signed_at, label: "חתימת הסכם", sign: true },
-    ...(setupConfig.showAgreements
+    ...(setupConfig.showAgreements && !inheritsArrangements
       ? [{ key: "agreements", ok: provider.agreements.length > 0, label: "הסדרי ביטוח", href: "/provider/profile/agreements" }]
       : []),
     { key: "catalog", ok: isCatalogComplete(provider), label: setupConfig.catalogLabel, href: "/provider/profile/services" },
@@ -109,7 +117,7 @@ export function OnboardingProgress({ provider, className }: { provider: Provider
   const percent = Math.round((requiredSteps.filter((s) => s.ok).length / requiredSteps.length) * 100);
   const firstIncomplete = requiredSteps.find((s) => !s.ok);
   const goLiveRequested = !!provider.go_live_requested_at;
-  const message = getNextProviderAction(provider) ?? "כמעט שם — נותרו כמה שלבים לפני הפרסום.";
+  const message = getNextProviderAction(provider, { inheritsArrangements }) ?? "כמעט שם — נותרו כמה שלבים לפני הפרסום.";
 
   function handleGoLive() {
     requestProviderGoLive(provider.id);

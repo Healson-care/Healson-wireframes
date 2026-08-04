@@ -121,7 +121,11 @@ export function InsuranceProfileForm({
       {hasBInsurance && (
         <div className="flex flex-col gap-2">
           {value.b_insurances.map((ins, index) => {
-            const isOtherCompany = ins.company ? !B_INSURANCE_COMPANIES.includes(ins.company) : otherPickedRows[index];
+            // "אחר" — a carrier the patient typed that isn't on the canonical
+            // list (the list is `as const`, hence the widened compare).
+            const isOtherCompany = ins.company
+              ? !(B_INSURANCE_COMPANIES as readonly string[]).includes(ins.company)
+              : otherPickedRows[index];
             return (
               <div key={index} className="rounded-lg border border-slate-200 p-3 flex flex-col gap-2">
                 <div className="flex items-start gap-2">

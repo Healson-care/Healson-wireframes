@@ -24,6 +24,7 @@ import {
   CreditCard,
   ShoppingCart,
 } from "lucide-react";
+import { isCancelledAppointment } from "@/types";
 import { formatCurrency, formatDateHe, monthOverMonthTrend, buildMonthlyData } from "@/lib/utils";
 import { getProviderSetupConfig, isSetupReadyToPublish, isAvailabilityComplete } from "@/lib/provider-setup";
 
@@ -80,7 +81,7 @@ export default function ProviderDashboardPage() {
   const myAppointments = appointments.filter((a) => a.provider_id === provider.id);
   const todayStr = new Date().toISOString().slice(0, 10);
   const upcomingAppointments = myAppointments
-    .filter((a) => a.status !== "בוטל" && a.date >= todayStr)
+    .filter((a) => !isCancelledAppointment(a.status) && a.date >= todayStr)
     .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))
     .slice(0, 5);
 

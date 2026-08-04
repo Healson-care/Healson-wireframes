@@ -15,7 +15,7 @@
 // appointment merely *delivered* by an affiliated doctor shows up in that
 // doctor's own diary as a read-only reflection — visible so their day is
 // honest, locked because rescheduling it belongs to the unit.
-import { Appointment, AppointmentStatus, ScheduleShift } from "@/types";
+import { Appointment, AppointmentStatus, ScheduleShift, isCancelledAppointment } from "@/types";
 import { isoDate } from "./calendar";
 import { ScheduleHolder, minutesToTime, timeToMinutes } from "./schedule";
 import { packColumns } from "./schedule-calendar";
@@ -40,15 +40,35 @@ export interface StatusColor {
 // (APPOINTMENT_CHIP_TONE in lib/calendar.ts, APPOINTMENT_TONE in ui/Badge) —
 // full static class strings, since Tailwind can't see composed names.
 export const APPOINTMENT_STATUS_COLORS: Record<AppointmentStatus, StatusColor> = {
-  // Waiting on the unit to review a referral — the same amber family as the
-  // other "not settled yet" state, but violet so a unit can tell at a glance
-  // which of its slots are waiting on IT rather than on the patient's wallet.
-  "ממתין לאישור היחידה הרפואית": {
-    dot: "bg-violet-500",
-    chip: "bg-violet-50 text-violet-700 border-violet-200",
-    block: "bg-violet-50 border-violet-200 text-violet-900 hover:bg-violet-100",
-    accent: "bg-violet-500",
-    ring: "ring-violet-500",
+  // The referral queue is the one state that asks the UNIT to act, so it gets
+  // its own hue rather than sharing "waiting for the patient" amber.
+  "ממתין לאישור הפניה": {
+    dot: "bg-indigo-500",
+    chip: "bg-indigo-50 text-indigo-700 border-indigo-200",
+    block: "bg-indigo-50 border-indigo-200 text-indigo-900 hover:bg-indigo-100",
+    accent: "bg-indigo-500",
+    ring: "ring-indigo-500",
+  },
+  "ממתין להתחייבות": {
+    dot: "bg-amber-400",
+    chip: "bg-amber-50 text-amber-700 border-amber-200",
+    block: "bg-amber-50 border-amber-200 text-amber-900 hover:bg-amber-100",
+    accent: "bg-amber-400",
+    ring: "ring-amber-400",
+  },
+  "ממתין לתשלום יתרה": {
+    dot: "bg-orange-500",
+    chip: "bg-orange-50 text-orange-700 border-orange-200",
+    block: "bg-orange-50 border-orange-200 text-orange-900 hover:bg-orange-100",
+    accent: "bg-orange-500",
+    ring: "ring-orange-500",
+  },
+  "בוטל — יתרה לא שולמה": {
+    dot: "bg-rose-400",
+    chip: "bg-rose-50 text-rose-600 border-rose-200 line-through",
+    block: "bg-rose-50/70 border-rose-200 text-rose-700 hover:bg-rose-100",
+    accent: "bg-rose-400",
+    ring: "ring-rose-400",
   },
   "ממתין לתשלום מקדמה": {
     dot: "bg-amber-500",
@@ -209,7 +229,7 @@ export function buildApptBlocks(
       endMin,
       status: a.status,
       owned,
-      editable: owned && a.status !== "בוטל",
+      editable: owned && !isCancelledAppointment(a.status),
       col: 0,
       colCount: 1,
     });
@@ -263,7 +283,7 @@ export function findApptConflict(
   const endMin = target.startMin + target.durationMin;
   return appointments.find((a) => {
     if (a.id === target.excludeId) return false;
-    if (a.date !== target.date || a.status === "בוטל") return false;
+    if (a.date !== target.date || isCancelledAppointment(a.status)) return false;
     const sameQueue = target.resourceId
       ? a.resource_id === target.resourceId
       : a.provider_id === target.contextId && !a.resource_id;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ProviderLayout } from "@/components/layouts/ProviderLayout";
 import { useStore } from "@/lib/store";
@@ -11,11 +11,24 @@ import { StatusBadge } from "@/components/ui/Badge";
 import { DataTable, DataTableColumn } from "@/components/ui/DataTable";
 import { DashboardSkeleton } from "@/components/ui/Skeleton";
 import { VisitRecordsSection } from "@/components/provider/VisitRecordsSection";
+import {
+  AppointmentPaymentPanel,
+  PaymentStateBadge,
+  ReferralReviewPanel,
+} from "@/components/provider/AppointmentReferralPanel";
+import { Dialog } from "@/components/ui/Dialog";
 import { fileToDataUrl } from "@/lib/file";
 import { formatDateHe } from "@/lib/utils";
 import { Appointment } from "@/types";
 import Link from "next/link";
-import { ShieldCheck, CalendarDays, FlaskConical, FileText, ChevronRight } from "lucide-react";
+import {
+  ShieldCheck,
+  CalendarDays,
+  FlaskConical,
+  FileText,
+  FileCheck2,
+  ChevronRight,
+} from "lucide-react";
 
 function calculateAge(dateOfBirth?: string): number | null {
   if (!dateOfBirth) return null;
@@ -58,6 +71,20 @@ export default function ProviderPatientChartPage() {
     () => labReferrals.filter((r) => r.patient_id === patientId && r.provider_id === provider?.id),
     [labReferrals, patientId, provider]
   );
+  // Every referral / commitment (טופס 17) this patient filed with this
+  // provider, newest first. The document belongs to the booking, but clinically
+  // it is part of the chart — so it is readable here without going back to the
+  // diary (payments meeting §7, extended to the chart).
+  const myDocumentedAppointments = useMemo(
+    () =>
+      myAppointments
+        .filter((a) => a.referral_document || a.commitment_document)
+        .sort((a, b) => (a.date + a.time < b.date + b.time ? 1 : -1)),
+    [myAppointments]
+  );
+  const [openAppointmentId, setOpenAppointmentId] = useState<string | null>(null);
+  const openAppointment = myAppointments.find((a) => a.id === openAppointmentId);
+
   const myVisitRecords = useMemo(
     () =>
       visitRecords
@@ -140,6 +167,53 @@ export default function ProviderPatientChartPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-1.5">
+                <FileCheck2 className="h-4 w-4 text-slate-400" /> הפניות והתחייבויות
+              </CardTitle>
+              <p className="text-xs text-slate-500">
+                המסמכים שהמטופל/ת צירפ/ה לתורים אצלך — הפניה רפואית וטופס התחייבות (טופס 17).
+              </p>
+            </CardHeader>
+            <CardContent>
+              {myDocumentedAppointments.length === 0 ? (
+                <EmptyState title="לא צורפו מסמכים" description="הפניות והתחייבויות שיצורפו לתורים יופיעו כאן." />
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {myDocumentedAppointments.map((a) => (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => setOpenAppointmentId(a.id)}
+                      className="focus-ring rounded-lg bg-slate-50 px-3 py-2 text-right transition-colors hover:bg-slate-100"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="text-sm text-slate-700">{a.service_name}</span>
+                        <StatusBadge status={a.status} kind="appointment" />
+                      </div>
+                      <p className="mt-0.5 text-xs text-slate-400">
+                        {formatDateHe(a.date)} · {a.time}
+                      </p>
+                      <div className="mt-1 flex flex-wrap gap-1.5 text-[11px] text-slate-500">
+                        {a.referral_document && (
+                          <span className="flex items-center gap-1">
+                            <FileText className="h-3 w-3" /> הפניה
+                          </span>
+                        )}
+                        {a.commitment_document && (
+                          <span className="flex items-center gap-1">
+                            <FileCheck2 className="h-3 w-3" /> התחייבות
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-1.5">
                 <FlaskConical className="h-4 w-4 text-slate-400" /> בדיקות שהוזמנו על ידך
               </CardTitle>
             </CardHeader>
@@ -178,6 +252,9 @@ export default function ProviderPatientChartPage() {
                 emptyIcon={<CalendarDays className="h-10 w-10" />}
                 emptyTitle="אין תורים קודמים"
                 emptyDescription="תורים של המטופל/ת אצלך יופיעו כאן."
+                // Opens the same referral + payment panels the diary uses, so a
+                // referral can be read (and approved) without leaving the chart.
+                onRowClick={(a) => setOpenAppointmentId(a.id)}
                 columns={
                   [
                     { key: "service", header: "פריט", render: (a) => <span className="font-medium text-slate-900">{a.service_name}</span> },
@@ -193,6 +270,7 @@ export default function ProviderPatientChartPage() {
                       ),
                     },
                     { key: "status", header: "סטטוס", render: (a) => <StatusBadge status={a.status} kind="appointment" /> },
+                    { key: "payment", header: "תשלום", render: (a) => <PaymentStateBadge appointment={a} /> },
                   ] satisfies DataTableColumn<Appointment>[]
                 }
               />
@@ -232,6 +310,20 @@ export default function ProviderPatientChartPage() {
           </Card>
         </div>
       </div>
+
+      <Dialog
+        open={!!openAppointment}
+        onClose={() => setOpenAppointmentId(null)}
+        title="מסמכים ותשלום"
+        description={openAppointment ? `${openAppointment.service_name} · ${formatDateHe(openAppointment.date)}` : undefined}
+      >
+        {openAppointment && (
+          <div className="flex flex-col gap-3">
+            <ReferralReviewPanel appointment={openAppointment} />
+            <AppointmentPaymentPanel appointment={openAppointment} />
+          </div>
+        )}
+      </Dialog>
     </ProviderLayout>
   );
 }

@@ -45,11 +45,15 @@ export function Badge({ className, tone = "neutral", ...props }: BadgeProps) {
 }
 
 const APPOINTMENT_TONE: Record<string, Tone> = {
+  "ממתין לאישור הפניה": "indigo",
+  "ממתין להתחייבות": "warning",
   "ממתין לתשלום מקדמה": "warning",
   "מאושר": "info",
+  "ממתין לתשלום יתרה": "warning",
   "שולם במלואו": "purple",
   "בוצע": "success",
   "בוטל": "danger",
+  "בוטל — יתרה לא שולמה": "danger",
 };
 
 const ORDER_TONE: Record<string, Tone> = {

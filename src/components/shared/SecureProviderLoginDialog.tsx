@@ -17,6 +17,7 @@ import {
   Stethoscope,
   Building2,
   Network,
+  HardHat,
   ChevronLeft,
 } from "lucide-react";
 import { Input } from "@/components/ui/Input";
@@ -24,7 +25,9 @@ import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import {
   DEMO_INSTITUTE_USER,
+  DEMO_NEURO_USER,
   DEMO_OUTPATIENT_USER,
+  DEMO_UNIT_SETUP_USER,
   DEMO_PROVIDER_USER,
   SEED_PROVIDERS,
 } from "@/lib/mock-data";
@@ -55,6 +58,17 @@ const DEMO_ACCOUNTS: DemoAccount[] = [
     description: "פורטל של נותן שירות יחיד — יומן אישי, מטופלים והפניות",
     icon: Stethoscope,
   },
+  // The specialist the payments examples are built on (§9) — a ₪2,000
+  // consultation, so the deposit/balance flow is visible from a doctor's own
+  // portal and not only from a unit's.
+  {
+    id: "specialist",
+    kind: "individual",
+    user: DEMO_NEURO_USER,
+    label: "רופא/ה מומחה/ית · תשלומים",
+    description: "ייעוץ פרטי בעלות גבוהה — מקדמה, יתרה וחיוב אוטומטי לפני התור",
+    icon: Stethoscope,
+  },
   {
     id: "institute",
     kind: "unit",
@@ -62,6 +76,16 @@ const DEMO_ACCOUNTS: DemoAccount[] = [
     label: "מכון רפואי",
     description: "בדיקות, פעולות וניתוחים, עם נותני שירות משויכים",
     icon: Building2,
+  },
+  // Both unit accounts above are fully built, which makes the setup itself
+  // undemoable — this third one is a unit on its first login, still empty.
+  {
+    id: "unit_setup",
+    kind: "unit",
+    user: DEMO_UNIT_SETUP_USER,
+    label: "מכון רפואי · בהקמה",
+    description: "יחידה חדשה שקיבלה פרטי כניסה מהילסון — פרופיל ריק, לפני הזנת הסניפים",
+    icon: HardHat,
   },
   {
     id: "outpatient",
@@ -131,6 +155,10 @@ export function SecureProviderLoginDialog({
   onComplete: (userId: string) => void;
 }) {
   const [stage, setStage] = useState<Stage>("kind");
+  // Which of the two kinds the picker is currently listing. Both kinds now hold
+  // several demo accounts, so the account step MUST follow this — it used to be
+  // hard-coded to units, which listed clinics under "נותן שירות יחיד".
+  const [kind, setKind] = useState<AccountKind>("individual");
   const [account, setAccount] = useState<DemoAccount>(DEMO_ACCOUNTS[0]);
   const [email, setEmail] = useState(DEMO_ACCOUNTS[0].user.email);
   const [password, setPassword] = useState("demo-secure-2026");
@@ -150,8 +178,9 @@ export function SecureProviderLoginDialog({
     onClose();
   }
 
-  function selectKind(kind: AccountKind) {
-    const options = DEMO_ACCOUNTS.filter((a) => a.kind === kind);
+  function selectKind(nextKind: AccountKind) {
+    setKind(nextKind);
+    const options = DEMO_ACCOUNTS.filter((a) => a.kind === nextKind);
     if (options.length === 1) {
       selectAccount(options[0]);
       return;
@@ -284,7 +313,7 @@ export function SecureProviderLoginDialog({
                       ))}
                     </div>
                     <p className="mt-4 text-center text-[11px] leading-relaxed text-slate-400">
-                      מצב הדגמה — שני החשבונות פעילים ומפורסמים בפלטפורמה
+                      מצב הדגמה — כל חשבונות ההדגמה פעילים בפלטפורמה
                     </p>
                   </motion.div>
                 )}
@@ -297,9 +326,11 @@ export function SecureProviderLoginDialog({
                     exit={{ opacity: 0, y: -6 }}
                     transition={{ duration: 0.15 }}
                   >
-                    <p className="mb-3 text-center text-sm text-slate-600">בחרו את היחידה הרפואית להדגמה</p>
+                    <p className="mb-3 text-center text-sm text-slate-600">
+                      {kind === "unit" ? "בחרו את היחידה הרפואית להדגמה" : "בחרו את נותן/ת השירות להדגמה"}
+                    </p>
                     <div className="flex flex-col gap-2">
-                      {DEMO_ACCOUNTS.filter((a) => a.kind === "unit").map((a) => {
+                      {DEMO_ACCOUNTS.filter((a) => a.kind === kind).map((a) => {
                         const profile = profileFor(a);
                         return (
                           <button

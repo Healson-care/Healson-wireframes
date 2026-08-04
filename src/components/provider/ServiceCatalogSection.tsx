@@ -21,11 +21,14 @@ import {
   LAYER_LABELS,
   PROVIDER_SERVICE_TYPE_LABELS,
   PROVIDER_SERVICE_TYPES,
+  PayerPrice,
   ProviderServiceType,
   ProviderType,
+  canSellConsultations,
   catalogKindForProviderType,
   getProviderServiceCategories,
   isUnitProviderType,
+  payerPriceLabel,
 } from "@/types";
 import { Plus, Pencil, Trash2, Stethoscope, MapPin, MonitorCog, Search, Lock } from "lucide-react";
 
@@ -71,6 +74,48 @@ function layerPrice(item: CatalogItem | undefined, layer: InsuranceLayer): numbe
   return item?.layer_prices?.find((p) => p.layer === layer)?.price;
 }
 
+/** Per-payer prices behind the K/B headline tariffs (payments meeting §6).
+ * Healson negotiates these with each קופה plan / carrier, so the provider reads
+ * them — a co-pay under an הסדר, or "החזר ישירות מהמבטח" when the payer only
+ * reimburses the patient and no money passes through the provider at all. */
+function PayerPriceTable({ rows }: { rows: PayerPrice[] }) {
+  const byLayer: { layer: "K" | "B"; title: string; items: PayerPrice[] }[] = [
+    { layer: "K", title: `${LAYER_LABELS.K} — לפי קופה ורובד`, items: rows.filter((r) => r.layer === "K") },
+    { layer: "B", title: `${LAYER_LABELS.B} — לפי מבטח`, items: rows.filter((r) => r.layer === "B") },
+  ];
+  return (
+    <div className="flex flex-col gap-2.5">
+      {byLayer
+        .filter((g) => g.items.length > 0)
+        .map((group) => (
+          <div key={group.layer}>
+            <p className="mb-1 text-[11px] font-medium text-slate-500">{group.title}</p>
+            <div className="overflow-hidden rounded-md border border-slate-200">
+              {group.items.map((row, i) => (
+                <div
+                  key={`${payerPriceLabel(row)}-${i}`}
+                  className="flex items-center justify-between gap-2 border-b border-slate-100 bg-white px-2.5 py-1.5 text-xs last:border-b-0"
+                >
+                  <span className="text-slate-700">{payerPriceLabel(row)}</span>
+                  <span className="flex items-center gap-2">
+                    <Badge tone={row.mode === "החזר" ? "slate" : "blue"}>{row.mode}</Badge>
+                    <span className="min-w-16 text-left font-medium text-slate-800">
+                      {row.price != null ? formatCurrency(row.price) : "החזר מהמבטח"}
+                    </span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      <p className="text-[11px] text-slate-400">
+        המחירים נקבעים מול המשלמים בקטלוג הילסון ואינם ניתנים לעריכה כאן. תחת &quot;הסדר&quot; הסכום המוצג הוא
+        ההשתתפות העצמית שהמטופל משלם; תחת &quot;החזר&quot; המטופל משלם את המחיר המלא ומגיש תביעה למבטח בעצמו.
+      </p>
+    </div>
+  );
+}
+
 /** Provider-side item entry (§PRV-02) — the provider enters items by code or
  * free-text search against the ONE reference catalog their provider type is
  * exposed to (קטלוג מב"ר for מכון/חדרי ניתוח/בית מרקחת, קטלוג הילסון for
@@ -112,6 +157,14 @@ export function ServiceCatalogSection({
   // it's linked to the resource (room / provider) that performs it (§PRV-08).
   const isUnit = isUnitProviderType(providerType);
   const catalogKind = catalogKindForProviderType(providerType);
+  // A מכון sells examinations and procedures, never consultations (payments
+  // meeting §6/§9) — so the reference-catalog search hides consultation items
+  // entirely and the clinical classification below drops that option.
+  const allowsConsultations = canSellConsultations(providerType);
+  const clinicalTypes = allowsConsultations
+    ? PROVIDER_SERVICE_TYPES
+    : PROVIDER_SERVICE_TYPES.filter((t) => t !== "consultation");
+  const defaultServiceType: ProviderServiceType = allowsConsultations ? "consultation" : "test";
   const catalog = useStore((s) => s.catalog);
   const catalogRequests = useStore((s) => s.catalogRequests);
   const addCatalogRequest = useStore((s) => s.addCatalogRequest);
@@ -120,7 +173,7 @@ export function ServiceCatalogSection({
   const [open, setOpen] = useState(false);
   const [requestOpen, setRequestOpen] = useState(false);
   const [reqName, setReqName] = useState("");
-  const [reqType, setReqType] = useState<ProviderServiceType>("consultation");
+  const [reqType, setReqType] = useState<ProviderServiceType>(defaultServiceType);
   const [reqDesc, setReqDesc] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -128,9 +181,7 @@ export function ServiceCatalogSection({
   const [catalogItemId, setCatalogItemId] = useState("");
   const [duration, setDuration] = useState("30");
   const [priceFull, setPriceFull] = useState("");
-  const [priceK, setPriceK] = useState("");
-  const [priceB, setPriceB] = useState("");
-  const [serviceType, setServiceType] = useState<ProviderServiceType>("consultation");
+  const [serviceType, setServiceType] = useState<ProviderServiceType>(defaultServiceType);
   const [serviceCategory, setServiceCategory] = useState<string>("");
   const [requiresReferral, setRequiresReferral] = useState(false);
   const [requiresFasting, setRequiresFasting] = useState(false);
@@ -156,9 +207,10 @@ export function ServiceCatalogSection({
         (c) =>
           c.catalog === catalogKind &&
           c.is_active &&
+          (allowsConsultations || c.service_type !== "consultation") &&
           (c.provider_id == null || c.provider_id === providerId)
       ),
-    [catalog, catalogKind, providerId]
+    [catalog, catalogKind, providerId, allowsConsultations]
   );
 
   const addedItemIds = useMemo(
@@ -231,6 +283,10 @@ export function ServiceCatalogSection({
   const selectedCatalogItem = eligibleCatalog.find((c) => c.id === catalogItemId);
   const mohS = layerPrice(selectedCatalogItem, "S");
   const mohH = layerPrice(selectedCatalogItem, "H");
+  // Healson's negotiated payer tariffs — read-only for the provider (§6).
+  const tariffK = layerPrice(selectedCatalogItem, "K");
+  const tariffB = layerPrice(selectedCatalogItem, "B");
+  const payerRows = selectedCatalogItem?.payer_prices ?? [];
 
   function pickCatalogItem(item: CatalogItem) {
     setCatalogItemId(item.id);
@@ -239,10 +295,6 @@ export function ServiceCatalogSection({
     setRequiresReferral(item.requires_referral);
     if (catalogKind === "healson") {
       setPriceFull(item.price_full != null ? String(item.price_full) : String(item.base_price));
-      const k = layerPrice(item, "K");
-      const b = layerPrice(item, "B");
-      setPriceK(k != null ? String(k) : "");
-      setPriceB(b != null ? String(b) : "");
     }
   }
 
@@ -251,9 +303,7 @@ export function ServiceCatalogSection({
     setCatalogItemId("");
     setDuration("30");
     setPriceFull("");
-    setPriceK("");
-    setPriceB("");
-    setServiceType("consultation");
+    setServiceType(defaultServiceType);
     setServiceCategory(serviceCategories?.[0] ?? "");
     setRequiresReferral(false);
     setRequiresFasting(false);
@@ -283,9 +333,7 @@ export function ServiceCatalogSection({
     setQuery(catalogItem ? `${catalogItem.tavar_code ?? ""} — ${catalogItem.name_he}` : item.name);
     setDuration(String(item.duration_minutes));
     setPriceFull(item.price_full != null ? String(item.price_full) : "");
-    setPriceK(String(item.prices.find((p) => p.layer === "K")?.price ?? ""));
-    setPriceB(String(item.prices.find((p) => p.layer === "B")?.price ?? ""));
-    setServiceType(item.service_type ?? "consultation");
+    setServiceType(item.service_type ?? defaultServiceType);
     setServiceCategory(item.service_category ?? serviceCategories?.[0] ?? "");
     setRequiresReferral(item.requires_referral ?? false);
     setRequiresFasting(item.requires_fasting ?? false);
@@ -325,18 +373,20 @@ export function ServiceCatalogSection({
     const id = editingId ?? generateId("item");
     const refItem = catalogItem ?? eligibleCatalog.find((c) => c.id === editingExisting?.catalog_item_id);
 
-    // S and H are never provider-set — they always mirror the MoH price list
-    // stored on the catalog item. Healson items add the provider-negotiated
-    // K/B tariffs on top of the full item price P.
+    // No layer price is provider-entered any more (payments meeting §6): S and
+    // H mirror the Ministry of Health list, and K/B are the tariffs Healson
+    // negotiated with the payers. All four are copied off the catalog item, so
+    // the provider's price list can never drift from the reference catalog.
+    // Older items entered before the reference catalogs existed carry no
+    // catalog_item_id, so there is nothing to read prices off — those keep the
+    // prices they already have rather than being blanked on an unrelated edit.
     const prices: ConsultationType["prices"] = [];
-    const s = layerPrice(refItem, "S");
-    const h = layerPrice(refItem, "H");
-    if (s != null) prices.push({ layer: "S", price: s });
-    if (catalogKind === "healson") {
-      if (priceK !== "") prices.push({ layer: "K", price: Number(priceK) || 0 });
-      if (priceB !== "") prices.push({ layer: "B", price: Number(priceB) || 0 });
+    for (const layer of ["S", "K", "B", "H"] as const) {
+      const value =
+        layerPrice(refItem, layer) ??
+        editingExisting?.prices.find((p) => p.layer === layer)?.price;
+      if (value != null) prices.push({ layer, price: value });
     }
-    if (h != null) prices.push({ layer: "H", price: h });
 
     const newItem: ConsultationType = {
       id,
@@ -357,7 +407,9 @@ export function ServiceCatalogSection({
       service_array_ids: isUnit ? selectedArrayIds : editingExisting?.service_array_ids,
       // Only meaningful when the item runs on a subset of its מערך's עמדות.
       limited_to_stations: isUnit ? limitToStations || undefined : editingExisting?.limited_to_stations,
-      requires_referral: requiresReferral,
+      // Locked-on for every non-consultation item (§2) regardless of what the
+      // checkbox last held for a different item type.
+      requires_referral: referralLocked || requiresReferral,
       requires_fasting: serviceType === "test" ? requiresFasting : undefined,
       sample_type: serviceType === "test" && sampleType ? sampleType : undefined,
       anesthesia_type: serviceType === "surgery" ? anesthesiaType : undefined,
@@ -411,6 +463,10 @@ export function ServiceCatalogSection({
     ];
     return names.length > 0 ? names.join(", ") : null;
   }
+
+  // §2 — everything except a consultation is referral-gated. A product/מוצר is
+  // not an appointment at all, so it is outside the rule.
+  const referralLocked = serviceType !== "consultation" && serviceType !== "product";
 
   const canSave =
     (editingId ? true : !!catalogItemId) &&
@@ -629,7 +685,7 @@ export function ServiceCatalogSection({
               </Select>
             ) : (
               <Select label="סוג פריט" value={serviceType} onChange={(e) => setServiceType(e.target.value as ProviderServiceType)}>
-                {PROVIDER_SERVICE_TYPES.map((t) => (
+                {clinicalTypes.map((t) => (
                   <option key={t} value={t}>
                     {PROVIDER_SERVICE_TYPE_LABELS[t]}
                   </option>
@@ -648,7 +704,7 @@ export function ServiceCatalogSection({
               value={serviceType}
               onChange={(e) => setServiceType(e.target.value as ProviderServiceType)}
             >
-              {PROVIDER_SERVICE_TYPES.map((t) => (
+              {clinicalTypes.map((t) => (
                 <option key={t} value={t}>
                   {PROVIDER_SERVICE_TYPE_LABELS[t]}
                 </option>
@@ -656,46 +712,58 @@ export function ServiceCatalogSection({
             </Select>
           )}
 
-          {/* Pricing — S/H are the MoH price list, always locked. Healson
-              items add the full item price P and the K/B Healson tariffs.
-              All five layers render in ONE grid with identical field chrome:
-              the editable inputs and the locked MoH figures used to sit in two
-              grids of different column counts, so nothing lined up. */}
+          {/* Pricing (payments meeting §6). Nothing here is negotiated inside
+              this dialog any more: S and H are the Ministry of Health list, and
+              K/B are the tariffs Healson agreed with each payer — the provider
+              reads all four. Only the full item price P of a Healson item is
+              still theirs to set. All layers share the locked-field chrome so
+              the one editable box is unmistakable. */}
           <div className="flex flex-col gap-2 rounded-lg border border-slate-200 p-3">
             <p className="text-xs font-medium text-slate-600">מחירים</p>
             <div className="grid gap-2 sm:grid-cols-2">
               {catalogKind === "healson" && (
-                <>
-                  <Input
-                    label="מחיר פריט מלא (P)"
-                    type="number"
-                    value={priceFull}
-                    onChange={(e) => setPriceFull(e.target.value)}
-                    required
-                    className="sm:col-span-2"
-                  />
-                  <Input
-                    label={`מחיר ${LAYER_LABELS.K} (K)`}
-                    type="number"
-                    value={priceK}
-                    onChange={(e) => setPriceK(e.target.value)}
-                  />
-                  <Input
-                    label={`מחיר ${LAYER_LABELS.B} (B)`}
-                    type="number"
-                    value={priceB}
-                    onChange={(e) => setPriceB(e.target.value)}
-                  />
-                </>
+                <Input
+                  label="מחיר פריט מלא (P)"
+                  type="number"
+                  value={priceFull}
+                  onChange={(e) => setPriceFull(e.target.value)}
+                  required
+                  className="sm:col-span-2"
+                />
               )}
               <LockedPriceField label={`${LAYER_LABELS.S} (S)`} value={mohS} />
               <LockedPriceField label={`${LAYER_LABELS.H} (H)`} value={mohH} />
+              {catalogKind === "healson" && (
+                <>
+                  <LockedPriceField label={`${LAYER_LABELS.K} (K)`} value={tariffK} />
+                  <LockedPriceField label={`${LAYER_LABELS.B} (B)`} value={tariffB} />
+                </>
+              )}
             </div>
             <p className="text-[11px] text-slate-400">
-              S ו-H נקבעים תמיד לפי מחירון משרד הבריאות ואינם ניתנים לעריכה.
-              {catalogKind === "healson" && " תעריפי K ו-B הם תעריפי הילסון בתיאום מולכם."}
+              {catalogKind === "mabar"
+                ? 'המחיר נשלף אוטומטית ממחירון מב"ר של משרד הבריאות לפי קוד הפריט — אין הזנה ידנית.'
+                : "S ו-H נקבעים לפי מחירון משרד הבריאות, ותעריפי K ו-B נקבעים מול המשלמים בקטלוג הילסון — כולם לקריאה בלבד."}
             </p>
           </div>
+
+          {/* The per-payer breakdown behind K/B — which קופה plan / carrier is
+              an הסדר and what the patient's co-pay is (§6). Read-only. */}
+          {catalogKind === "healson" && selectedCatalogItem && (
+            <div className="flex flex-col gap-2 rounded-lg border border-slate-200 p-3">
+              <p className="flex items-center gap-1 text-xs font-medium text-slate-600">
+                <Lock className="h-3 w-3" /> מחירים לפי משלם
+              </p>
+              {payerRows.length > 0 ? (
+                <PayerPriceTable rows={payerRows} />
+              ) : (
+                <p className="text-[11px] text-slate-400">
+                  טרם הוגדרו מחירים פר משלם לפריט זה בקטלוג הילסון. עד שיוגדרו, הפריט מוצע לפי תעריפי K/B הכלליים
+                  שלמעלה.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* An item belongs to a מערך (service line), not to a room or a
               person — that was the old model and it forced a unit to re-pick
@@ -795,15 +863,35 @@ export function ServiceCatalogSection({
           )}
 
           <div className="flex flex-col gap-2 rounded-lg border border-slate-200 p-3">
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
+            {/* Payments meeting §2: uploading a referral is a precondition for
+                booking ANY item except a consultation. That is a platform rule,
+                not a per-item preference, so the box is ticked and locked for
+                every clinical item and only a ייעוץ can opt out. */}
+            <label
+              className={`flex items-center gap-2 text-sm ${
+                referralLocked ? "cursor-default" : "cursor-pointer"
+              }`}
+            >
               <input
                 type="checkbox"
-                checked={requiresReferral}
+                checked={referralLocked ? true : requiresReferral}
+                disabled={referralLocked}
                 onChange={(e) => setRequiresReferral(e.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 accent-primary"
+                className="h-4 w-4 rounded border-slate-300 accent-primary disabled:opacity-70"
               />
               נדרשת הפניה / אישור מראש מהקופה
+              {referralLocked && (
+                <span className="flex items-center gap-1 text-[11px] text-slate-400">
+                  <Lock className="h-3 w-3" /> חובה לפריט שאינו ייעוץ
+                </span>
+              )}
             </label>
+            {referralLocked && (
+              <p className="text-[11px] leading-relaxed text-slate-400">
+                המטופל יצטרך להעלות הפניה לפני קביעת התור, וההזמנה תמתין לאישורכם. ייעוץ הוא הפריט היחיד שניתן
+                להזמין ללא הפניה.
+              </p>
+            )}
 
             {serviceType === "test" && (
               <>
@@ -917,7 +1005,7 @@ export function ServiceCatalogSection({
             value={reqType}
             onChange={(e) => setReqType(e.target.value as ProviderServiceType)}
           >
-            {PROVIDER_SERVICE_TYPES.map((t) => (
+            {clinicalTypes.map((t) => (
               <option key={t} value={t}>
                 {PROVIDER_SERVICE_TYPE_LABELS[t]}
               </option>

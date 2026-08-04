@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { isoDate, monthGridDays, WEEKDAY_LABELS } from "@/lib/calendar";
 import { shiftsForDate } from "@/lib/schedule";
-import { Appointment } from "@/types";
+import { Appointment, isCancelledAppointment } from "@/types";
 import { CalendarLane, deptColor, NO_DEPT } from "@/lib/schedule-calendar";
 
 /** Month coverage grid — the "where are the holes" overview. Each day shows one
@@ -49,7 +49,7 @@ export function ScheduleMonthView({
   const bookedByDay = useMemo(() => {
     const map = new Map<string, number>();
     for (const a of appointments) {
-      if (a.status === "בוטל") continue;
+      if (isCancelledAppointment(a.status)) continue;
       map.set(a.date, (map.get(a.date) ?? 0) + 1);
     }
     return map;

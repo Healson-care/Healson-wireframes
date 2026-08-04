@@ -17,12 +17,17 @@ import {
   DSR_REQUEST_STATUSES,
   DsrRequest,
   DsrRequestStatus,
+  PROVIDER_TYPE_LABELS,
+  PROVIDER_TYPES,
   ProviderProfile,
+  ProviderType,
   Role,
   SERVICE_TYPE_LABELS,
   SERVICE_TYPES,
+  ServiceType,
   User,
 } from "@/types";
+import type { FixedFeeRule } from "@/lib/commission";
 import { formatDateHe } from "@/lib/utils";
 import { EXAMPLE_REMINDER_APPOINTMENT, REMINDER_PLACEHOLDERS, renderReminderTemplate } from "@/lib/reminders";
 import { Plus, Trash2, Building2, Users, Settings, Percent, ShieldAlert, UserPlus } from "lucide-react";
@@ -381,6 +386,17 @@ function CommissionTab() {
 
   return (
     <div className="flex flex-col gap-5">
+      {/* The single most misunderstood rule in the product, stated once, at the
+          top of the screen that controls it (payments meeting §8). */}
+      <div className="flex items-start gap-2 rounded-lg border border-info-border bg-info-bg px-3 py-2.5 text-sm leading-relaxed text-info-text">
+        <Percent className="mt-0.5 h-4 w-4 shrink-0" />
+        <span>
+          <b>המקדמה נגזרת אוטומטית מהעמלה</b> — הסכום שהמטופל משלם בעת קביעת התור הוא בדיוק העמלה שנקבעה כאן, ואין
+          שדה מקדמה נפרד בשום מקום במערכת. המטופל רואה סכום בשקלים בלבד, לעולם לא אחוז ולא את המילה &quot;עמלה&quot;.
+          היתרה נגבית לפני התור (או ע&quot;י היחידה, לפי הגדרתה).
+        </span>
+      </div>
+
       <Card className="max-w-md">
         <CardHeader>
           <CardTitle>עמלת ברירת מחדל</CardTitle>
@@ -404,6 +420,8 @@ function CommissionTab() {
           </Button>
         </CardContent>
       </Card>
+
+      <FixedFeeRulesCard />
 
       <Card>
         <CardHeader>
@@ -470,6 +488,140 @@ function CommissionTab() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Fixed-fee rules (payments meeting §8) — a flat commission that replaces the
+// percentage for a slice of the business: "₪150 per scan at any מכון רפואי".
+// Scoped on three axes (specific provider / provider category / item type) and
+// resolved most-specific-first by src/lib/commission.ts.
+// ---------------------------------------------------------------------------
+function FixedFeeRulesCard() {
+  const providers = useStore((s) => s.providers);
+  const fixedFeeRules = useStore((s) => s.fixedFeeRules);
+  const addFixedFeeRule = useStore((s) => s.addFixedFeeRule);
+  const removeFixedFeeRule = useStore((s) => s.removeFixedFeeRule);
+  const showToast = useStore((s) => s.showToast);
+
+  const [providerId, setProviderId] = useState("");
+  const [providerType, setProviderType] = useState("");
+  const [serviceType, setServiceType] = useState("");
+  const [amount, setAmount] = useState("");
+
+  // Units and organizations are what a flat fee is usually negotiated with, but
+  // any provider can hold one — list them all, named the way ops knows them.
+  const providerOptions = providers.filter((p) => p.status === "approved");
+  const canAdd = (!!providerId || !!providerType || !!serviceType) && Number(amount) > 0;
+
+  function describe(rule: FixedFeeRule): string {
+    const parts: string[] = [];
+    if (rule.provider_id) {
+      parts.push(providers.find((p) => p.id === rule.provider_id)?.display_name ?? "ספק");
+    }
+    if (rule.provider_type) parts.push(`כל ${PROVIDER_TYPE_LABELS[rule.provider_type]}`);
+    if (rule.service_type) parts.push(SERVICE_TYPE_LABELS[rule.service_type]);
+    return parts.join(" · ");
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>כללי עמלת פיקס</CardTitle>
+        <p className="text-sm text-slate-500">
+          גוברים על אחוז העמלה. הכלל הספציפי ביותר מנצח: ספק מסוים ← קטגוריית נותן שירות ← סוג פריט.
+        </p>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {fixedFeeRules.length === 0 ? (
+          <EmptyState title="אין כללי פיקס" description="כל ההזמנות מחויבות באחוז העמלה." />
+        ) : (
+          <div className="flex flex-col gap-2">
+            {fixedFeeRules.map((rule) => (
+              <div
+                key={rule.id}
+                className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2"
+              >
+                <span className="text-sm text-slate-700">{describe(rule)}</span>
+                <span className="flex items-center gap-2">
+                  <Badge tone="accent">{rule.amount} ₪ לעסקה</Badge>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      removeFixedFeeRule(rule.id);
+                      showToast("הכלל נמחק", { variant: "default" });
+                    }}
+                    className="rounded-md p-1.5 text-red-500 hover:bg-red-50"
+                    aria-label="מחיקת כלל"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="grid gap-2 border-t border-slate-100 pt-3 sm:grid-cols-4">
+          <Select label="ספק מסוים" value={providerId} onChange={(e) => setProviderId(e.target.value)}>
+            <option value="">כל הספקים</option>
+            {providerOptions.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.display_name}
+              </option>
+            ))}
+          </Select>
+          <Select
+            label="קטגוריית נותן שירות"
+            value={providerType}
+            onChange={(e) => setProviderType(e.target.value)}
+          >
+            <option value="">כל הקטגוריות</option>
+            {PROVIDER_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {PROVIDER_TYPE_LABELS[t]}
+              </option>
+            ))}
+          </Select>
+          <Select label="סוג פריט" value={serviceType} onChange={(e) => setServiceType(e.target.value)}>
+            <option value="">כל סוגי הפריטים</option>
+            {SERVICE_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {SERVICE_TYPE_LABELS[t]}
+              </option>
+            ))}
+          </Select>
+          <Input
+            label="עמלה קבועה (₪)"
+            type="number"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+        </div>
+        <Button
+          className="self-start"
+          disabled={!canAdd}
+          onClick={() => {
+            addFixedFeeRule({
+              provider_id: providerId || undefined,
+              provider_type: (providerType as ProviderType) || undefined,
+              service_type: (serviceType as ServiceType) || undefined,
+              amount: Number(amount) || 0,
+            });
+            setProviderId("");
+            setProviderType("");
+            setServiceType("");
+            setAmount("");
+            showToast("כלל עמלת הפיקס נוסף", { variant: "success" });
+          }}
+        >
+          <Plus className="h-4 w-4" /> הוספת כלל
+        </Button>
+        <p className="text-xs text-slate-400">
+          כלל ללא אף הגבלה אינו נשמר — כדי לשנות את העמלה לכולם עדכנו את עמלת ברירת המחדל.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 
