@@ -367,12 +367,12 @@ export default function ClientProfilePage() {
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
                 {pendingRectification && (
-                  <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
+                  <div className="rounded-lg bg-warning-bg border border-warning-border px-3 py-2 text-sm text-warning-text">
                     <p className="font-medium">
                       בקשת שינוי פרטים ממתינה לאישור (מ-{formatDateHe(pendingRectification.requested_at)})
                     </p>
                     {pendingRectification.notes && (
-                      <p className="text-xs text-amber-700 mt-1">{pendingRectification.notes}</p>
+                      <p className="text-xs text-warning-text/90 mt-1">{pendingRectification.notes}</p>
                     )}
                   </div>
                 )}

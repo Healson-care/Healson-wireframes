@@ -26,7 +26,7 @@ export function ServiceItemCard({
       whileHover={{ y: -4 }}
       whileTap={{ scale: 0.98 }}
       transition={{ duration: 0.2 }}
-      className="group flex min-h-11 w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-right shadow-sm transition-colors hover:border-primary/30 hover:bg-primary/5"
+      className="group flex min-h-11 w-full items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-4 text-right transition-colors hover:border-primary/30 hover:bg-primary/5"
     >
       <div className="min-w-0">
         <p className="font-semibold text-slate-900">{name}</p>

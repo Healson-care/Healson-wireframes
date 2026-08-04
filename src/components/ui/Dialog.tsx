@@ -97,7 +97,10 @@ export function Dialog({
   return createPortal(
     <AnimatePresence>
       {open && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
+        // Centred at every width. Bottom-anchoring turned a short dialog — a
+        // confirm with two buttons — into a thin strip glued to the bottom
+        // edge, with the whole screen empty above it.
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <motion.div
             className="absolute inset-0 bg-black/40 backdrop-blur-sm"
             onClick={onClose}
@@ -115,17 +118,14 @@ export function Dialog({
             aria-describedby={description ? descriptionId : undefined}
             tabIndex={-1}
             className={cn(
-              // Mobile: bottom sheet (full width, rounded top, slides up).
-              // sm+: centered modal.
-              "relative z-10 max-h-[85vh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-lg outline-none sm:max-h-[90vh] sm:max-w-lg sm:rounded-xl sm:pb-5",
+              "relative z-10 max-h-[85vh] w-full overflow-y-auto rounded-2xl bg-white p-5 shadow-lg outline-none sm:max-h-[90vh] sm:max-w-lg",
               className
             )}
-            initial={{ opacity: 0, y: 48 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 32 }}
+            initial={{ opacity: 0, y: 24, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 16, scale: 0.98 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
           >
-            <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-slate-300 sm:hidden" aria-hidden />
             <div className="flex items-start justify-between mb-3">
               <div>
                 {title && (

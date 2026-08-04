@@ -748,6 +748,12 @@ export interface ProviderAgreement {
   layer: InsuranceLayer;
   kupah_list?: Kupah[]; // relevant for layer "K" (and "S")
   insurance_companies?: string[]; // relevant for layer "B"
+  // Clinics this agreement covers — meaningful only on a SITE's agreements
+  // (an institute, a lab), where a chain can be in-network at one branch and
+  // not another. A doctor is in-network as a person, so their own agreements
+  // are never branch-scoped. Empty/absent means every location, which is what
+  // every pre-existing record means, so nothing breaks by leaving it unset.
+  clinic_ids?: string[];
   notes?: string;
 }
 

@@ -2225,7 +2225,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 36,
+      version: 37,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
       // records), the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER seed
       // account, the v3 -> v4 AppointmentStatus rename ("ממתין לאישור" ->
@@ -2324,6 +2324,18 @@ export const useStore = create<Store>()(
       // item, canonical insurer names so layer-B pricing actually matches, real
       // shift-based weeks with per-shift slot lengths, and appointment/order
       // prices resolved from the provider's own price list — reseed clean.
+      // v33 -> v34 is the search branch, renumbered on merge because both
+      // branches independently reused v31/v32: the SKBHP price migration
+      // (price_full base price on every item, H repurposed as a dedicated
+      // tourist price, S entries zeroed since basket coverage has no payable
+      // amount) plus dropping the placeholder "ביטוח ישיר" policy from the demo
+      // patient — reseed clean.
+      // v34 -> v35 restores the demo patient's canonical insurer name
+      // ("מגדל ביטוח", not "מגדל" — the short form never matches an agreement)
+      // and adds it to ד"ר לוי's layer-B agreement, so his knee arthroscopy
+      // demonstrates route B settled by an insurer undertaking — reseed clean.
+      // v35 -> v36 scopes ד"ר לוי's שב"ן agreement to the Ramat Gan clinic, so the
+      // per-clinic agreement model is visible in the demo — reseed clean.
       // v33 -> v34 is the payments model from the 02.08.2026 meeting: the
       // booking lifecycle gained the referral-approval, commitment and balance
       // states (AppointmentStatus), Appointment gained the funding route,
@@ -2344,7 +2356,7 @@ export const useStore = create<Store>()(
       // dedicated tourist price, S entries zeroed since basket coverage has no
       // payable amount, "ביטוח ישיר" placeholder policy dropped) but none of the
       // payments fields. Bumped past both so either one reseeds clean.
-      migrate: (persistedState, version) => (version < 36 ? ({} as Store) : (persistedState as Store)),
+      migrate: (persistedState, version) => (version < 37 ? ({} as Store) : (persistedState as Store)),
       // Uploaded files (photos/PDFs) are stored as base64 data URLs inside
       // this same persisted blob (no real backend — see file.ts). If a
       // single write ever still exceeds the browser's localStorage quota

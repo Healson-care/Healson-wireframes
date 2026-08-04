@@ -29,7 +29,7 @@ export function UnitApprovalPending({
 }) {
   return (
     <div className="mx-auto max-w-md">
-      <div className="rounded-2xl border border-warning-border bg-warning-bg p-5 text-center">
+      <div className="rounded-lg border border-warning-border bg-warning-bg p-4 text-center">
         <span className="mx-auto mb-2 flex h-11 w-11 items-center justify-center rounded-full bg-white text-warning-text">
           <FileCheck2 className="h-5 w-5" />
         </span>
@@ -39,7 +39,7 @@ export function UnitApprovalPending({
         </p>
       </div>
 
-      <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="mt-4 rounded-lg border border-slate-200 bg-white p-4">
         <p className="mb-2 text-xs text-slate-400">הבקשה שלך</p>
         <div className="flex items-start justify-between gap-3 text-sm">
           <span className="text-slate-500">שירות</span>

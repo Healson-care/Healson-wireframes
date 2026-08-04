@@ -9,16 +9,19 @@ import { Button } from "@/components/ui/Button";
 import { useStore } from "@/lib/store";
 import { useCurrentPatient } from "@/lib/useCurrentPatient";
 import { resolvePriceBreakdown } from "@/lib/pricing";
-import { BookingStepper, REFERRAL_FLOW_STEPS, SEARCH_FLOW_STEPS } from "@/components/book/BookingStepper";
+import { resolveDepositAmount, resolveBalanceAmount } from "@/lib/deposit";
+import { BookingStepper, flowStepsFor } from "@/components/book/BookingStepper";
 import { ReferralStep } from "@/components/book/ReferralStep";
+import { CommitmentStep } from "@/components/book/CommitmentStep";
 import { UnitApprovalPending } from "@/components/book/UnitApprovalPending";
 import { ServiceSearch } from "@/components/search/ServiceSearch";
-import { Offer, SearchQuery, emptyQuery } from "@/lib/search";
+import { Offer, SearchQuery, emptyQuery, providerLabel } from "@/lib/search";
 import { SlotPicker } from "@/components/book/SlotPicker";
+import { serviceOfferedAt } from "@/lib/scheduling";
 import { PaymentPanel } from "@/components/book/PaymentPanel";
 import { BookingConfirmation } from "@/components/book/BookingConfirmation";
 import { WaitlistJoinDialog } from "@/components/book/WaitlistJoinDialog";
-import { buildIcsDataUrl } from "@/lib/utils";
+import { buildIcsDataUrl, formatCurrency } from "@/lib/utils";
 import { fileToDataUrl } from "@/lib/file";
 import { requiresReferral } from "@/lib/referral";
 import { POST_REGISTER_REDIRECT_KEY } from "@/lib/constants";
@@ -36,6 +39,7 @@ const stepTransition = { duration: 0.25, ease: "easeOut" as const };
 export default function ClientSearchPage() {
   const router = useRouter();
   const providers = useStore((s) => s.providers);
+  const organizationBranches = useStore((s) => s.organizationBranches);
   const appointments = useStore((s) => s.appointments);
   const addAppointment = useStore((s) => s.addAppointment);
   const updateAppointment = useStore((s) => s.updateAppointment);
@@ -54,6 +58,9 @@ export default function ClientSearchPage() {
   // re-match it by name against the provider's catalogue.
   const [selectedService, setSelectedService] = useState<ConsultationType | null>(null);
   const [selectedProvider, setSelectedProvider] = useState<ProviderProfile | null>(null);
+  // The performing doctor, when the service belongs to an organization —
+  // "זמינות אצל" must name the person, not the institute that owns the item.
+  const [selectedDoctor, setSelectedDoctor] = useState<ProviderProfile | null>(null);
   // Search state lives here so stepping forward and back doesn't reset it.
   const [searchQuery, setSearchQuery] = useState<SearchQuery>(emptyQuery);
   const [openGroupKey, setOpenGroupKey] = useState<string | null>(null);
@@ -68,6 +75,11 @@ export default function ClientSearchPage() {
   // Held here rather than inside PaymentPanel: leaving the payment step and
   // coming back shouldn't silently drop a referral the patient already picked.
   const [referralFile, setReferralFile] = useState<File | null>(null);
+  // Route S's counterpart to the referral: the kupah's commitment (טופס 17).
+  const [commitmentFile, setCommitmentFile] = useState<File | null>(null);
+  // Set when the patient takes the "no commitment yet" fallback and pays a
+  // refundable deposit instead — an open product decision, sketched only.
+  const [commitmentFallback, setCommitmentFallback] = useState(false);
   // Sticky once the patient has moved past the search even one time — used to
   // drop first-visit copy when she comes back to change something. Reset only
   // by "חיפוש שירות נוסף", which really is a fresh start.
@@ -80,9 +92,20 @@ export default function ClientSearchPage() {
   } | null>(null);
 
   const consultation = selectedService ?? undefined;
+  // A doctor is in-network as a person, so their own agreements govern at any
+  // of their clinics. Only a site's agreements (imaging, lab — services with
+  // no doctor) can differ per branch, so only then does the clinic matter.
+  const doctorAgreements = selectedDoctor?.agreements?.length ? selectedDoctor.agreements : undefined;
   const priceBreakdown =
     consultation && selectedProvider
-      ? resolvePriceBreakdown(consultation.prices, selectedProvider.agreements, patient, consultation.price_full)
+      ? resolvePriceBreakdown(
+          consultation.prices,
+          doctorAgreements ?? selectedProvider.agreements,
+          patient,
+          consultation.price_full,
+          consultation,
+          doctorAgreements ? undefined : discoveryClinicId ?? undefined
+        )
       : null;
   const price = priceBreakdown?.price ?? 0;
   // The base price (P), regardless of which layer this patient actually
@@ -94,36 +117,62 @@ export default function ClientSearchPage() {
   // referral upload and the unit's review — so the meter has to describe a
   // different journey for it.
   const referralFlow = requiresReferral(consultation);
-  const flowSteps = referralFlow ? REFERRAL_FLOW_STEPS : SEARCH_FLOW_STEPS;
+  // Routes settled by an undertaking — the kupah's טופס 17 for a basket
+  // service, the insurer's for surgery under a private policy — collect that
+  // document in place of a payment, and take no deposit.
+  const commitment = priceBreakdown?.commitment;
+  const commitmentFlow = !!commitment;
+  // A service given at one location only never asks the patient to choose one,
+  // so "מיקום" would be a stage she can never stand on — drop it from the rail.
+  const bookableClinicCount =
+    selectedProvider && consultation
+      ? selectedProvider.clinic_locations.filter((c) => serviceOfferedAt(selectedProvider, consultation.id, c.id)).length
+      : 0;
+  const singleLocation = bookableClinicCount === 1;
 
-  // step: 0 search · 1 referral · 2 slot · 5 unit approval · 3 payment · 4 done
-  const visualStep = referralFlow
-    ? step === 0
+  // The location screen shows each branch's price. For a doctor that's the
+  // same everywhere — which is worth showing rather than hiding, so nobody
+  // travels further hoping for a better price. For a station-run service it
+  // genuinely differs, because the site's agreement can.
+  const clinicPricing: Record<string, { amount?: string; note?: string }> = {};
+  if (selectedProvider && consultation) {
+    for (const clinic of selectedProvider.clinic_locations) {
+      const breakdown = resolvePriceBreakdown(
+        consultation.prices,
+        doctorAgreements ?? selectedProvider.agreements,
+        patient,
+        consultation.price_full,
+        consultation,
+        doctorAgreements ? undefined : clinic.id
+      );
+      if (!breakdown) continue;
+      clinicPricing[clinic.id] =
+        breakdown.kind === "basket"
+          ? { note: breakdown.label }
+          : { amount: formatCurrency(breakdown.price), note: breakdown.label };
+    }
+  }
+  const flowSteps = flowStepsFor({ referral: referralFlow, commitment: commitmentFlow, singleLocation });
+
+  // Built from the rail itself rather than hard-coded indices, so dropping
+  // "מיקום" for a single-location service can't put the meter out of step.
+  const stageIndex = (name: string) => Math.max(0, flowSteps.indexOf(name));
+  const visualStep =
+    step === 0
       ? 0
       : step === 1
-      ? 1
+      ? stageIndex("הפניה")
       : step === 2
-      ? discoveryClinicId
-        ? 3
-        : 2
+      ? discoveryClinicId || singleLocation
+        ? stageIndex("שעה")
+        : stageIndex("מיקום")
       : step === 5
-      ? 4
+      ? stageIndex("אישור יחידה")
       : step === 3
-      ? 5
+      ? stageIndex(commitmentFlow ? "התחייבות" : "תשלום")
       : step === 4
-      ? 6
-      : step
-    : step === 0
-    ? 0
-    : step === 2
-    ? discoveryClinicId
-      ? 2
-      : 1
-    : step === 3
-    ? 3
-    : step === 4
-    ? 4
-    : step;
+      ? stageIndex("סיום")
+      : step;
 
   /**
    * The meter shows visual indices; the flow runs on real step numbers. This
@@ -133,9 +182,10 @@ export default function ClientSearchPage() {
    */
   function goToVisualStep(index: number) {
     if (index >= visualStep) return;
-    const target = referralFlow
-      ? [0, 1, 2, 2, 5, 3, 4][index] ?? 0
-      : [0, 2, 2, 3, 4][index] ?? 0;
+    // Map back through the rail's own labels, for the same reason.
+    const label = flowSteps[index];
+    const target =
+      label === "בחירה" ? 0 : label === "הפניה" ? 1 : label === "אישור יחידה" ? 5 : label === "מיקום" || label === "שעה" ? 2 : 3;
     // Stepping back out of payment or the unit's queue releases the slot that
     // was being held for them, rather than leaving a stuck pending record.
     if ((step === 3 || step === 5) && target < 3) abandonHold();
@@ -175,7 +225,7 @@ export default function ClientSearchPage() {
       // it enters the patient's history in the waiting state instead.
       status: referralFlow ? "ממתין לאישור הפניה" : "ממתין לתשלום מקדמה",
       price,
-      deposit_amount: Math.round(price * 0.3),
+      deposit_amount: resolveDepositAmount(price, consultation),
       kupah: patient?.kupah,
       notes: "",
       created_by_id: patient?.id ?? currentUser?.id,
@@ -219,11 +269,50 @@ export default function ClientSearchPage() {
     setStep(2);
   }, [pendingAppointmentId, showToast, updateAppointment]);
 
+  /**
+   * Route S has nothing to charge — the kupah funds it — so the appointment is
+   * confirmed by the commitment form instead of by a deposit, and the form is
+   * filed alongside it. No Order is created: nothing was sold here.
+   */
+  function confirmWithCommitment() {
+    if (!selectedProvider || !selectedSlot || !pendingAppointmentId) return;
+    if (!commitmentFile) return;
+    setPaying(true);
+    void (async () => {
+      const dataUrl = await fileToDataUrl(commitmentFile);
+      updateAppointment(pendingAppointmentId, { status: "מאושר" });
+      const patientId = patient?.id ?? currentUser?.id;
+      if (patientId) {
+        addDocument({
+          patient_id: patientId,
+          category: "referral_personal",
+          title: commitment?.formLabel ?? "התחייבות",
+          uploaded_by: "patient",
+          appointment_id: pendingAppointmentId,
+          status: "זמין",
+          file: { file_name: commitmentFile.name, uploaded_at: new Date().toISOString(), data_url: dataUrl },
+        });
+      }
+      const icsUrl = buildIcsDataUrl({
+        title: `תור ל-${selectedProvider.display_name}`,
+        description: consultation?.name,
+        location: selectedProvider.clinic_locations[0]?.address,
+        date: selectedSlot.date,
+        time: selectedSlot.time,
+        durationMinutes: consultation?.duration_minutes ?? 30,
+      });
+      setConfirmation({ fileNumber: Math.random().toString(36).slice(2, 8).toUpperCase(), price: 0, icsUrl });
+      setPaying(false);
+      setStep(4);
+    })();
+  }
+
   function handleReset() {
     setStep(0);
     setHasAdvanced(false);
     setDiscoveryClinicId(null);
     setReferralFile(null);
+    setCommitmentFile(null);
     setSearchQuery(emptyQuery());
     setOpenGroupKey(null);
     setSelectedService(null);
@@ -247,6 +336,7 @@ export default function ClientSearchPage() {
     }
     setSelectedService(offer.service);
     setSelectedProvider(offer.provider);
+    setSelectedDoctor(offer.doctor ?? null);
     // Clear the location and referral picked for a *previous* offer.
     setDiscoveryClinicId(null);
     setReferralFile(null);
@@ -284,8 +374,8 @@ export default function ClientSearchPage() {
         final_price: price,
         status: "מאושר",
         payment_status: "מקדמה שולמה",
-        deposit_amount: Math.round(price * 0.3),
-        balance_amount: Math.round(price * 0.7),
+        deposit_amount: resolveDepositAmount(price, consultation),
+        balance_amount: resolveBalanceAmount(price, consultation),
         commission_rate: commissionRate,
         commission_amount: commissionAmount,
         provider_payout_amount: price - commissionAmount,
@@ -381,7 +471,7 @@ export default function ClientSearchPage() {
             noise between her and the results. The missing-profile version is a
             call to action rather than an explanation, so it always stays. */}
         {step === 0 && !patient && (
-          <p className="text-xs rounded-lg px-3 py-2 mb-4 border text-amber-700 bg-amber-50 border-amber-200">
+          <p className="text-xs rounded-lg px-3 py-2 mb-4 border text-warning-text bg-warning-bg border-warning-border">
             השלימו את הפרופיל הביטוחי שלכם בעמוד הפרופיל כדי לראות מחיר מותאם אישית.
           </p>
         )}
@@ -403,6 +493,7 @@ export default function ClientSearchPage() {
               </div>
               <ServiceSearch
                 providers={providers}
+                branches={organizationBranches}
                 patient={patient}
                 query={searchQuery}
                 onQueryChange={setSearchQuery}
@@ -460,6 +551,8 @@ export default function ClientSearchPage() {
                 onJoinWaitlist={(date, time, label) => setWaitlistSlot({ date, time, label })}
                 onClinicChange={setDiscoveryClinicId}
                 serviceId={consultation?.id}
+                performerName={selectedDoctor ? providerLabel(selectedDoctor) : undefined}
+                clinicPricing={clinicPricing}
               />
             </motion.div>
           )}
@@ -475,6 +568,30 @@ export default function ClientSearchPage() {
               >
                 <ArrowRight className="h-3.5 w-3.5" /> שינוי תור
               </button>
+              {/* Route S never reaches a payment screen — unless the patient
+                  took the "no commitment yet" fallback, which is still an open
+                  decision and deliberately routes back through payment. */}
+              {commitment && !commitmentFallback ? (
+                <CommitmentStep
+                  provider={selectedProvider}
+                  consultation={consultation}
+                  selectedSlot={selectedSlot}
+                  clinicName={
+                    selectedProvider.clinic_locations.find((c) => c.id === discoveryClinicId)?.name ??
+                    selectedProvider.clinic_locations[0]?.name
+                  }
+                  basePrice={fullPrice}
+                  commitment={commitment}
+                  coverageLabel={priceBreakdown?.label ?? "מכוסה"}
+                  holdExpiresAt={holdExpiresAt}
+                  onExpire={handleHoldExpire}
+                  file={commitmentFile}
+                  onFileChange={setCommitmentFile}
+                  submitting={paying}
+                  onConfirmWithCommitment={confirmWithCommitment}
+                  onPayDepositInstead={() => setCommitmentFallback(true)}
+                />
+              ) : (
               <PaymentPanel
                 provider={selectedProvider}
                 itemName={consultation?.name}
@@ -494,6 +611,7 @@ export default function ClientSearchPage() {
                 referralFile={referralFile}
                 onReferralFileChange={setReferralFile}
               />
+              )}
             </motion.div>
           )}
 

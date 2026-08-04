@@ -57,7 +57,7 @@ export function SearchOmnibox({
 
   return (
     <div ref={wrapRef} className="relative">
-      <div className="flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 focus-within:border-primary">
+      <div className="flex items-center gap-2 rounded-2xl border border-white/70 bg-white/85 px-3 shadow-[0_18px_40px_-30px_rgba(20,42,79,0.4)] backdrop-blur-sm focus-within:border-[var(--brand-navy)]/35">
         <Search className="h-4 w-4 shrink-0 text-slate-400" />
         <input
           value={text}
@@ -85,8 +85,10 @@ export function SearchOmnibox({
         )}
       </div>
 
+      {/* overscroll-contain so flicking through a long list on a phone
+          doesn't start scrolling the results behind it. */}
       {(showSuggestions || showBrowse) && (
-        <div className="absolute inset-x-0 top-full z-30 mt-1.5 max-h-[60vh] overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+        <div className="absolute inset-x-0 top-full z-30 mt-1.5 max-h-[55vh] overflow-y-auto overscroll-contain rounded-2xl border border-white/70 bg-white/95 shadow-[0_24px_50px_-24px_rgba(20,42,79,0.5)] backdrop-blur-sm">
           {showRecents && (
             <>
               <SectionLabel>חיפושים אחרונים</SectionLabel>

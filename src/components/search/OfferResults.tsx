@@ -1,7 +1,7 @@
 "use client";
 
 import { ReactNode, useState } from "react";
-import { ArrowRight, ChevronLeft, FileText, MapPin, ReceiptText, ShieldCheck, Star, Stethoscope, Tag } from "lucide-react";
+import { ArrowRight, ChevronLeft, FileText, MapPin, ShieldCheck, Star, Stethoscope } from "lucide-react";
 import { EmptyState } from "@/components/ui/Misc";
 import { InsurancePriceBlock } from "@/components/book/InsurancePriceBlock";
 import { InsuranceLogo } from "@/components/search/InsuranceLogo";
@@ -62,10 +62,10 @@ function ServiceGroupCard({
   const single = group.offers.length === 1;
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white">
+    <div className="rounded-2xl border border-white/70 bg-white/85 shadow-[0_18px_40px_-30px_rgba(20,42,79,0.4)] backdrop-blur-sm transition-colors hover:border-[var(--brand-navy)]/25">
       <button
         onClick={() => (single ? onSelectOffer(group.offers[0]) : onOpen(group))}
-        className="focus-ring flex w-full flex-col gap-2 rounded-xl p-4 text-right sm:flex-row sm:items-start sm:justify-between sm:gap-3"
+        className="focus-ring flex w-full flex-col gap-2 rounded-2xl p-4 text-right sm:flex-row sm:items-start sm:justify-between sm:gap-3"
       >
         <div className="min-w-0 flex-1">
           <p className="truncate font-semibold text-slate-900">{group.serviceName}</p>
@@ -85,7 +85,7 @@ function ServiceGroupCard({
               {group.durationMinutes} דק׳
             </span>
             {group.referral !== "none" && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+              <span className="inline-flex items-center gap-1 rounded-full bg-warning-bg px-2 py-0.5 text-[11px] font-medium text-warning-text">
                 <FileText className="h-3 w-3 shrink-0" />
                 {group.referral === "all" ? "נדרשת הפניה" : "נדרשת הפניה בחלק מהמקומות"}
               </span>
@@ -188,13 +188,13 @@ function ProviderGroupCard({
   const single = group.offers.length === 1;
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white">
+    <div className="rounded-2xl border border-white/70 bg-white/85 shadow-[0_18px_40px_-30px_rgba(20,42,79,0.4)] backdrop-blur-sm transition-colors hover:border-[var(--brand-navy)]/25">
       {/* A summary of the person, not a list of their services — who they are,
           what kinds of work they do, where, and which of the patient's own
           plans work at them. Services come on the next screen. */}
       <button
         onClick={() => (single ? onSelectOffer(group.offers[0]) : onOpen(group))}
-        className="focus-ring flex w-full flex-col gap-2 rounded-xl p-4 text-right sm:flex-row sm:items-start sm:justify-between sm:gap-3"
+        className="focus-ring flex w-full flex-col gap-2 rounded-2xl p-4 text-right sm:flex-row sm:items-start sm:justify-between sm:gap-3"
       >
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -277,7 +277,7 @@ export function GroupDetail({
         <ArrowRight className="h-3.5 w-3.5" /> חזרה לתוצאות
       </button>
 
-      <div className="rounded-xl border border-slate-200 bg-white">
+      <div className="rounded-2xl border border-white/70 bg-white/85 shadow-[0_18px_40px_-30px_rgba(20,42,79,0.4)] backdrop-blur-sm transition-colors hover:border-[var(--brand-navy)]/25">
         {isProvider ? <ProviderDetailHeader group={group} /> : <ServiceDetailHeader group={group} />}
         <CoverageBadges
           coverage={group.coverage}
@@ -364,7 +364,7 @@ function ServiceDetailHeader({ group }: { group: Extract<ResultGroup, { kind: "s
           {group.durationMinutes} דק׳
         </span>
         {group.referral !== "none" && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+          <span className="inline-flex items-center gap-1 rounded-full bg-warning-bg px-2 py-0.5 text-[11px] font-medium text-warning-text">
             <FileText className="h-3 w-3 shrink-0" />
             {group.referral === "all" ? "נדרשת הפניה" : "נדרשת הפניה בחלק מהמקומות"}
           </span>

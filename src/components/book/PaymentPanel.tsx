@@ -6,11 +6,11 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { HoldTimer } from "@/components/book/HoldTimer";
 import { PreparationRequirements } from "@/components/book/PreparationRequirements";
+import { resolveBalanceAmount, resolveDepositAmount } from "@/lib/deposit";
 import { requiresReferral } from "@/lib/referral";
 import { formatCurrency } from "@/lib/utils";
 import { ConsultationType, InsuranceLayer, Kupah, LAYER_LABELS, ProviderProfile } from "@/types";
 
-const DEPOSIT_PERCENT = 30;
 
 export function PaymentPanel({
   provider,
@@ -55,8 +55,8 @@ export function PaymentPanel({
   onReferralFileChange?: (file: File | null) => void;
 }) {
   const [saveCard, setSaveCard] = useState(false);
-  const depositAmount = Math.round((price * DEPOSIT_PERCENT) / 100);
-  const balanceAmount = price - depositAmount;
+  const depositAmount = resolveDepositAmount(price, consultation);
+  const balanceAmount = resolveBalanceAmount(price, consultation);
   const clinic = provider.clinic_locations.find((c) => c.id === clinicId) ?? provider.clinic_locations[0];
   const resolvedFullPrice = fullPrice ?? price;
   const hasArrangement = !!layer && layer !== "H" && price < resolvedFullPrice;
@@ -74,7 +74,7 @@ export function PaymentPanel({
         <HoldTimer expiresAt={holdExpiresAt} onExpire={onExpire} />
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm mb-4">
+      <div className="rounded-lg border border-slate-200 bg-white p-4 mb-4">
         <p className="text-xs text-slate-400 mb-2">סיכום ההזמנה</p>
         {itemName && (
           <div className="flex items-start justify-between gap-3 text-sm">
@@ -131,7 +131,7 @@ export function PaymentPanel({
           uploaded and approved by the unit — this is a receipt of that, not
           another chance to attach it. */}
       {referralRequired && referralFile && (
-        <div className="rounded-2xl border border-success-border bg-success-bg p-4 shadow-sm mb-4">
+        <div className="rounded-lg border border-success-border bg-success-bg p-4 mb-4">
           <p className="flex items-center gap-1.5 text-sm font-semibold text-success-text">
             <FileCheck2 className="h-4 w-4 shrink-0" /> ההפניה אושרה על ידי היחידה
           </p>
@@ -141,7 +141,7 @@ export function PaymentPanel({
         </div>
       )}
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm mb-4">
+      <div className="rounded-lg border border-slate-200 bg-white p-4 mb-4">
         <p className="text-xs text-slate-400 mb-2">מחיר</p>
         {basketCovered ? (
           <p className="text-sm font-medium text-emerald-700">מכוסה בסל הבריאות — לא נדרש תשלום באתר. יש להצטייד בהתחייבות (טופס 17) מהקופה.</p>
@@ -165,43 +165,42 @@ export function PaymentPanel({
               </p>
             )}
             <div className="h-px bg-slate-100 my-3" />
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-500">אחוז מקדמה</span>
-              <span className="font-medium text-slate-900">{DEPOSIT_PERCENT}%</span>
-            </div>
-            <div className="flex items-center justify-between mt-2">
-              <span className="text-sm font-semibold text-slate-700">מקדמה לתשלום</span>
+            {/* One number, never a rate: how the deposit is worked out is a
+                business rule (see lib/deposit.ts), and showing the percentage
+                would let anyone derive what the platform keeps. */}
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-slate-700">לתשלום עכשיו</span>
               <span className="text-lg font-bold text-primary">{formatCurrency(depositAmount)}</span>
             </div>
             <p className="text-[11px] text-slate-400 mt-1">
-              לשריון התור נדרש תשלום מקדמה עכשיו. היתרה תיגבה במועד התור.
+              התשלום הזה משריין את התור. את היתרה משלמים במועד הביקור.
             </p>
             <div className="flex items-center justify-between mt-2">
-              <span className="text-[11px] text-slate-400">יתרה לתשלום בתור</span>
+              <span className="text-[11px] text-slate-400">יתרה במועד הביקור</span>
               <span className="text-[11px] text-slate-400">{formatCurrency(balanceAmount)}</span>
             </div>
           </>
         )}
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <p className="text-sm font-semibold text-slate-700 mb-3">אמצעי תשלום</p>
+      <div className="rounded-lg border border-slate-200 bg-white p-4">
+        <p className="text-sm font-bold text-slate-900 mb-3">אמצעי תשלום</p>
         <div className="grid grid-cols-3 gap-2 mb-4">
           <button
             onClick={() => onPayMethodChange("card")}
-            className={`flex flex-col items-center gap-1 rounded-xl border p-3 text-xs font-medium ${payMethod === "card" ? "border-primary bg-primary/5 text-primary" : "border-slate-200 text-slate-500"}`}
+            className={`flex flex-col items-center gap-1 rounded-lg border p-3 text-xs font-medium ${payMethod === "card" ? "border-primary bg-primary/5 text-primary" : "border-slate-200 text-slate-500"}`}
           >
             <CreditCard className="h-4 w-4" /> כרטיס אשראי
           </button>
           <button
             onClick={() => onPayMethodChange("apple")}
-            className={`flex flex-col items-center gap-1 rounded-xl border p-3 text-xs font-medium ${payMethod === "apple" ? "border-primary bg-primary/5 text-primary" : "border-slate-200 text-slate-500"}`}
+            className={`flex flex-col items-center gap-1 rounded-lg border p-3 text-xs font-medium ${payMethod === "apple" ? "border-primary bg-primary/5 text-primary" : "border-slate-200 text-slate-500"}`}
           >
             <Smartphone className="h-4 w-4" /> Apple Pay
           </button>
           <button
             onClick={() => onPayMethodChange("google")}
-            className={`flex flex-col items-center gap-1 rounded-xl border p-3 text-xs font-medium ${payMethod === "google" ? "border-primary bg-primary/5 text-primary" : "border-slate-200 text-slate-500"}`}
+            className={`flex flex-col items-center gap-1 rounded-lg border p-3 text-xs font-medium ${payMethod === "google" ? "border-primary bg-primary/5 text-primary" : "border-slate-200 text-slate-500"}`}
           >
             <Smartphone className="h-4 w-4" /> Google Pay
           </button>

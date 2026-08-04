@@ -20,6 +20,7 @@
 // disagree about what a patient pays.
 import {
   Clinic,
+  OrganizationBranch,
   ConsultationType,
   InsuranceLayer,
   LOCATION_TYPE_LABELS,
@@ -32,12 +33,10 @@ import {
 } from "@/types";
 import { FundingKind, PriceBreakdown, resolvePriceBreakdown } from "@/lib/pricing";
 import { getRegionForCity } from "@/lib/constants";
+import { resolveDepositAmount } from "@/lib/deposit";
 import { requiresReferral } from "@/lib/referral";
 import { nextAvailableInDays } from "@/lib/scheduling";
 
-// The deposit taken to hold an appointment — the remaining 70% is charged at
-// the appointment itself (see CLAUDE.local.md's status model).
-export const DEPOSIT_RATE = 0.3;
 
 // ---------------------------------------------------------------------------
 // Offer
@@ -52,6 +51,32 @@ const PERSON_PROVIDER_TYPES = new Set<ProviderType>(["doctor", "caregiver"]);
 
 function isOrganization(provider: ProviderProfile): boolean {
   return provider.provider_type ? !PERSON_PROVIDER_TYPES.has(provider.provider_type) : false;
+}
+
+/**
+ * Where an offer can be had. Two different entities model a place in this
+ * system — a solo provider's `Clinic`, and a unit's `OrganizationBranch` (its
+ * own store slice, NOT clinic_locations) — so search works against this
+ * common shape instead of privileging one of them.
+ */
+export interface OfferLocation {
+  id: string;
+  name: string;
+  address: string;
+  city: string;
+  /** The station performing it, when the location came from a facility. */
+  facilityName?: string;
+  locationType?: LocationType;
+}
+
+function clinicAsLocation(clinic: Clinic): OfferLocation {
+  return {
+    id: clinic.id,
+    name: clinic.name,
+    address: clinic.address,
+    city: clinic.city,
+    locationType: clinic.location_type,
+  };
 }
 
 export interface Offer {
@@ -72,11 +97,12 @@ export interface Offer {
   organization?: ProviderProfile;
   service: ConsultationType;
   /**
-   * Locations this specific service can be booked at. A service may be
-   * restricted to some of the provider's clinics via `linked_clinic_ids`, and
-   * an affiliated doctor may work at only some of those.
+   * Where this specific service can be booked. A service may be restricted to
+   * some of the provider's clinics via `linked_clinic_ids`; an affiliated
+   * doctor may work at only some of those; and an imaging item is bound to
+   * the branches whose stations actually perform it.
    */
-  clinics: Clinic[];
+  clinics: OfferLocation[];
 }
 
 /**
@@ -84,17 +110,47 @@ export interface Offer {
  * Services with no bookable location drop out — an offer that can't be booked
  * shouldn't be findable.
  */
-export function buildOffers(providers: ProviderProfile[]): Offer[] {
+export function buildOffers(providers: ProviderProfile[], branches: OrganizationBranch[] = []): Offer[] {
   const byId = new Map(providers.map((p) => [p.id, p]));
+  const branchById = new Map(branches.map((b) => [b.id, b]));
+
+  /**
+   * Imaging and lab items hang off a STATION, not a person: the עמדה declares
+   * which items it performs and which branch it stands in. So the places such
+   * a service can be had are exactly the branches of the stations that
+   * perform it — which is also why a unit with an empty `clinic_locations`
+   * still has locations.
+   */
+  const facilityLocations = (provider: ProviderProfile, serviceId: string): OfferLocation[] => {
+    const seen = new Map<string, OfferLocation>();
+    for (const facility of provider.facilities ?? []) {
+      if (facility.is_active === false) continue;
+      if (!facility.service_ids?.includes(serviceId)) continue;
+      const branch = facility.branch_id ? branchById.get(facility.branch_id) : undefined;
+      if (!branch) continue;
+      seen.set(branch.id, {
+        id: branch.id,
+        name: branch.name,
+        address: branch.address ?? "",
+        city: branch.city ?? "",
+        facilityName: facility.name,
+      });
+    }
+    return Array.from(seen.values());
+  };
+
   const offers: Offer[] = [];
 
   for (const provider of providers) {
     if (!provider.is_published) continue;
-    const allClinics = provider.clinic_locations ?? [];
+    const allClinics = (provider.clinic_locations ?? []).map(clinicAsLocation);
 
     for (const service of provider.consultation_types ?? []) {
       const linked = service.linked_clinic_ids;
-      const serviceClinics = linked?.length ? allClinics.filter((c) => linked.includes(c.id)) : allClinics;
+      const linkedClinics = linked?.length ? allClinics.filter((c) => linked.includes(c.id)) : allClinics;
+      // A unit keeps its places as branches, so fall back to the stations when
+      // there are no clinic records to work from.
+      const serviceClinics = linkedClinics.length > 0 ? linkedClinics : facilityLocations(provider, service.id);
       if (serviceClinics.length === 0) continue;
 
       if (!isOrganization(provider)) {
@@ -111,7 +167,13 @@ export function buildOffers(providers: ProviderProfile[]): Offer[] {
       // An organization is a place. Its performer is one of its affiliated
       // doctors, matched per service — a doctor delivers only part of the
       // organization's catalogue.
-      const affiliations = (provider.affiliated_doctors ?? []).filter((a) => a.service_ids.includes(service.id));
+      // An imaging/lab item performed by a station is never a doctor's, even
+      // if the unit happens to have affiliated doctors — the station's own
+      // service_ids are the authority on who performs what.
+      const stationRun = facilityLocations(provider, service.id).length > 0;
+      const affiliations = stationRun
+        ? []
+        : (provider.affiliated_doctors ?? []).filter((a) => a.service_ids.includes(service.id));
       if (affiliations.length === 0) {
         // No doctor at all, and that's correct: imaging and lab work are
         // delivered by a station. The offer still exists, it just has no
@@ -185,16 +247,32 @@ export interface OfferPricing {
  * when there's no patient profile yet — callers show "הרשמה להצגת מחיר"
  * rather than a number, since without a profile there is no route.
  */
-export function offerPricing(offer: Offer, patient?: Patient | null): OfferPricing | null {
+/**
+ * How this offer is funded.
+ *
+ * Whose agreement counts depends on who performs the service:
+ *
+ * - A DOCTOR is in-network as a person, so their own agreements govern and
+ *   the location is irrelevant — the same doctor gives the same patient the
+ *   same price at every clinic they work from.
+ * - A service run by a station with no doctor (imaging, lab) is funded by the
+ *   PLACE, so the site's agreements govern and they can differ per branch —
+ *   which is the only case where `clinicId` changes the answer.
+ */
+export function offerPricing(offer: Offer, patient?: Patient | null, clinicId?: string): OfferPricing | null {
+  const doctorAgreements = offer.doctor?.agreements?.length ? offer.doctor.agreements : undefined;
   const breakdown = resolvePriceBreakdown(
     offer.service.prices,
-    offer.provider.agreements,
+    doctorAgreements ?? offer.provider.agreements,
     patient,
-    offer.service.price_full
+    offer.service.price_full,
+    offer.service,
+    // Only the site's own agreements are ever branch-scoped.
+    doctorAgreements ? undefined : clinicId
   );
   if (!breakdown) return null;
 
-  const deposit = Math.round(breakdown.price * DEPOSIT_RATE);
+  const deposit = resolveDepositAmount(breakdown.price, offer.service);
   return {
     kind: breakdown.kind,
     price: breakdown.price,
@@ -467,7 +545,7 @@ const AVAILABILITY_MAX_DAYS: Record<string, number> = { week: 7, twoWeeks: 14, m
 const PRICE_CEILINGS: Record<string, number> = { p300: 300, p600: 600 };
 
 function offerClinicTypes(offer: Offer): LocationType[] {
-  return offer.clinics.map((c) => c.location_type ?? "clinic");
+  return offer.clinics.map((c) => c.locationType ?? "clinic");
 }
 
 function uniqueSorted(values: string[]): string[] {
@@ -791,11 +869,31 @@ export function coverageSummary(offers: Offer[], patient?: Patient | null): Cove
 function bestPricingOf(offers: Offer[], patient?: Patient | null): OfferPricing | null {
   let best: OfferPricing | null = null;
   for (const offer of offers) {
-    const pricing = offerPricing(offer, patient);
-    if (!pricing || pricing.kind === "basket") continue;
-    if (!best || pricing.price < best.price) best = pricing;
+    // Priced per branch, since an agreement may cover only some of them — the
+    // "from" price has to be the cheapest place she could actually go.
+    for (const clinic of offer.clinics) {
+      const pricing = offerPricing(offer, patient, clinic.id);
+      if (!pricing || pricing.kind === "basket") continue;
+      if (!best || pricing.price < best.price) best = pricing;
+    }
   }
   return best;
+}
+
+/** Every funding route an offer has across its locations, one per clinic. */
+export function offerPricingByClinic(
+  offer: Offer,
+  patient?: Patient | null
+): { clinic: Offer["clinics"][number]; pricing: OfferPricing | null }[] {
+  return offer.clinics.map((clinic) => ({ clinic, pricing: offerPricing(offer, patient, clinic.id) }));
+}
+
+/** True when the funding route genuinely differs between an offer's branches. */
+export function hasPerClinicPricing(offer: Offer, patient?: Patient | null): boolean {
+  const seen = new Set(
+    offerPricingByClinic(offer, patient).map(({ pricing }) => `${pricing?.kind}:${pricing?.price}:${pricing?.label}`)
+  );
+  return seen.size > 1;
 }
 
 /** The kinds of work a performer does — ייעוץ / בדיקה / ניתוח and so on. */

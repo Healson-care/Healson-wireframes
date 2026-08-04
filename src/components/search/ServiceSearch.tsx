@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { SlidersHorizontal, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Patient, ProviderProfile } from "@/types";
+import { OrganizationBranch, Patient, ProviderProfile } from "@/types";
 import {
   FilterValue,
   Offer,
@@ -46,6 +46,7 @@ const QUICK_CHIPS: { key: string; value: FilterValue; label: string }[] = [
  */
 export function ServiceSearch({
   providers,
+  branches = [],
   patient,
   query,
   onQueryChange,
@@ -54,6 +55,9 @@ export function ServiceSearch({
   onSelectOffer,
 }: {
   providers: ProviderProfile[];
+  /** A unit keeps its places here, not in clinic_locations — imaging items
+   *  are bound to the branches whose stations perform them. */
+  branches?: OrganizationBranch[];
   patient?: Patient | null;
   // Query and drill-down live in the page, not here: this component unmounts
   // when the booking moves on to picking a time, and coming back must not
@@ -70,7 +74,7 @@ export function ServiceSearch({
   const setQuery = (update: SearchQuery | ((prev: SearchQuery) => SearchQuery)) =>
     onQueryChange(typeof update === "function" ? update(query) : update);
 
-  const offers = useMemo(() => buildOffers(providers), [providers]);
+  const offers = useMemo(() => buildOffers(providers, branches), [providers, branches]);
 
   // "לפי נותן שירות" shows only services a doctor actually delivers. Scoping
   // the index itself — rather than filtering at render time — keeps the result
@@ -163,7 +167,9 @@ export function ServiceSearch({
       {/* 1 — what she's looking for. This isn't only a display choice: it
           also scopes the search box below, so "לפי שירות" searches services
           and "לפי נותן שירות" searches providers. Full-width on mobile. */}
-      <div className="mb-3 grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1 sm:inline-grid">
+      {/* Same segmented-control shape as the portal's ViewSwitch: a bordered
+          white rail, the active choice filled in primary. */}
+      <div className="mb-3 grid grid-cols-2 gap-0.5 rounded-xl border border-white/70 bg-white/85 p-0.5 shadow-[0_18px_40px_-32px_rgba(20,42,79,0.4)] backdrop-blur-sm sm:inline-grid">
         <GroupToggle active={query.groupBy === "service"} onClick={() => setGroupBy("service")} label="לפי שירות" />
         <GroupToggle
           active={query.groupBy === "provider"}
@@ -193,7 +199,9 @@ export function ServiceSearch({
           onClick={() => setSheetOpen(true)}
           className={cn(
             "focus-ring inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-sm font-medium sm:h-8 sm:px-3 sm:text-xs",
-            filterCount > 0 ? "border-primary bg-primary/10 text-primary" : "border-slate-300 bg-white text-slate-600"
+            filterCount > 0
+              ? "border-[var(--brand-navy)]/25 bg-[var(--brand-navy)]/8 text-[var(--brand-navy)]"
+              : "border-slate-200 bg-white/85 text-[var(--brand-ink-soft)]"
           )}
         >
           <SlidersHorizontal className="h-3.5 w-3.5" />
@@ -230,8 +238,8 @@ export function ServiceSearch({
               className={cn(
                 "focus-ring inline-flex h-10 shrink-0 items-center rounded-full border px-3.5 text-sm font-medium sm:h-8 sm:px-3 sm:text-xs",
                 active
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-slate-300 bg-white text-slate-600 hover:border-slate-400"
+                  ? "border-[var(--brand-navy)]/25 bg-[var(--brand-navy)]/8 text-[var(--brand-navy)]"
+                  : "border-slate-200 bg-white/85 text-[var(--brand-ink-soft)] hover:border-[var(--brand-navy)]/25"
               )}
             >
               {chip.label}
@@ -282,8 +290,12 @@ function GroupToggle({ active, onClick, label }: { active: boolean; onClick: () 
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "focus-ring w-full rounded-lg px-3 py-2 text-xs font-semibold transition-colors sm:px-5",
-        active ? "bg-white text-primary shadow-sm" : "text-slate-500 hover:text-slate-700"
+        // 40px tall on a phone — this is the first control on the screen and
+        // the one that reframes everything under it.
+        "focus-ring w-full rounded-lg px-3 py-2.5 text-xs font-semibold transition-colors sm:px-5 sm:py-1.5",
+        active
+          ? "bg-gradient-to-b from-[var(--brand-navy-700)] to-[var(--brand-navy)] text-white shadow-sm"
+          : "text-[var(--brand-ink-soft)] hover:bg-[var(--brand-navy)]/6"
       )}
     >
       {label}

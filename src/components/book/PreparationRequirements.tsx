@@ -27,8 +27,8 @@ export function PreparationRequirements({ consultation }: { consultation?: Consu
   if (items.length === 0) return null;
 
   return (
-    <div className="rounded-xl border border-warning-border bg-warning-bg p-3 text-right">
-      <p className="flex items-center gap-1.5 text-xs font-semibold text-warning-text mb-1.5">
+    <div className="rounded-lg border border-warning-border bg-warning-bg p-3 text-right">
+      <p className="flex items-center gap-1.5 text-xs font-bold text-warning-text mb-1.5">
         <AlertCircle className="h-3.5 w-3.5 shrink-0" /> דרישות מקדימות לתור
       </p>
       <ul className="flex flex-col gap-1">

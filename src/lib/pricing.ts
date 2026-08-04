@@ -17,7 +17,7 @@
 //        never calculates or displays reimbursement amounts, and the hint is
 //        NOT derived from provider agreements — eligibility is between the
 //        patient and her insurer.
-import { InsuranceLayer, Patient, PriceByLayer, ProviderAgreement } from "@/types";
+import { InsuranceLayer, Patient, PriceByLayer, ProviderAgreement, ProviderServiceType } from "@/types";
 
 const ARRANGEMENT_PRIORITY: InsuranceLayer[] = ["S", "K", "B"];
 
@@ -46,6 +46,29 @@ export function resolveBasePrice(prices: PriceByLayer[], priceFull?: number): nu
 
 export type FundingKind = "basket" | "arrangement" | "tourist" | "base";
 
+/**
+ * Some routes are settled by a written undertaking from the payer rather than
+ * by charging the patient: the kupah's טופס 17 for a basket service, and the
+ * insurer's undertaking for the big-ticket private ones (chiefly surgery).
+ * Where one of these exists, the platform collects the form and takes NO
+ * deposit — the payer is paying the provider directly.
+ */
+export interface CommitmentRequirement {
+  /** Who issues it — "מכבי", "מגדל"… shown to the patient. */
+  source: string;
+  /** What to call the document on screen. */
+  formLabel: string;
+}
+
+/**
+ * Which private-insurance arrangements are settled by an undertaking rather
+ * than at the till. Surgery is the clear case; anything needing a hospital
+ * behaves the same way.
+ */
+function bInsurerCommits(serviceType?: ProviderServiceType, requiresHospital?: boolean): boolean {
+  return serviceType === "surgery" || !!requiresHospital;
+}
+
 export interface PriceBreakdown {
   kind: FundingKind;
   /** P — always present, the reference everything else is anchored on. */
@@ -62,6 +85,11 @@ export interface PriceBreakdown {
    * hint never implies eligibility, and no amount is ever attached to it.
    */
   reimbursementHint?: string[];
+  /**
+   * Present when the route is settled by an undertaking from the payer. The
+   * booking then collects that document instead of a deposit.
+   */
+  commitment?: CommitmentRequirement;
 }
 
 /**
@@ -73,7 +101,16 @@ export function resolvePriceBreakdown(
   prices: PriceByLayer[],
   agreements: ProviderAgreement[] | undefined,
   patient: Patient | null | undefined,
-  priceFull?: number
+  priceFull?: number,
+  /** Needed only to decide whether a B arrangement is settled by undertaking. */
+  service?: { service_type?: ProviderServiceType; requires_hospital?: boolean },
+  /**
+   * Which location this is priced for. An agreement can be limited to some of
+   * the provider's clinics, so the same service is genuinely a different price
+   * at different branches. Omit to price against every agreement the provider
+   * holds — the right answer for a container that spans several locations.
+   */
+  clinicId?: string
 ): PriceBreakdown | null {
   if (!patient) return null;
   const basePrice = resolveBasePrice(prices, priceFull);
@@ -90,12 +127,17 @@ export function resolvePriceBreakdown(
     };
   }
 
+  // An agreement scoped to specific clinics only counts at those clinics.
+  const applicable = (agreements ?? []).filter(
+    (a) => !clinicId || !a.clinic_ids?.length || a.clinic_ids.includes(clinicId)
+  );
+
   const held = new Set(getPatientLayers(patient));
   for (const layer of ARRANGEMENT_PRIORITY) {
     if (!held.has(layer)) continue;
     const entry = prices.find((p) => p.layer === layer);
     if (!entry) continue;
-    const agreement = agreements?.find((a) => a.layer === layer);
+    const agreement = applicable.find((a) => a.layer === layer);
     if (!agreement) continue;
 
     if (layer === "S" || layer === "K") {
@@ -110,7 +152,14 @@ export function resolvePriceBreakdown(
     if (layer === "S") {
       // Basket coverage is not a price — the service is covered, conditional
       // on a kupah commitment. The S entry's amount is deliberately ignored.
-      return { kind: "basket", basePrice, price: 0, layer, label: "מכוסה בסל הבריאות" };
+      return {
+        kind: "basket",
+        basePrice,
+        price: 0,
+        layer,
+        label: "מכוסה בסל הבריאות",
+        commitment: { source: patient.kupah ?? "הקופה", formLabel: "טופס 17 — התחייבות מהקופה" },
+      };
     }
     if (layer === "K") {
       return { kind: "arrangement", basePrice, price: entry.price, layer, label: `מחיר הסדר · ${patient.k_level}` };
@@ -120,7 +169,19 @@ export function resolvePriceBreakdown(
     const patientCompanies = (patient.b_insurances ?? []).map((ins) => ins.company);
     const matched = companies.length === 0 ? patientCompanies[0] : patientCompanies.find((c) => companies.includes(c));
     if (companies.length > 0 && !matched) continue;
-    return { kind: "arrangement", basePrice, price: entry.price, layer, label: `מחיר הסדר · ${matched}` };
+    return {
+      kind: "arrangement",
+      basePrice,
+      price: entry.price,
+      layer,
+      label: `מחיר הסדר · ${matched}`,
+      // Surgery and anything needing a hospital are settled by the insurer's
+      // undertaking, so no deposit is taken. Smaller B items are paid for
+      // normally.
+      commitment: bInsurerCommits(service?.service_type, service?.requires_hospital)
+        ? { source: matched ?? "חברת הביטוח", formLabel: "התחייבות מחברת הביטוח" }
+        : undefined,
+    };
   }
 
   // No arrangement — the patient pays the base price. Her own plans may

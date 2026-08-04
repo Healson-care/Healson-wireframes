@@ -101,8 +101,8 @@ export function BookingConfirmation({
       </p>
       <p className="text-xs text-slate-400 mt-1">מספר תיק לקוח #{confirmation.fileNumber}</p>
 
-      <div className="mt-4 flex flex-col gap-1 rounded-xl border border-slate-200 bg-white p-4 text-right text-sm">
-        <p className="font-semibold text-slate-800">
+      <div className="mt-4 flex flex-col gap-1 rounded-lg border border-slate-200 bg-white p-4 text-right text-sm">
+        <p className="font-bold text-slate-900">
           {provider.title} {provider.display_name}
         </p>
         <p className="text-slate-500">{provider.specialty}</p>
@@ -123,11 +123,11 @@ export function BookingConfirmation({
         <PreparationRequirements consultation={consultation} />
       </div>
 
-      <div className="mt-3 flex flex-col items-stretch gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-right sm:flex-row sm:items-center sm:justify-between">
+      <div className="mt-3 flex flex-col items-stretch gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-right sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
           <Receipt className="h-5 w-5 shrink-0 text-slate-500" />
           <div>
-            <p className="text-sm font-semibold text-slate-800">הקבלה על המקדמה מוכנה</p>
+            <p className="text-sm font-bold text-slate-900">הקבלה על המקדמה מוכנה</p>
             <p className="text-xs text-slate-500 mt-0.5">זמינה בכל עת בטאב המסמכים שלך</p>
           </div>
         </div>
@@ -139,8 +139,8 @@ export function BookingConfirmation({
       </div>
 
       {pendingDocs.length > 0 && (
-        <div className="mt-5 rounded-xl border border-warning-border bg-warning-bg p-4 text-right">
-          <p className="flex items-center gap-2 text-sm font-semibold text-warning-text mb-2">
+        <div className="mt-5 rounded-lg border border-warning-border bg-warning-bg p-4 text-right">
+          <p className="flex items-center gap-2 text-sm font-bold text-warning-text mb-2">
             <AlertCircle className="h-5 w-5 shrink-0" /> מסמכים נדרשים לפני התור ({pendingDocs.length})
           </p>
           <ul className="flex flex-col gap-1 mb-3">

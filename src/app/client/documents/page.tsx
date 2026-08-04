@@ -384,7 +384,7 @@ function ClientDocumentsPageContent() {
         title={activeTab === "financial" ? "אין מסמכים פיננסיים להצגה" : "אין מסמכים רפואיים להצגה"}
       />
     ) : (
-      <div className="rounded-xl border border-slate-200 bg-white shadow-sm divide-y divide-slate-100">
+      <div className="rounded-lg border border-slate-200 bg-white divide-y divide-slate-100">
         {visibleItems.map((item) => (
           <DocumentRow
             key={item.id}
