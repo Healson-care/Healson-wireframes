@@ -12,18 +12,26 @@ const LAYER_CAPTION: Record<InsuranceLayer, string> = {
   H: "text-slate-600",
 };
 
+export interface InsuranceMark {
+  key: string;
+  name: string;
+  layer: InsuranceLayer;
+  caption: string;
+  title: string;
+}
+
 /**
- * The patient's insurance identity, worn at the top of the search: her actual
- * insurers, each in its own brand colour and ringed in its SKBH layer's hue.
- * Before a single price is read this answers "who are these numbers for?",
- * and the layer rings are the key to every layer-coloured dot further down.
+ * The discs a patient's insurance profile is worn as — one per LAYER, because
+ * the layer is what every price refers back to. The kupah appears twice —
+ * once for the basket, once for the שב"ן it sold her — so each disc carries
+ * its layer's caption; without it two identical מכבי discs would be
+ * indistinguishable. An empty result means no Israeli kupah, i.e. a tourist.
+ *
+ * Shared with the personal-area hero card, so the patient meets the exact
+ * same marks in both places.
  */
-export function InsuranceProfileStrip({ patient }: { patient: Patient }) {
-  // One disc per LAYER, because the layer is what every price refers back to.
-  // The kupah appears twice — once for the basket, once for the שב"ן it sold
-  // her — so each disc carries its layer's caption; without it two identical
-  // מכבי discs would be indistinguishable.
-  const marks: { key: string; name: string; layer: InsuranceLayer; caption: string; title: string }[] = [];
+export function insuranceMarks(patient: Patient): InsuranceMark[] {
+  const marks: InsuranceMark[] = [];
   if (patient.kupah) {
     marks.push({
       key: "S",
@@ -53,6 +61,17 @@ export function InsuranceProfileStrip({ patient }: { patient: Patient }) {
       title: `ביטוח פרטי · ${insurance.company}`,
     });
   }
+  return marks;
+}
+
+/**
+ * The patient's insurance identity, worn at the top of the search: her actual
+ * insurers, each in its own brand colour and ringed in its SKBH layer's hue.
+ * Before a single price is read this answers "who are these numbers for?",
+ * and the layer rings are the key to every layer-coloured dot further down.
+ */
+export function InsuranceProfileStrip({ patient }: { patient: Patient }) {
+  const marks = insuranceMarks(patient);
 
   // No kupah = a tourist: the H route replaces the whole insurance profile,
   // so the strip says that once for the entire page instead of per price.
