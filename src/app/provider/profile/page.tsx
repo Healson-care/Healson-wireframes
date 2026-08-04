@@ -22,7 +22,7 @@ import {
   isLocationsComplete,
   isAvailabilityComplete,
 } from "@/lib/provider-setup";
-import { Star, CheckCircle2, ChevronLeft, MapPinned, Pencil } from "lucide-react";
+import { Star, CheckCircle2, ChevronLeft, MapPinned, Network, Pencil } from "lucide-react";
 
 const EMPTY_CLINIC_HOURS: Clinic["hours"] = {
   sunday: null,
@@ -38,6 +38,10 @@ export default function ProviderProfileOverviewPage() {
   const currentUser = useStore((s) => s.currentUser);
   const provider = useCurrentProvider();
   const affiliations = useStore((s) => s.affiliations);
+  const providers = useStore((s) => s.providers);
+  const parentOrganization = provider?.parent_organization_id
+    ? providers.find((p) => p.id === provider.parent_organization_id)
+    : undefined;
 
   if (!provider || !currentUser) {
     return (
@@ -100,6 +104,16 @@ export default function ProviderProfileOverviewPage() {
               />
               {provider.is_published && <ProviderPublishedBadge />}
             </div>
+            {/* A medical unit is never a standalone business — it operates under
+                an organization, and that is identity, not a setting: name it
+                right under the unit's own name so it can't be missed. */}
+            {parentOrganization && (
+              <p className="mt-1 flex items-center gap-1.5 text-sm">
+                <Network className="h-3.5 w-3.5 text-primary" />
+                <span className="text-slate-500">יחידה רפואית תחת</span>
+                <span className="font-semibold text-slate-900">{parentOrganization.display_name}</span>
+              </p>
+            )}
             <p className="mt-0.5 text-sm font-medium text-amber-700">{provider.specialty || "—"}</p>
             <div className="mt-1 flex flex-wrap items-center gap-3">
               {provider.license_number && <p className="text-xs text-slate-400 font-mono">{provider.license_number}</p>}

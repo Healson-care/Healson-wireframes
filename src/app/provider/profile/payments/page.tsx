@@ -10,12 +10,11 @@ import { BankAccountSection } from "@/components/provider/BankAccountSection";
 import { BalanceCollectionSection } from "@/components/provider/BalanceCollectionSection";
 import { formatCurrency, buildMonthlyData } from "@/lib/utils";
 import { isUnitProvider } from "@/lib/unit-resources";
-import { DEFAULT_COMMISSION_RATE } from "@/lib/commission";
 
 export default function ProviderPaymentsPage() {
   const orders = useStore((s) => s.orders);
   return (
-    <ProfilePageFrame title="תשלומים והתחשבנות" description="הכנסות, עמלות, תשלום נטו ופרטי חשבון בנק">
+    <ProfilePageFrame title="תשלומים והתחשבנות" description="הכנסות, תשלום לספק ופרטי חשבון בנק">
       {({ provider, update, showToast }) => {
         const myOrders = orders.filter((o) => o.provider_id === provider.id);
         const completedOrders = myOrders.filter((o) => o.status === "הושלם");
@@ -23,7 +22,6 @@ export default function ProviderPaymentsPage() {
         // Net payout only counts fully-collected orders — a completed service
         // whose balance is still a deposit isn't payable yet.
         const collectedOrders = completedOrders.filter((o) => o.payment_status === "שולם במלואו");
-        const commissionPaid = collectedOrders.reduce((sum, o) => sum + (o.commission_amount ?? 0), 0);
         const netPayout = collectedOrders.reduce((sum, o) => sum + (o.provider_payout_amount ?? o.final_price), 0);
         const pendingCollectionPayout = completedOrders
           .filter((o) => o.payment_status !== "שולם במלואו" && o.payment_status !== "הוחזר")
@@ -46,10 +44,11 @@ export default function ProviderPaymentsPage() {
               />
             )}
 
-            <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            {/* The provider's own view is about what reaches THEM — Healson's
+                commission is not a line they manage, so it isn't shown here. */}
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <StatCard label="הכנסה ברוטו" value={formatCurrency(completedRevenue)} tone="green" />
-              <StatCard label="עמלת Healson" value={formatCurrency(commissionPaid)} tone="rose" />
-              <StatCard label="תשלום נטו לספק" value={formatCurrency(netPayout)} tone="purple" />
+              <StatCard label="תשלום לספק" value={formatCurrency(netPayout)} tone="purple" />
               <StatCard label="ממתין לגבייה" value={formatCurrency(pendingCollectionPayout)} tone="amber" />
               <StatCard label="עסקאות שהושלמו" value={completedOrders.length} tone="blue" />
             </div>
@@ -65,8 +64,7 @@ export default function ProviderPaymentsPage() {
               <CardHeader>
                 <CardTitle>עסקאות אחרונות</CardTitle>
                 <p className="text-sm text-slate-500">
-                  עמלת Healson הנוכחית: {provider.commission_rate ?? DEFAULT_COMMISSION_RATE}% לעסקה — נקבעת על ידי Healson ואינה ניתנת
-                  לעריכה כאן · &quot;נטו לספק&quot; משלם רק על סכומים שהתקבלו בפועל
+                  &quot;תשלום לספק&quot; מחושב על סכומים שהתקבלו בפועל בלבד
                 </p>
               </CardHeader>
               <CardContent>
@@ -82,8 +80,10 @@ export default function ProviderPaymentsPage() {
                         </div>
                         <div className="text-left">
                           <span className="font-medium text-slate-900">{formatCurrency(o.final_price)}</span>
-                          {o.commission_amount !== undefined && (
-                            <p className="text-xs text-slate-400">עמלה {formatCurrency(o.commission_amount)} · נטו {formatCurrency(o.provider_payout_amount ?? 0)}</p>
+                          {o.provider_payout_amount !== undefined && (
+                            <p className="text-xs text-slate-400">
+                              לתשלום לספק {formatCurrency(o.provider_payout_amount)}
+                            </p>
                           )}
                         </div>
                       </div>

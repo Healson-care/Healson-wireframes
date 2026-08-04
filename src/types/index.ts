@@ -563,6 +563,18 @@ export interface ScheduleBreak {
   label?: string;
 }
 
+// A shift is either part of the standing week ("קבועה" — the default, repeats
+// until removed) or a stretch of extra/replacement hours that expires on its
+// own ("זמנית" — e.g. a locum covering January, or extra evening hours for a
+// month). A temporary shift lives in exactly the same weekly grid; it simply
+// stops producing slots outside [valid_from, valid_until] — see shiftsForDate.
+export type ShiftRecurrence = "permanent" | "temporary";
+export const SHIFT_RECURRENCES: ShiftRecurrence[] = ["permanent", "temporary"];
+export const SHIFT_RECURRENCE_LABELS: Record<ShiftRecurrence, string> = {
+  permanent: "משמרת קבועה",
+  temporary: "משמרת זמנית",
+};
+
 export interface ScheduleShift {
   id: string;
   start: string; // HH:mm
@@ -570,6 +582,10 @@ export interface ScheduleShift {
   label?: string; // "משמרת בוקר" — free text, optional
   slot_minutes?: number; // defaults to DEFAULT_SLOT_MINUTES
   breaks?: ScheduleBreak[];
+  // Undefined = "permanent" (every shift created before this existed).
+  recurrence?: ShiftRecurrence;
+  valid_from?: string; // yyyy-MM-dd — temporary shifts only
+  valid_until?: string; // yyyy-MM-dd — temporary shifts only
   // ConsultationType ids bookable in this shift. Empty/undefined means "every
   // service offered at this location" — the common case, so a provider who
   // doesn't care about per-shift service scoping never has to touch it.
@@ -628,6 +644,15 @@ export const LOCATION_TYPE_LABELS: Record<LocationType, string> = {
   virtual: "מוקד / מרחוק",
 };
 
+// The same types, worded for the PROVIDER portal, where these are the kinds of
+// סניף a provider runs — a branch with no address, where the patient is met
+// online, is simply "אונליין". Patient-facing surfaces (search facets) keep
+// LOCATION_TYPE_LABELS above; nothing the patient sees changes with this map.
+export const BRANCH_TYPE_LABELS: Record<LocationType, string> = {
+  ...LOCATION_TYPE_LABELS,
+  virtual: "אונליין",
+};
+
 export interface Clinic {
   id: string;
   name: string;
@@ -678,6 +703,30 @@ export const PROVIDER_SERVICE_TYPE_LABELS: Record<ProviderServiceType, string> =
   product: "מוצר",
 };
 
+// What an INDIVIDUAL provider (נותן שירות יחיד — רופא/מטפל) sells. Deliberately
+// three, not the full seven: an individual gives a ייעוץ, performs a טיפול, or
+// — only if they are a רופא/ה מנתח/ת — a ניתוח. Imaging/tests/products belong
+// to units and stores, and never appear in a solo provider's item picker.
+export const SOLO_SERVICE_TYPES: ProviderServiceType[] = ["consultation", "treatment"];
+
+export function soloServiceTypes(isSurgeon: boolean): ProviderServiceType[] {
+  return isSurgeon ? [...SOLO_SERVICE_TYPES, "surgery"] : SOLO_SERVICE_TYPES;
+}
+
+// A ייעוץ is never just "ייעוץ" — the patient is booking a first opinion, a
+// follow-up, or a second opinion, and each is priced and timed differently.
+// Picked (not typed) so the same words appear across every provider.
+export const CONSULTATION_SUBTYPES = [
+  "ייעוץ ראשוני",
+  "ייעוץ וחוות דעת",
+  "ייעוץ חוזר",
+  "חוות דעת נוספת",
+  "ייעוץ לפני ניתוח",
+  "ייעוץ אחרי ניתוח / מעקב",
+  "ייעוץ מרחוק (טלרפואה)",
+  "פענוח וסיכום בדיקות",
+] as const;
+
 export type AnesthesiaType = "local" | "sedation" | "general";
 export const ANESTHESIA_TYPES: AnesthesiaType[] = ["local", "sedation", "general"];
 export const ANESTHESIA_TYPE_LABELS: Record<AnesthesiaType, string> = {
@@ -690,7 +739,27 @@ export interface ConsultationType {
   id: string;
   name: string;
   duration_minutes: number;
+  // Cleanup/turnaround time reserved after the appointment ends. It is not
+  // bookable and the patient never sees it — the slot engine simply treats the
+  // item as duration + buffer long (see slotTimesForShift callers).
+  buffer_minutes?: number;
   prices: PriceByLayer[];
+  // Entered by the provider rather than picked from a reference catalog —
+  // an individual provider (רופא/מטפל) writes their own items. Healson reviews
+  // them as part of the Go-Live approval, so there is no per-item gate.
+  is_custom?: boolean;
+  // ייעוץ only — which kind of consultation (CONSULTATION_SUBTYPES).
+  service_subtype?: string;
+  // Which of the provider's own declared sub-specialties this item belongs to.
+  sub_specialty?: string;
+  // Age range the item is offered for. Both undefined = ללא הגבלת גיל.
+  min_age?: number;
+  max_age?: number;
+  // Per-payer terms an individual provider declares for this item (payments
+  // meeting §6 shape, entered here rather than read off a catalog item):
+  // layer K rows carry either a co-pay (mode "הסדר") or "החזר"; layer B rows
+  // only ever say whether the carrier reimburses, with no price.
+  payer_prices?: PayerPrice[];
   // מחיר פריט מלא (P) — Healson-catalog items only. The full list price the
   // S/K/B/H layer prices sit on top of; S and H always mirror the Ministry of
   // Health price list and are not editable by the provider.
@@ -1230,6 +1299,94 @@ export const DOCTOR_SUBTYPE_LABELS: Record<DoctorSubtype, string> = {
   surgeon: "רופא/ה מנתח/ת",
 };
 
+// ---------------------------------------------------------------------------
+// "אחר" sub-specialty requests — a provider whose sub-specialty isn't on the
+// list types it in, and Healson approves it as PART of the license review
+// (never silently: an unreviewed free-text specialty would end up in patient
+// search). Approved values are appended to `sub_specialties`; rejected ones
+// stay on the record so the provider sees what happened.
+// ---------------------------------------------------------------------------
+export type SubSpecialtyRequestStatus = "pending" | "approved" | "rejected";
+export const SUB_SPECIALTY_REQUEST_STATUS_LABELS: Record<SubSpecialtyRequestStatus, string> = {
+  pending: "ממתין לאישור",
+  approved: "אושר",
+  rejected: "נדחה",
+};
+
+export interface SubSpecialtyRequest {
+  id: string;
+  value: string; // the free text the provider typed
+  status: SubSpecialtyRequestStatus;
+  requested_at: string;
+  decided_at?: string;
+  decision_note?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Provider consents (חוק הגנת הפרטיות התשמ"א-1981 §11 + תיקון 13, בתוקף 8/2025).
+//
+// The law requires informed consent BEFORE personal data is collected, and a
+// separate, explicit consent for "מידע בעל רגישות מיוחדת" — which is what an
+// ID-document scan is. So the join flow has two gates, not one:
+//   gate 1 — /apply, above "צור חשבון": terms + data_processing +
+//            third_party_transfer (all required) and marketing (optional);
+//   gate 2 — the licensing step, right before any document upload:
+//            identity_documents (required).
+// Each grant is stored with its document version and timestamp and is never
+// overwritten, so what the provider agreed to — and when — stays provable.
+// ---------------------------------------------------------------------------
+export type ProviderConsentType =
+  | "terms"
+  | "data_processing"
+  | "third_party_transfer"
+  | "marketing"
+  | "identity_documents";
+
+export const PROVIDER_CONSENT_VERSION = "PRV-PP-2026-08-v1";
+
+/** Gate 1 — collected before the account (and therefore any personal data) exists. */
+export const ACCOUNT_CONSENT_TYPES: ProviderConsentType[] = [
+  "terms",
+  "data_processing",
+  "third_party_transfer",
+  "marketing",
+];
+
+/** Gate 2 — collected before ID / license documents are uploaded. */
+export const DOCUMENT_CONSENT_TYPES: ProviderConsentType[] = ["identity_documents"];
+
+export const PROVIDER_CONSENT_REQUIRED: Record<ProviderConsentType, boolean> = {
+  terms: true,
+  data_processing: true,
+  third_party_transfer: true,
+  marketing: false,
+  identity_documents: true,
+};
+
+export const PROVIDER_CONSENT_LABELS: Record<ProviderConsentType, string> = {
+  terms: "קראתי ואני מסכים/ה לתנאי השימוש ולמדיניות הפרטיות של Healson",
+  data_processing:
+    "אני מסכים/ה שהמידע האישי והמקצועי שאמסור יישמר ויעובד על ידי Healson לצורך ניהול חשבון נותן השירות, אימות הרישוי ומתן השירות",
+  third_party_transfer:
+    "אני מסכים/ה שפרטיי יועברו לגורמים הנדרשים לצורך אימות והתקשרות — משרד הבריאות, קופות החולים וחברות הביטוח שאיתן אבחר לעבוד",
+  marketing: "אני מעוניין/ת לקבל עדכונים ותכנים שיווקיים מ-Healson (לא חובה, ניתן לבטל בכל עת)",
+  identity_documents:
+    'אני מסכים/ה במפורש להעלאת מסמכי הזיהוי והרישוי שלי (צילום ת"ז, רישיון, תעודות) ולשמירתם על ידי Healson לצורך אימות זהות וכשירות מקצועית',
+};
+
+export const PROVIDER_CONSENT_HINTS: Partial<Record<ProviderConsentType, string>> = {
+  data_processing: "המידע נשמר כל עוד החשבון פעיל, ולאחר סגירתו למשך התקופה הנדרשת בדין.",
+  identity_documents:
+    'צילום ת"ז הוא מידע בעל רגישות מיוחדת, ולכן נדרשת לו הסכמה נפרדת ומפורשת. הוא ישמש אך ורק לאימות זהותך.',
+};
+
+export interface ProviderConsent {
+  type: ProviderConsentType;
+  version: string;
+  granted: boolean;
+  granted_at: string;
+}
+
 export interface ProviderProfile {
   id: string;
   provider_type?: ProviderType;
@@ -1264,6 +1421,19 @@ export interface ProviderProfile {
   // the mail sent at signup is a welcome notification, not a gate.
   phone_verified_at?: string;
   license_file?: UploadedFile;
+  // Individual providers (רופא/מטפל) — national ID number and a scan of the ID
+  // document. Both mandatory at registration: an individual is licensed as a
+  // person, so identity has to be verified before the license can be.
+  id_number?: string;
+  id_document_photo?: UploadedFile;
+  // תעודת מומחה — a doctor may hold a specialist certification on top of the
+  // basic practice license. Optional: not every doctor is a מומחה.
+  specialist_license_number?: string;
+  specialist_license_file?: UploadedFile;
+  // Free-text sub-specialties awaiting Healson's approval (see SubSpecialtyRequest).
+  sub_specialty_requests?: SubSpecialtyRequest[];
+  // Privacy-law consents, append-only (see ProviderConsent).
+  consents?: ProviderConsent[];
   doctor_subtype?: DoctorSubtype;
   surgical_board_certificate?: UploadedFile;
   malpractice_insurance_file?: UploadedFile;

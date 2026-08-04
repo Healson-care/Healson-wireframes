@@ -21,8 +21,10 @@ import {
   ProviderProfile,
   BALANCE_COLLECTOR_LABELS,
   isUnitProviderType,
+  PROVIDER_CONSENT_LABELS,
   PROVIDER_TYPE_LABELS,
   ProviderType,
+  SUB_SPECIALTY_REQUEST_STATUS_LABELS,
   UploadedFile,
 } from "@/types";
 import {
@@ -30,6 +32,9 @@ import {
   isCatalogComplete,
   isLocationsComplete,
   isAvailabilityComplete,
+  isSurgicalPrivilegesComplete,
+  needsSurgicalPrivileges,
+  requiresPlatformAgreement,
 } from "@/lib/provider-setup";
 import {
   LayoutDashboard,
@@ -61,14 +66,26 @@ import {
   Trash2,
   Pencil,
   MapPinned,
+  Sparkles,
 } from "lucide-react";
 
 /** Derives the ordered onboarding-setup checklist (same steps the provider
  * drives) so the admin can see exactly what's done and what's outstanding. */
 function onboardingSteps(provider: ProviderProfile) {
   const config = getProviderSetupConfig(provider.provider_type);
+  // Same order the provider sees (see OnboardingProgress): signing is LAST, and
+  // a medical unit has no signing step at all — its contract is off-platform.
   return [
-    { key: "sign", label: "חתימת הסכם Healson", icon: FileSignature, ok: !!provider.agreement_signed_at },
+    ...(needsSurgicalPrivileges(provider)
+      ? [
+          {
+            key: "surgical",
+            label: "הרשאות ניתוח",
+            icon: FileCheck2,
+            ok: isSurgicalPrivilegesComplete(provider),
+          },
+        ]
+      : []),
     ...(config.showAgreements
       ? [{ key: "agreements", label: "הסדרי ביטוח", icon: Handshake, ok: provider.agreements.length > 0 }]
       : []),
@@ -78,6 +95,16 @@ function onboardingSteps(provider: ProviderProfile) {
       : []),
     ...(config.showAvailability
       ? [{ key: "availability", label: "זמינות", icon: CalendarClock, ok: isAvailabilityComplete(provider) }]
+      : []),
+    ...(requiresPlatformAgreement(provider)
+      ? [
+          {
+            key: "sign",
+            label: "חתימת הסכם Healson",
+            icon: FileSignature,
+            ok: !!provider.agreement_signed_at,
+          },
+        ]
       : []),
   ];
 }
@@ -155,6 +182,127 @@ function DocRow({ label, file }: { label: string; file?: UploadedFile }) {
       ) : (
         <span className="text-xs text-slate-400">לא צורף</span>
       )}
+    </div>
+  );
+}
+
+/**
+ * Free-text "אחר" sub-specialties the provider typed at registration. Reviewed
+ * HERE, as part of the license check — until approved they are not part of the
+ * provider's profile at all, so nothing unreviewed can reach patient search.
+ */
+function SubSpecialtyRequestsCard({ provider }: { provider: ProviderProfile }) {
+  const decideSubSpecialtyRequest = useStore((s) => s.decideSubSpecialtyRequest);
+  const showToast = useStore((s) => s.showToast);
+  const requests = provider.sub_specialty_requests ?? [];
+  if (requests.length === 0) return null;
+  const pending = requests.filter((r) => r.status === "pending");
+
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+      <p className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-900">
+        <Sparkles className="h-4 w-4 text-amber-600" />
+        תתי-התמחות &quot;אחר&quot; שהוזנו על ידי הספק
+        {pending.length > 0 && <Badge tone="amber">{pending.length} ממתינות</Badge>}
+      </p>
+      <p className="mb-3 text-xs leading-relaxed text-slate-600">
+        אישור מוסיף את התחום לפרופיל הספק ומאפשר לו לשייך אליו פריטים. זהו חלק מבדיקת הרישוי.
+      </p>
+      <div className="flex flex-col gap-2">
+        {requests.map((request) => (
+          <div
+            key={request.id}
+            className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white px-3 py-2.5"
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-slate-900">{request.value}</p>
+              <p className="text-[11px] text-slate-500">
+                {SUB_SPECIALTY_REQUEST_STATUS_LABELS[request.status]} · הוגש {formatDateHe(request.requested_at)}
+              </p>
+            </div>
+            {request.status === "pending" ? (
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    decideSubSpecialtyRequest(provider.id, request.id, true);
+                    showToast(`"${request.value}" אושרה והתווספה לפרופיל`, { variant: "success" });
+                  }}
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" /> אשר
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    decideSubSpecialtyRequest(provider.id, request.id, false);
+                    showToast(`"${request.value}" נדחתה`, { variant: "default" });
+                  }}
+                >
+                  <Ban className="h-3.5 w-3.5" /> דחה
+                </Button>
+              </div>
+            ) : (
+              <Badge tone={request.status === "approved" ? "success" : "slate"}>
+                {SUB_SPECIALTY_REQUEST_STATUS_LABELS[request.status]}
+              </Badge>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** The items the provider entered themselves — Healson checks them as part of
+ * the Go-Live approval, so they have to be readable right here. */
+function SelfEnteredItemsCard({ provider }: { provider: ProviderProfile }) {
+  const custom = provider.consultation_types.filter((i) => i.is_custom);
+  if (custom.length === 0) return null;
+  return (
+    <div className="rounded-xl border border-slate-200 p-4">
+      <p className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-900">
+        <Stethoscope className="h-4 w-4 text-slate-400" />
+        פריטים שהוזנו על ידי הספק ({custom.length})
+      </p>
+      <p className="mb-3 text-xs leading-relaxed text-slate-500">
+        נותן שירות יחיד מזין את הפריטים שלו בעצמו. הם נבדקים כאן לפני אישור הפרסום.
+      </p>
+      <div className="flex flex-col gap-2">
+        {custom.map((item) => (
+          <div key={item.id} className="rounded-lg bg-slate-50 px-3 py-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-sm font-medium text-slate-900">{item.name}</span>
+              <span className="text-sm font-semibold text-slate-700">
+                {item.price_full != null ? `${item.price_full} ₪` : "ללא מחיר"}
+              </span>
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              {item.service_subtype && <Badge tone="slate">{item.service_subtype}</Badge>}
+              {item.sub_specialty && <Badge tone="purple">{item.sub_specialty}</Badge>}
+              <Badge tone="slate">
+                {item.min_age == null && item.max_age == null
+                  ? "ללא הגבלת גיל"
+                  : `גילאי ${item.min_age ?? 0}–${item.max_age ?? 120}`}
+              </Badge>
+              <span className="text-[11px] text-slate-500">
+                {item.duration_minutes} דק׳{item.buffer_minutes ? ` + ${item.buffer_minutes} באפר` : ""}
+              </span>
+            </div>
+            {(item.payer_prices?.length ?? 0) > 0 && (
+              <p className="mt-1 text-[11px] text-slate-500">
+                {item.payer_prices!
+                  .map((p) =>
+                    p.layer === "K"
+                      ? `${p.level}: ${p.mode === "החזר" ? "החזר" : `השתתפות ${p.price ?? 0} ₪`}`
+                      : `${p.insurer}: החזר`
+                  )
+                  .join(" · ")}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -479,6 +627,9 @@ export function AdminProviderProfile({
         <TabsContent value="onboarding" className="mt-4 flex flex-col gap-4">
           <ProviderJourneyStepper provider={provider} />
 
+          {/* Part of the license check — approved values join the profile. */}
+          <SubSpecialtyRequestsCard provider={provider} />
+
           <div>
             <div className="mb-1.5 flex items-center justify-between text-sm">
               <span className="font-medium text-slate-700">התקדמות הגדרת הפרופיל</span>
@@ -532,6 +683,10 @@ export function AdminProviderProfile({
             </InfoTile>
           </div>
 
+          {/* What Healson actually reviews before Go-Live for an individual
+              provider: the items they wrote themselves. */}
+          <SelfEnteredItemsCard provider={provider} />
+
           {allServices.length > 0 && (
             <p className="text-xs leading-relaxed text-slate-500">
               תעריפי K/B ומחיר הפריט P הוזנו על ידי הספק; מחירי S ו-H נקבעים לפי מחירון משרד הבריאות.
@@ -541,16 +696,54 @@ export function AdminProviderProfile({
 
         {/* ---- Documents ---- */}
         <TabsContent value="documents" className="mt-4 flex flex-col gap-2">
+          {provider.id_number && <InfoTile label="מספר תעודת זהות">{provider.id_number}</InfoTile>}
+          <DocRow label="צילום תעודת זהות" file={provider.id_document_photo} />
           <DocRow label="רישיון מקצועי" file={provider.license_file} />
+          {provider.specialist_license_number && (
+            <InfoTile label="מספר רישיון מומחה">{provider.specialist_license_number}</InfoTile>
+          )}
+          <DocRow label="תעודת מומחה" file={provider.specialist_license_file} />
           <DocRow label="קורות חיים / תעודות" file={provider.medical_resume_file} />
           {isSurgeon && (
             <>
               <DocRow label="תעודת מומחה בתחום ניתוחי (בורד)" file={provider.surgical_board_certificate} />
               <DocRow label="ביטוח אחריות מקצועית" file={provider.malpractice_insurance_file} />
-              <InfoTile label="הרשאת ניתוח">{provider.surgical_privileges_hospital || "—"}</InfoTile>
+              <InfoTile label="הרשאת ניתוח (נקבעת בשלב ההקמה)">
+                {provider.surgical_privileges_hospital || "—"}
+              </InfoTile>
             </>
           )}
           <DocRow label="אישור ניהול חשבון בנק" file={provider.bank_account?.authorization_file} />
+
+          {/* Privacy-law trail: what this provider consented to, and when.
+              Kept with the documents because that is what it governs. */}
+          {(provider.consents?.length ?? 0) > 0 && (
+            <div className="mt-2 rounded-xl border border-slate-200 p-4">
+              <p className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-900">
+                <ShieldCheck className="h-4 w-4 text-slate-400" /> הסכמות פרטיות
+              </p>
+              <div className="flex flex-col gap-1.5">
+                {provider.consents!.map((consent, i) => (
+                  <div
+                    key={`${consent.type}-${i}`}
+                    className="flex items-start justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2 text-xs"
+                  >
+                    <span className="leading-relaxed text-slate-600">
+                      {PROVIDER_CONSENT_LABELS[consent.type]}
+                    </span>
+                    <span className="shrink-0 text-left">
+                      <Badge tone={consent.granted ? "success" : "slate"}>
+                        {consent.granted ? "אושר" : "לא אושר"}
+                      </Badge>
+                      <span className="mt-0.5 block text-[10px] text-slate-400">
+                        {formatDateHe(consent.granted_at)} · {consent.version}
+                      </span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </TabsContent>
 
         {/* ---- Activity ---- */}

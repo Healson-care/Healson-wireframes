@@ -22,6 +22,7 @@ import {
   ChevronLeft,
   CalendarDays,
   CreditCard,
+  Network,
   ShoppingCart,
 } from "lucide-react";
 import { isCancelledAppointment } from "@/types";
@@ -35,6 +36,7 @@ export default function ProviderDashboardPage() {
   const orders = useStore((s) => s.orders);
   const patients = useStore((s) => s.patients);
   const appointments = useStore((s) => s.appointments);
+  const providers = useStore((s) => s.providers);
   const showToast = useStore((s) => s.showToast);
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
 
@@ -61,6 +63,9 @@ export default function ProviderDashboardPage() {
   }
 
   const setupConfig = getProviderSetupConfig(provider.provider_type);
+  const parentOrganization = provider.parent_organization_id
+    ? providers.find((p) => p.id === provider.parent_organization_id)
+    : undefined;
   const isPendingReview = provider.status === "pending_review";
   const applicationSubmitted = !!provider.application_submitted_at;
   // Brand-new account: RegistrationProgress renders its own welcome hero (which is
@@ -216,6 +221,14 @@ export default function ProviderDashboardPage() {
               )}
               {provider.is_published && <ProviderPublishedBadge />}
             </div>
+            {/* Which organization this unit belongs to — stated, not implied. */}
+            {parentOrganization && (
+              <p className="mt-1 flex items-center gap-1.5 text-sm">
+                <Network className="h-3.5 w-3.5 text-primary" />
+                <span className="text-slate-500">יחידה רפואית תחת</span>
+                <span className="font-semibold text-slate-900">{parentOrganization.display_name}</span>
+              </p>
+            )}
             <div className="mt-0.5 flex flex-wrap items-center gap-3">
               <p className="text-sm text-slate-500">{provider.specialty || "לוח הבקרה שלך"}</p>
               {!!provider.rating && (

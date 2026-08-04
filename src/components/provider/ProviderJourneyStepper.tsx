@@ -15,7 +15,8 @@ export interface JourneyStage {
 const STAGE_META: { key: string; label: string; sub: string; icon: LucideIcon }[] = [
   { key: "apply", label: "הרשמה", sub: "טופס בקשת הצטרפות", icon: FileEdit },
   { key: "review", label: "בדיקה ואישור", sub: 'אימות רישיון ע"י Healson', icon: ShieldCheck },
-  { key: "onboarding", label: "הסכם ומחירון", sub: "חתימת הסכם Healson ← הסדרים וקטלוג פריטים", icon: FileSignature },
+  // Signing closes this stage rather than opening it — see OnboardingProgress.
+  { key: "onboarding", label: "הקמה", sub: "הסדרים, פריטים, סניפים וזמינות ← חתימת הסכם", icon: FileSignature },
   { key: "publish", label: "פרסום", sub: "בקשת Go-Live ואישור Healson", icon: Rocket },
   { key: "live", label: "ניהול שוטף", sub: "יומן, מטופלים, דוחות", icon: LayoutDashboard },
 ];

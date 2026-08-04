@@ -19,7 +19,7 @@ export default function ProviderReportsPage() {
               onChange={(monthly_settlements) => update({ monthly_settlements })}
               showToast={showToast}
             />
-            <MonthlyReportSection orders={myOrders} providerName={provider.display_name} />
+            <MonthlyReportSection orders={myOrders} providerName={provider.display_name} showCommission={false} />
           </div>
         );
       }}

@@ -22,6 +22,12 @@ import {
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { ProviderGoogleSignIn } from "@/components/shared/ProviderGoogleSignIn";
+import {
+  ProviderConsentGate,
+  consentGateSatisfied,
+  consentGrants,
+} from "@/components/provider/ProviderConsentGate";
+import { ACCOUNT_CONSENT_TYPES } from "@/types";
 
 // The service constellation — the brand's signature motif (an arch of circular
 // badges), rebuilt as a living hero. Middle badge sits highest (ARCH offsets).
@@ -98,10 +104,18 @@ export default function ProviderApplyPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  // Privacy gate 1 — nothing is stored until these are ticked, because this
+  // submit is the first moment any personal detail of the applicant is saved.
+  const [consents, setConsents] = useState<Record<string, boolean>>({});
+  const consentsOk = consentGateSatisfied(ACCOUNT_CONSENT_TYPES, consents);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    if (!consentsOk) {
+      setError("יש לאשר את ההסכמות המסומנות בכוכבית כדי ליצור חשבון");
+      return;
+    }
     if (password !== confirmPassword) {
       setError("הסיסמאות אינן תואמות");
       return;
@@ -111,7 +125,14 @@ export default function ProviderApplyPage() {
       // No phone and no provider type at signup — both are collected inside
       // the application form (and the phone is OTP-verified right after it's
       // entered there). The Google path never has either one either.
-      const result = registerProviderAccount(fullName, "", email, password);
+      const result = registerProviderAccount(
+        fullName,
+        "",
+        email,
+        password,
+        undefined,
+        consentGrants(ACCOUNT_CONSENT_TYPES, consents)
+      );
       setLoading(false);
       if (!result.ok) {
         setError(result.error ?? "שגיאה ביצירת החשבון");
@@ -244,7 +265,14 @@ export default function ProviderApplyPage() {
               </p>
 
               <div className="mt-4">
-                <ProviderGoogleSignIn label="הצטרפות מהירה עם Google" />
+                {/* Same gate for the Google path — an account created there
+                    stores exactly the same personal data. */}
+                <ProviderGoogleSignIn
+                  label="הצטרפות מהירה עם Google"
+                  disabled={!consentsOk}
+                  disabledHint="יש לאשר תחילה את ההסכמות שבתחתית הטופס"
+                  consents={consentGrants(ACCOUNT_CONSENT_TYPES, consents)}
+                />
               </div>
 
               <div className="my-3.5 flex items-center gap-3">
@@ -300,9 +328,17 @@ export default function ProviderApplyPage() {
                   />
                 </div>
 
+                <ProviderConsentGate
+                  types={ACCOUNT_CONSENT_TYPES}
+                  value={consents}
+                  onChange={setConsents}
+                  description="לפני שנשמור פרט כלשהו עליך, אלה ההסכמות שהחוק מחייב. שדות המסומנים ב-* הם תנאי לפתיחת חשבון."
+                  className="mt-0.5"
+                />
+
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || !consentsOk}
                   className="focus-ring group relative mt-0.5 flex h-11 w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-b from-[var(--brand-navy-700)] to-[var(--brand-navy)] text-sm font-semibold text-white shadow-lg shadow-[var(--brand-navy)]/25 transition-all hover:-translate-y-px hover:shadow-xl hover:shadow-[var(--brand-navy)]/30 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <span

@@ -53,16 +53,25 @@ import {
   getCategory,
 } from "@/lib/provider-categories";
 import {
+  DOCUMENT_CONSENT_TYPES,
   DOCTOR_SUBTYPES,
   DOCTOR_SUBTYPE_LABELS,
   DoctorSubtype,
   KupahArrangement,
-  PRIVATE_INSURANCE_COMPANIES,
   ProviderType,
   PROVIDER_TYPE_SERVICE_CATEGORIES,
   UploadedFile,
 } from "@/types";
-import { KupahArrangementPicker, MultiSelectPills } from "@/components/provider/KupahArrangementPicker";
+import {
+  KupahArrangementPicker,
+  MultiSelectPills,
+  PrivateInsurerPicker,
+} from "@/components/provider/KupahArrangementPicker";
+import {
+  ProviderConsentGate,
+  consentGateSatisfied,
+  consentGrants,
+} from "@/components/provider/ProviderConsentGate";
 
 // The application, end to end: pick a category/type → fill in who you are →
 // verify the phone you just entered → licensing, insurance and coverage →
@@ -72,6 +81,10 @@ type Phase = "category" | "type" | "form" | "otp" | "review" | "success";
 
 /** The form's own sub-steps, in order. "identity" and "license" always exist. */
 type FormStepKey = "identity" | "license" | "extras" | "area";
+
+/** Fields whose validation can't be expressed with native `required` — the
+ * error message is echoed inline next to the control it belongs to. */
+type ErrorField = "license" | "specialty" | "subSpecialtyOther" | "idPhoto" | "consent";
 
 const TITLES = ['ד"ר', "פרופ'"];
 
@@ -271,6 +284,12 @@ interface TypeFieldConfig {
   freeTextSpecialty?: boolean;
   showBusinessRegNumber?: boolean;
   businessRegRequired?: boolean;
+  /** Individual providers only — national ID number + a scan of the document,
+   * both mandatory: an individual is licensed as a person, so identity has to
+   * be verified before the license can be. */
+  showIdentityDocument?: boolean;
+  /** Doctors — תעודת מומחה on top of the basic license. Never mandatory. */
+  showSpecialistLicense?: boolean;
   showLicenseNumber?: boolean;
   licenseNumberLabel: string;
   licenseFileLabel: string;
@@ -317,11 +336,11 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
     licenseNumberLabel: "מספר רישיון רפואי",
     licenseFileLabel: "קובץ רישיון רפואי (PDF / JPG / PNG)",
     showBusinessRegNumber: true,
-    businessRegRequired: false,
+    showIdentityDocument: true,
+    showSpecialistLicense: true,
     showKupot: true,
     showPrivateInsurance: true,
     showSubSpecialties: true,
-    showLocationCount: true,
   },
   caregiver: {
     icon: <HeartPulse className="h-5 w-5" />,
@@ -340,10 +359,9 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
     licenseNumberLabel: "מספר רישיון סיעוד (משרד הבריאות)",
     licenseFileLabel: "רישיון סיעוד / תעודת הסמכה (PDF / JPG / PNG)",
     showBusinessRegNumber: true,
-    businessRegRequired: false,
+    showIdentityDocument: true,
     showKupot: true,
     showPrivateInsurance: true,
-    showLocationCount: true,
     extraServiceAreas: ["עד הבית"],
   },
   store: {
@@ -478,7 +496,7 @@ const REGISTER_STEPS: { key: string; label: string; icon: ReactNode }[] = [
   { key: "type", label: "סוג ספק", icon: <Layers className="h-4 w-4" /> },
   { key: "identity", label: "פרטים אישיים", icon: <UserIcon className="h-4 w-4" /> },
   { key: "otp", label: "אימות טלפון", icon: <ShieldCheck className="h-4 w-4" /> },
-  { key: "details", label: "מקצוע ורישוי", icon: <ClipboardPlus className="h-4 w-4" /> },
+  { key: "details", label: "זיהוי ורישוי", icon: <ClipboardPlus className="h-4 w-4" /> },
   { key: "review", label: "סיכום ושליחה", icon: <FileText className="h-4 w-4" /> },
   { key: "success", label: "סיום", icon: <PartyPopper className="h-4 w-4" /> },
 ];
@@ -719,6 +737,8 @@ export default function ProviderRegisterPage() {
   const demoApproveProvider = useStore((s) => s.demoApproveProvider);
   const demoRejectProvider = useStore((s) => s.demoRejectProvider);
   const verifyProviderLicense = useStore((s) => s.verifyProviderLicense);
+  const recordProviderConsents = useStore((s) => s.recordProviderConsents);
+  const requestSubSpecialty = useStore((s) => s.requestSubSpecialty);
   const showToast = useStore((s) => s.showToast);
 
   // Once Ops verifies the license, status moves to "onboarding" — send the
@@ -755,8 +775,15 @@ export default function ProviderRegisterPage() {
   const [accountPhone, setAccountPhone] = useState(user?.phone ?? "");
   const email = user?.email ?? "";
   const [licenseFile, setLicenseFile] = useState<File | null>(null);
+  const [idNumber, setIdNumber] = useState("");
+  const [idPhotoFile, setIdPhotoFile] = useState<File | null>(null);
+  const [specialistLicenseNumber, setSpecialistLicenseNumber] = useState("");
+  const [specialistLicenseFile, setSpecialistLicenseFile] = useState<File | null>(null);
+  // Privacy gate 2 — explicit consent for identity documents (מידע בעל
+  // רגישות מיוחדת), asked right where those documents are uploaded.
+  const [docConsents, setDocConsents] = useState<Record<string, boolean>>({});
+  const docConsentWrittenRef = useRef(false);
   const [doctorSubtype, setDoctorSubtype] = useState<DoctorSubtype>("physician");
-  const [surgicalPrivilegesHospital, setSurgicalPrivilegesHospital] = useState("");
   const [kupahArrangements, setKupahArrangements] = useState<KupahArrangement[]>([]);
   const [privateInsurers, setPrivateInsurers] = useState<string[]>([]);
   const [subSpecialties, setSubSpecialties] = useState<string[]>([]);
@@ -765,7 +792,7 @@ export default function ProviderRegisterPage() {
   const [storeStructure, setStoreStructure] = useState<"single" | "chain">("single");
   const [otpCode, setOtpCode] = useState("");
   const [error, setErrorMessage] = useState("");
-  const [errorField, setErrorField] = useState<"license" | "hospital" | "specialty" | null>(null);
+  const [errorField, setErrorField] = useState<ErrorField | null>(null);
   const [errorNonce, setErrorNonce] = useState(0);
   const errorRef = useRef<HTMLDivElement | null>(null);
   const [loading, setLoading] = useState(false);
@@ -776,7 +803,7 @@ export default function ProviderRegisterPage() {
   // raised (nonce bumps even when the same message repeats, so a second
   // failed submit still scrolls). `field` additionally highlights the exact
   // control the message is about, inline.
-  function setError(message: string, field?: "license" | "hospital" | "specialty") {
+  function setError(message: string, field?: ErrorField) {
     setErrorMessage(message);
     setErrorField(field ?? null);
     if (message) setErrorNonce((n) => n + 1);
@@ -841,11 +868,23 @@ export default function ProviderRegisterPage() {
       else setSpecialty(provider.specialty ?? "");
       setLicenseNumber(provider.license_number ?? "");
       setBusinessRegNumber(provider.business_reg_number ?? "");
+      setIdNumber(provider.id_number ?? "");
+      setSpecialistLicenseNumber(provider.specialist_license_number ?? "");
       setDoctorSubtype(provider.doctor_subtype ?? "physician");
-      setSurgicalPrivilegesHospital(provider.surgical_privileges_hospital ?? "");
       setKupahArrangements(provider.kupah_arrangements ?? []);
       setPrivateInsurers(provider.private_insurance_companies ?? []);
       setSubSpecialties(provider.sub_specialties ?? []);
+      // A pending "אחר" request is the applicant's own unfinished text — put it
+      // back in the field so a resumed session doesn't look like it was lost.
+      const pendingOther = (provider.sub_specialty_requests ?? []).find((r) => r.status === "pending");
+      if (pendingOther) {
+        setOtherSubSpecialty(pendingOther.value);
+        setSubSpecialties((prev) => (prev.includes("אחר") ? prev : [...prev, "אחר"]));
+      }
+      // Consent already given in an earlier sitting — don't ask twice.
+      if ((provider.consents ?? []).some((c) => c.type === "identity_documents" && c.granted)) {
+        setDocConsents({ identity_documents: true });
+      }
       setLocationCount(provider.location_count != null ? String(provider.location_count) : "");
       setStoreStructure(type === "store" && (provider.location_count ?? 1) > 1 ? "chain" : "single");
       // Resume into the form, at the first sub-step that still has work: the
@@ -871,7 +910,11 @@ export default function ProviderRegisterPage() {
 
   const config = providerType ? TYPE_CONFIG[providerType] : null;
   const isDoctor = providerType === "doctor";
-  const isSurgeon = isDoctor && doctorSubtype === "surgeon";
+  // Privacy gate 2 — required before any document field is even rendered.
+  const docConsentAlreadyRecorded = (provider?.consents ?? []).some(
+    (c) => c.type === "identity_documents" && c.granted
+  );
+  const docConsentOk = docConsentAlreadyRecorded || consentGateSatisfied(DOCUMENT_CONSENT_TYPES, docConsents);
   // For individual provider types the "name" field IS the person's name (and
   // therefore the account holder's); organizations name the business instead.
   const nameIsPerson = providerType === "doctor" || providerType === "caregiver";
@@ -902,7 +945,7 @@ export default function ProviderRegisterPage() {
   // against; the last two are per-type.
   const formSteps: { key: FormStepKey; label: string }[] = [
     { key: "identity", label: "פרטים אישיים" },
-    { key: "license", label: "מקצוע ורישוי" },
+    { key: "license", label: "זיהוי, מקצוע ורישוי" },
     ...(hasExtrasStep ? ([{ key: "extras", label: "כיסוי ביטוחי" }] as const) : []),
     ...(hasAreaStep ? ([{ key: "area", label: "פריסה" }] as const) : []),
   ];
@@ -914,16 +957,26 @@ export default function ProviderRegisterPage() {
   // Custom validations for fields native `required` can't cover (file
   // uploads, pill multi-selects) — all belong to the "license" sub-step, and
   // re-checked on final submit as a safety net.
-  function licenseStepError(): { field: "license" | "hospital" | "specialty"; message: string } | null {
+  function licenseStepError(): { field: ErrorField; message: string } | null {
     if (!config) return null;
+    // The document-consent gate comes first: nothing may be uploaded before it
+    // is given, so an unticked box is the blocking error, not the missing file.
+    if (!docConsentOk) {
+      return { field: "consent", message: "יש לאשר את ההסכמה לשמירת מסמכי הזיהוי לפני העלאתם" };
+    }
+    if (config.showIdentityDocument && !idPhotoFile && !provider?.id_document_photo) {
+      return { field: "idPhoto", message: "נא לצרף צילום תעודת זהות" };
+    }
     if (config.licenseFileRequired !== false && !licenseFile && !provider?.license_file) {
       return { field: "license", message: `נא לצרף ${licenseFileLabel.replace(/\s*\(.*\)$/, "")}` };
     }
-    if (isSurgeon && !surgicalPrivilegesHospital) {
-      return { field: "hospital", message: "רופא/ה מנתח/ת נדרש/ת לציין את בית החולים בו יש הרשאת ניתוח" };
-    }
     if (config.multiSpecialty && specialtyMulti.length === 0) {
       return { field: "specialty", message: `נא לבחור לפחות אפשרות אחת עבור ${config.specialtyLabel}` };
+    }
+    // "אחר" without the text is a dead end: Healson would get a request to
+    // approve a sub-specialty with no name.
+    if (config.showSubSpecialties && subSpecialties.includes("אחר") && !otherSubSpecialty.trim()) {
+      return { field: "subSpecialtyOther", message: `נא לפרט איזו ${subSpecialtyLabel} — היא תישלח לאישור צוות Healson` };
     }
     return null;
   }
@@ -936,17 +989,34 @@ export default function ProviderRegisterPage() {
   async function persistDraft(): Promise<boolean> {
     if (!providerType || !config || !provider) return false;
     let licenseFileRecord: UploadedFile | undefined;
+    let idPhotoRecord: UploadedFile | undefined;
+    let specialistFileRecord: UploadedFile | undefined;
+    const toRecord = async (file: File): Promise<UploadedFile> => ({
+      file_name: file.name,
+      uploaded_at: new Date().toISOString(),
+      data_url: await fileToDataUrl(file),
+    });
     try {
-      licenseFileRecord = licenseFile
-        ? {
-            file_name: licenseFile.name,
-            uploaded_at: new Date().toISOString(),
-            data_url: await fileToDataUrl(licenseFile),
-          }
-        : provider.license_file;
+      licenseFileRecord = licenseFile ? await toRecord(licenseFile) : provider.license_file;
+      idPhotoRecord = idPhotoFile ? await toRecord(idPhotoFile) : provider.id_document_photo;
+      specialistFileRecord = specialistLicenseFile
+        ? await toRecord(specialistLicenseFile)
+        : provider.specialist_license_file;
     } catch (err) {
       setError(err instanceof Error ? err.message : "שגיאה בהעלאת הקובץ");
       return false;
+    }
+    // Record the document consent the first time it's given. The store keeps an
+    // append-only log, so the ref (not just the profile flag, which is a render
+    // behind) is what stops a second save from writing the same grant twice.
+    if (docConsentOk && !docConsentAlreadyRecorded && !docConsentWrittenRef.current) {
+      docConsentWrittenRef.current = true;
+      recordProviderConsents(provider.id, consentGrants(DOCUMENT_CONSENT_TYPES, docConsents));
+    }
+    // A free-text "אחר" sub-specialty goes to Healson for approval alongside
+    // the license — it never lands straight in `sub_specialties`.
+    if (config.showSubSpecialties && subSpecialties.includes("אחר") && otherSubSpecialty.trim()) {
+      requestSubSpecialty(provider.id, otherSubSpecialty.trim());
     }
     upsertProviderProfile(provider.user_id, {
       provider_type: providerType,
@@ -960,13 +1030,18 @@ export default function ProviderRegisterPage() {
       business_reg_number:
         config.showBusinessRegNumber && extraFieldsGate && businessRegNumber ? businessRegNumber : undefined,
       license_file: licenseFileRecord,
+      id_number: config.showIdentityDocument && idNumber ? idNumber : undefined,
+      id_document_photo: config.showIdentityDocument ? idPhotoRecord : undefined,
+      specialist_license_number:
+        config.showSpecialistLicense && specialistLicenseNumber ? specialistLicenseNumber : undefined,
+      specialist_license_file: config.showSpecialistLicense ? specialistFileRecord : undefined,
       doctor_subtype: isDoctor ? doctorSubtype : undefined,
-      surgical_privileges_hospital: isSurgeon ? surgicalPrivilegesHospital : undefined,
       kupah_arrangements: config.showKupot && extraFieldsGate ? kupahArrangements : undefined,
       private_insurance_companies: config.showPrivateInsurance && extraFieldsGate ? privateInsurers : undefined,
-      sub_specialties: config.showSubSpecialties
-        ? subSpecialties.map((s) => (s === "אחר" && otherSubSpecialty.trim() ? otherSubSpecialty.trim() : s))
-        : undefined,
+      // "אחר" itself is never stored as a sub-specialty — the typed value is
+      // queued as a SubSpecialtyRequest above and only joins this list once
+      // Healson approves it.
+      sub_specialties: config.showSubSpecialties ? subSpecialties.filter((s) => s !== "אחר") : undefined,
       location_count: config.showLocationCount && locationCount ? Number(locationCount) : undefined,
     });
     // Mirror the (editable) identity details back onto the login account, so
@@ -1147,8 +1222,11 @@ export default function ProviderRegisterPage() {
     setSpecialty("");
     setSpecialtyMulti([]);
     setDoctorSubtype("physician");
-    setSurgicalPrivilegesHospital("");
     setBusinessRegNumber("");
+    setIdNumber("");
+    setIdPhotoFile(null);
+    setSpecialistLicenseNumber("");
+    setSpecialistLicenseFile(null);
     setKupahArrangements([]);
     setPrivateInsurers([]);
     setSubSpecialties([]);
@@ -1348,11 +1426,32 @@ export default function ProviderRegisterPage() {
         ],
       },
       {
-        title: "מקצוע ורישוי",
+        title: "זיהוי, מקצוע ורישוי",
         onEdit: editTo(1),
         rows: [
           { label: config.specialtyLabel, value: specialtyText },
-          ...(config.showSubSpecialties ? [{ label: subSpecialtyLabel, value: subSpecialties.join(", ") }] : []),
+          ...(config.showSubSpecialties
+            ? [
+                {
+                  label: subSpecialtyLabel,
+                  value: [
+                    ...subSpecialties.filter((s) => s !== "אחר"),
+                    ...(subSpecialties.includes("אחר") && otherSubSpecialty.trim()
+                      ? [`${otherSubSpecialty.trim()} (ממתין לאישור Healson)`]
+                      : []),
+                  ].join(", "),
+                },
+              ]
+            : []),
+          ...(config.showIdentityDocument
+            ? [
+                { label: "מספר תעודת זהות", value: idNumber },
+                {
+                  label: "צילום תעודת זהות",
+                  value: idPhotoFile?.name ?? provider?.id_document_photo?.file_name ?? "",
+                },
+              ]
+            : []),
           ...(config.showBusinessRegNumber && extraFieldsGate
             ? [{ label: 'מספר עוסק מורשה / ח"פ', value: businessRegNumber }]
             : []),
@@ -1360,7 +1459,15 @@ export default function ProviderRegisterPage() {
             ? [{ label: config.licenseNumberLabel ?? "מספר רישיון", value: licenseNumber }]
             : []),
           { label: licenseFileLabel.replace(/\s*\(.*\)$/, ""), value: licenseFileName ?? "" },
-          ...(isSurgeon ? [{ label: "הרשאת ניתוח", value: surgicalPrivilegesHospital }] : []),
+          ...(config.showSpecialistLicense && extraFieldsGate
+            ? [
+                { label: "מספר רישיון מומחה (לא חובה)", value: specialistLicenseNumber },
+                {
+                  label: "תעודת מומחה (לא חובה)",
+                  value: specialistLicenseFile?.name ?? provider?.specialist_license_file?.file_name ?? "",
+                },
+              ]
+            : []),
         ],
       },
       ...(extrasIndex >= 0
@@ -1650,10 +1757,14 @@ export default function ProviderRegisterPage() {
           <Upload className="h-3.5 w-3.5 text-slate-400" /> מה כדאי להכין
         </p>
         <ul className="flex flex-col gap-1.5 text-[11px] leading-relaxed text-slate-500">
+          {config.showIdentityDocument && <li>· תעודת זהות + צילום שלה</li>}
           {config.licenseFileRequired !== false && <li>· {licenseFileLabel.replace(/\s*\(.*\)$/, "")}</li>}
           {config.showLicenseNumber !== false && <li>· מספר רישיון בתוקף</li>}
           {config.showBusinessRegNumber && <li>· ח״פ / ע״מ של העסק</li>}
-          {isSurgeon && <li>· בית החולים שבו יש הרשאת ניתוח</li>}
+          {config.showSpecialistLicense && <li>· תעודת מומחה, אם יש (לא חובה)</li>}
+          {isDoctor && doctorSubtype === "surgeon" && (
+            <li className="text-slate-400">· הרשאות הניתוח יוגדרו בשלב ההקמה, אחרי אישור הרישיון</li>
+          )}
         </ul>
       </div>
     </div>
@@ -1865,7 +1976,7 @@ export default function ProviderRegisterPage() {
         )}
 
         {currentFormStepKey === "license" && (
-        <FormSection icon={<Stethoscope className="h-4 w-4" />} title="פרטי המקצוע והרישוי">
+        <FormSection icon={<Stethoscope className="h-4 w-4" />} title="זיהוי, מקצוע ורישוי">
           {config.freeTextSpecialty ? (
             <Input
               label={config.specialtyLabel}
@@ -1923,14 +2034,33 @@ export default function ProviderRegisterPage() {
                     "אחר",
                   ]}
                   value={subSpecialties}
-                  onChange={setSubSpecialties}
+                  onChange={(v) => {
+                    setSubSpecialties(v);
+                    if (errorField === "subSpecialtyOther") setError("");
+                  }}
                 />
+                {/* "אחר" is a request, not a free-for-all: the text is
+                    mandatory and goes to Healson for approval together with
+                    the license, so nothing unreviewed reaches patient search. */}
                 {subSpecialties.includes("אחר") && (
-                  <Input
-                    label={`פירוט ${subSpecialtyLabel} "אחר"`}
-                    value={otherSubSpecialty}
-                    onChange={(e) => setOtherSubSpecialty(e.target.value)}
-                  />
+                  <div className="flex flex-col gap-1.5">
+                    <Input
+                      label={`פירוט ${subSpecialtyLabel} "אחר"`}
+                      placeholder="כתבו את שם התחום המדויק"
+                      value={otherSubSpecialty}
+                      onChange={(e) => {
+                        setOtherSubSpecialty(e.target.value);
+                        if (errorField === "subSpecialtyOther") setError("");
+                      }}
+                      error={errorField === "subSpecialtyOther" ? error : undefined}
+                      required
+                    />
+                    <p className="flex items-start gap-1.5 rounded-lg border border-info-border bg-info-bg px-3 py-2 text-[11px] leading-relaxed text-info-text">
+                      <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      התחום שתזינו יישלח לאישור צוות Healson יחד עם בדיקת הרישיון. עד לאישור הוא לא יופיע בפרופיל
+                      ובחיפוש.
+                    </p>
+                  </div>
                 )}
               </motion.div>
             )}
@@ -1967,45 +2097,102 @@ export default function ProviderRegisterPage() {
             />
           )}
 
-          <div className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-slate-700">{licenseFileLabel}</span>
-            <FileDropzone
-              file={licenseFile}
-              onFileChange={(f) => {
-                setLicenseFile(f);
-                if (errorField === "license") setError("");
-              }}
-              existingFileName={provider?.license_file?.file_name}
-              ariaLabel={licenseFileLabel.trim()}
-            />
-            {errorField === "license" && error && (
-              <span className="text-xs text-danger-text">{error}</span>
-            )}
-          </div>
+          {/* Privacy gate 2 (חוק הגנת הפרטיות + תיקון 13). Document fields stay
+              hidden until it is given: an ID scan is מידע בעל רגישות מיוחדת and
+              may not be collected before an explicit, separate consent. */}
+          {!docConsentAlreadyRecorded && (
+            <div className="flex flex-col gap-1.5">
+              <ProviderConsentGate
+                types={DOCUMENT_CONSENT_TYPES}
+                value={docConsents}
+                onChange={(v) => {
+                  setDocConsents(v);
+                  if (errorField === "consent") setError("");
+                }}
+                title="הסכמה לשמירת מסמכי זיהוי ורישוי"
+                description="השלב הבא כולל העלאת מסמכים אישיים. לפי חוק, נדרשת לכך הסכמה נפרדת ומפורשת."
+              />
+              {errorField === "consent" && error && (
+                <span className="text-xs text-danger-text">{error}</span>
+              )}
+            </div>
+          )}
 
-          <AnimatePresence initial={false}>
-            {isSurgeon && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.2 }}
-                className="overflow-hidden"
-              >
-                <Input
-                  label="בית חולים / מוסד בו קיימת הרשאת ניתוח"
-                  icon={<Building2 className="h-4 w-4" />}
-                  value={surgicalPrivilegesHospital}
-                  onChange={(e) => {
-                    setSurgicalPrivilegesHospital(e.target.value);
-                    if (errorField === "hospital") setError("");
+          {docConsentOk && (
+            <>
+              {config.showIdentityDocument && (
+                <div className="flex flex-col gap-3 rounded-xl border border-slate-200 p-3">
+                  <p className="text-xs font-semibold text-slate-600">זיהוי אישי</p>
+                  <Input
+                    label="מספר תעודת זהות"
+                    inputMode="numeric"
+                    icon={<BadgeCheck className="h-4 w-4" />}
+                    value={idNumber}
+                    onChange={(e) => setIdNumber(e.target.value)}
+                    required
+                  />
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-sm font-medium text-slate-700">
+                      צילום תעודת זהות (PDF / JPG / PNG)
+                    </span>
+                    <FileDropzone
+                      file={idPhotoFile}
+                      onFileChange={(f) => {
+                        setIdPhotoFile(f);
+                        if (errorField === "idPhoto") setError("");
+                      }}
+                      existingFileName={provider?.id_document_photo?.file_name}
+                      ariaLabel="צילום תעודת זהות"
+                    />
+                    {errorField === "idPhoto" && error && (
+                      <span className="text-xs text-danger-text">{error}</span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium text-slate-700">{licenseFileLabel}</span>
+                <FileDropzone
+                  file={licenseFile}
+                  onFileChange={(f) => {
+                    setLicenseFile(f);
+                    if (errorField === "license") setError("");
                   }}
-                  error={errorField === "hospital" ? error : undefined}
-                  required
+                  existingFileName={provider?.license_file?.file_name}
+                  ariaLabel={licenseFileLabel.trim()}
                 />
-              </motion.div>
-            )}
-          </AnimatePresence>
+                {errorField === "license" && error && (
+                  <span className="text-xs text-danger-text">{error}</span>
+                )}
+              </div>
+
+              {/* Specialist certification — a doctor may hold one on top of the
+                  basic practice license, so it is offered but never required. */}
+              {config.showSpecialistLicense && extraFieldsGate && (
+                <div className="flex flex-col gap-3 rounded-xl border border-dashed border-slate-200 p-3">
+                  <p className="text-xs font-semibold text-slate-600">תעודת מומחה (לא חובה)</p>
+                  <Input
+                    label="מספר רישיון מומחה"
+                    icon={<BadgeCheck className="h-4 w-4" />}
+                    value={specialistLicenseNumber}
+                    onChange={(e) => setSpecialistLicenseNumber(e.target.value)}
+                  />
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-sm font-medium text-slate-700">
+                      תעודת מומחה (PDF / JPG / PNG)
+                    </span>
+                    <FileDropzone
+                      file={specialistLicenseFile}
+                      onFileChange={setSpecialistLicenseFile}
+                      existingFileName={provider?.specialist_license_file?.file_name}
+                      ariaLabel="תעודת מומחה"
+                    />
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </FormSection>
         )}
 
@@ -2022,12 +2209,7 @@ export default function ProviderRegisterPage() {
             )}
 
             {config.showPrivateInsurance && (
-              <MultiSelectPills
-                label="עם אילו חברות ביטוח פרטיות יש הסדר (B)"
-                options={PRIVATE_INSURANCE_COMPANIES}
-                value={privateInsurers}
-                onChange={setPrivateInsurers}
-              />
+              <PrivateInsurerPicker value={privateInsurers} onChange={setPrivateInsurers} />
             )}
           </FormSection>
         )}

@@ -26,8 +26,12 @@ import {
   PatientDocument,
   PatientInsurance,
   ProviderAffiliation,
+  ProviderConsent,
+  ProviderConsentType,
+  PROVIDER_CONSENT_VERSION,
   ProviderProfile,
   ProviderType,
+  SubSpecialtyRequest,
   isPractitionerProviderType,
   ResourceSchedule,
   Role,
@@ -46,6 +50,7 @@ import {
   WeeklySchedule,
 } from "@/types";
 import { DEFAULT_REMINDER_SETTINGS, ReminderSettings } from "@/lib/reminders";
+import { isUnitPath } from "@/lib/provider-phases";
 import {
   DEMO_NEW_PATIENT_USER,
   SEED_AFFILIATIONS,
@@ -212,7 +217,11 @@ interface AuthState {
     phone: string,
     email: string,
     password: string,
-    providerType?: ProviderType
+    providerType?: ProviderType,
+    // The privacy-law consent gate that sits above the signup button — passed
+    // in so the grants are stored in the very same write that first persists
+    // the applicant's personal data (see ProviderConsent).
+    consents?: { type: ProviderConsentType; granted: boolean }[]
   ) => { ok: boolean; error?: string; providerId?: string };
   // Provider signup step 2 — fires right after the account is created, before
   // any application details are collected. Stages phone-OTP verification;
@@ -338,6 +347,22 @@ interface EntitiesState {
   suspendProvider: (id: string) => void;
   reinstateProvider: (id: string) => void;
   signProviderAgreement: (id: string) => void;
+  // Privacy-law consents (see ProviderConsent). Append-only: re-granting the
+  // same type stores a second, newer record rather than editing the old one,
+  // so what was agreed to and when stays provable.
+  recordProviderConsents: (
+    providerId: string,
+    grants: { type: ProviderConsentType; granted: boolean }[]
+  ) => void;
+  // A free-text "אחר" sub-specialty typed at registration — queued for Healson
+  // to approve as part of the license review, never used until then.
+  requestSubSpecialty: (providerId: string, value: string) => void;
+  decideSubSpecialtyRequest: (
+    providerId: string,
+    requestId: string,
+    approved: boolean,
+    note?: string
+  ) => void;
 
   // --- Admin-managed organizations (ניהול ספקים) ---------------------------
   // Healson ops creates every real organization by hand, then creates its
@@ -900,7 +925,7 @@ export const useStore = create<Store>()(
         return pending ? pending.otp : null;
       },
 
-      registerProviderAccount: (full_name, phone, email, password, providerType) => {
+      registerProviderAccount: (full_name, phone, email, password, providerType, consents) => {
         void password; // mocked — no real auth/password storage anywhere in this app (see login())
         const emailTaken = get().users.some((u) => u.email.toLowerCase() === email.toLowerCase());
         if (emailTaken) return { ok: false, error: "כתובת האימייל כבר רשומה במערכת" };
@@ -921,11 +946,18 @@ export const useStore = create<Store>()(
         // IS the account holder's name, for an organization it names the
         // business, so the person's name moves to the contact field instead.
         const isPerson = !providerType || providerType === "doctor" || providerType === "caregiver";
+        const now = new Date().toISOString();
         const profile = get().upsertProviderProfile(newUser.id, {
           provider_type: providerType,
           display_name: isPerson ? full_name : "",
           contact_name: isPerson ? undefined : full_name,
           onboarding_path: "solo",
+          consents: (consents ?? []).map((c) => ({
+            type: c.type,
+            version: PROVIDER_CONSENT_VERSION,
+            granted: c.granted,
+            granted_at: now,
+          })),
         });
         // Logged in immediately (PROV-REGISTRATION) — unlike the old
         // apply-then-wait-for-Ops flow, the applicant gets a real session the
@@ -1176,6 +1208,11 @@ export const useStore = create<Store>()(
             // exists doesn't count (see ServiceCatalogSection/PriceListSection's
             // "add a calendar first" flag).
             const allServices = [...updated.consultation_types, ...updated.exam_types];
+            // A medical unit signs nothing in the platform — its contract with
+            // Healson is closed off-platform before Ops even opens the account
+            // (see isUnitPath), so requiring agreement_signed_at would keep a
+            // unit "not ready" forever.
+            const signatureRequired = !isUnitPath(updated);
             if (
               updated.status === "onboarding" &&
               !updated.onboarding_ready_at &&
@@ -1183,7 +1220,7 @@ export const useStore = create<Store>()(
               allServices.length > 0 &&
               updated.clinic_locations.length > 0 &&
               allServices.some((sv) => (sv.linked_clinic_ids?.length ?? 0) > 0) &&
-              updated.agreement_signed_at
+              (!signatureRequired || updated.agreement_signed_at)
             ) {
               updated.onboarding_ready_at = new Date().toISOString();
             }
@@ -1245,6 +1282,57 @@ export const useStore = create<Store>()(
       suspendProvider: (id) => get().updateProviderById(id, { status: "suspended" }),
       reinstateProvider: (id) => get().updateProviderById(id, { status: "approved" }),
       signProviderAgreement: (id) => get().updateProviderById(id, { agreement_signed_at: new Date().toISOString() }),
+
+      recordProviderConsents: (providerId, grants) => {
+        const provider = get().providers.find((p) => p.id === providerId);
+        if (!provider) return;
+        const now = new Date().toISOString();
+        const records: ProviderConsent[] = grants.map((g) => ({
+          type: g.type,
+          version: PROVIDER_CONSENT_VERSION,
+          granted: g.granted,
+          granted_at: now,
+        }));
+        get().updateProviderById(providerId, { consents: [...(provider.consents ?? []), ...records] });
+      },
+
+      requestSubSpecialty: (providerId, value) => {
+        const provider = get().providers.find((p) => p.id === providerId);
+        const clean = value.trim();
+        if (!provider || !clean) return;
+        const existing = provider.sub_specialty_requests ?? [];
+        // Editing the application repeatedly must not queue the same text twice,
+        // and an already-approved value has nothing left to ask for.
+        if (existing.some((r) => r.value === clean && r.status !== "rejected")) return;
+        if ((provider.sub_specialties ?? []).includes(clean)) return;
+        const request: SubSpecialtyRequest = {
+          id: generateId("subspec"),
+          value: clean,
+          status: "pending",
+          requested_at: new Date().toISOString(),
+        };
+        get().updateProviderById(providerId, { sub_specialty_requests: [...existing, request] });
+      },
+
+      decideSubSpecialtyRequest: (providerId, requestId, approved, note) => {
+        const provider = get().providers.find((p) => p.id === providerId);
+        if (!provider) return;
+        const request = (provider.sub_specialty_requests ?? []).find((r) => r.id === requestId);
+        if (!request) return;
+        const now = new Date().toISOString();
+        get().updateProviderById(providerId, {
+          sub_specialty_requests: (provider.sub_specialty_requests ?? []).map((r) =>
+            r.id === requestId
+              ? { ...r, status: approved ? "approved" : "rejected", decided_at: now, decision_note: note }
+              : r
+          ),
+          // Only an approved value joins the real list — that is the whole point
+          // of the queue: nothing free-text reaches patient search unreviewed.
+          sub_specialties: approved
+            ? [...new Set([...(provider.sub_specialties ?? []), request.value])]
+            : provider.sub_specialties,
+        });
+      },
 
       // --- Affiliated doctors -------------------------------------------
       findMatchingDoctors: (query) => {
@@ -2227,7 +2315,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 37,
+      version: 39,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
       // records), the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER seed
       // account, the v3 -> v4 AppointmentStatus rename ("ממתין לאישור" ->
@@ -2358,7 +2446,14 @@ export const useStore = create<Store>()(
       // dedicated tourist price, S entries zeroed since basket coverage has no
       // payable amount, "ביטוח ישיר" placeholder policy dropped) but none of the
       // payments fields. Bumped past both so either one reseeds clean.
-      migrate: (persistedState, version) => (version < 37 ? ({} as Store) : (persistedState as Store)),
+      // v37 -> v38 is the provider-flow rework: identity documents + privacy
+      // consents on the profile, "אחר" sub-specialty requests, provider-entered
+      // items (free text, age range, required documents, per-payer terms,
+      // buffer) and permanent/temporary shifts. Old blobs carry none of it.
+      // v38 -> v39 replaces the solo-provider demo entirely (ד"ר אברהם אשכנזי,
+      // his two branches, his six items and the שערי צדק unit he works in), so
+      // a v38 blob would keep showing the orthopaedic practice it replaced.
+      migrate: (persistedState, version) => (version < 39 ? ({} as Store) : (persistedState as Store)),
       // Uploaded files (photos/PDFs) are stored as base64 data URLs inside
       // this same persisted blob (no real backend — see file.ts). If a
       // single write ever still exceeds the browser's localStorage quota

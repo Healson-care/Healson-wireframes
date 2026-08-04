@@ -47,14 +47,13 @@ export function MonthlySettlementSection({
     .map((m) => {
       const collected = m.items.filter((o) => o.payment_status === "שולם במלואו");
       const gross = m.items.reduce((sum, o) => sum + o.final_price, 0);
-      const commission = collected.reduce((sum, o) => sum + (o.commission_amount ?? 0), 0);
       const payout = collected.reduce((sum, o) => sum + (o.provider_payout_amount ?? o.final_price), 0);
       const settlement = settlements.find((s) => s.month === m.key);
       // Payout is transferred on the 15th of the month following the
       // reconciled month.
       const [y, mo] = m.key.split("-").map(Number);
       const payoutDate = new Date(y, mo, 15);
-      return { key: m.key, label: m.label, count: m.items.length, gross, commission, payout, settlement, payoutDate };
+      return { key: m.key, label: m.label, count: m.items.length, gross, payout, settlement, payoutDate };
     });
 
   function upsertSettlement(month: string, patch: Partial<MonthlySettlement>) {
@@ -141,7 +140,9 @@ export function MonthlySettlementSection({
                     </div>
                   </div>
 
-                  <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
+                  {/* Healson's commission is deliberately absent: the provider
+                      reconciles what they are owed, not what the platform kept. */}
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
                     <div className="rounded-lg bg-slate-50 px-3 py-2">
                       <p className="text-xs text-slate-500">עסקאות</p>
                       <p className="font-medium text-slate-900 tabular-nums">{row.count}</p>
@@ -151,11 +152,7 @@ export function MonthlySettlementSection({
                       <p className="font-medium text-slate-900 tabular-nums">{formatCurrency(row.gross)}</p>
                     </div>
                     <div className="rounded-lg bg-slate-50 px-3 py-2">
-                      <p className="text-xs text-slate-500">עמלת Healson</p>
-                      <p className="font-medium text-danger tabular-nums">{formatCurrency(row.commission)}</p>
-                    </div>
-                    <div className="rounded-lg bg-slate-50 px-3 py-2">
-                      <p className="text-xs text-slate-500">נטו לתשלום</p>
+                      <p className="text-xs text-slate-500">לתשלום לספק</p>
                       <p className="font-semibold text-success tabular-nums">{formatCurrency(row.payout)}</p>
                     </div>
                   </div>
