@@ -11,6 +11,7 @@ import {
   CONSENT_DOCUMENT_VERSION,
   DocumentCategory,
   DsrRequest,
+  INSURANCE_AGENTS_BY_COMPANY,
   Kupah,
   K_LEVELS_BY_KUPAH,
   Lead,
@@ -2652,6 +2653,11 @@ const PATIENT_NAMES = [
   "אסף נחום",
 ];
 
+// Father first names, paired below with the patient's own surname. "שם האב"
+// is required on every patient record now, not just minors, so a seeded
+// patient without one can't be saved from the CRM edit form.
+const FATHER_FIRST_NAMES = ["אורי", "דוד", "משה", "יעקב", "אברהם", "יצחק", "שלמה", "בנימין", "נתן", "אליהו", "מרדכי", "שמעון"];
+
 const KUPAH_CYCLE = ["כללית", "מכבי", "מאוחדת", "לאומית"] as const satisfies readonly Kupah[];
 
 export const SEED_PATIENTS: Patient[] = PATIENT_NAMES.map((name, i) => {
@@ -2665,10 +2671,25 @@ export const SEED_PATIENTS: Patient[] = PATIENT_NAMES.map((name, i) => {
     email: `${name.split(" ")[0]}${i}@example.co.il`,
     phone: `05${i % 2 === 0 ? "2" : "4"}-${1000000 + i * 1234}`,
     id_number: `${200000000 + i * 37}`,
+    // PATIENT_NAMES alternates female/male by index, so this stays in step
+    // with the names rather than contradicting them.
+    gender: i % 2 === 0 ? "נקבה" : "זכר",
+    parent_name: `${FATHER_FIRST_NAMES[i % FATHER_FIRST_NAMES.length]} ${name.split(" ").slice(1).join(" ")}`,
+    // Spread across ages ~24-57 — the CRM edit form requires a birth date, so
+    // seeded patients need one or they can't be edited at all.
+    date_of_birth: isoDateDaysFromNow(-(365 * (24 + i * 3) + i * 41)),
     kupah,
     k_level: hasK ? kLevels[i % kLevels.length] : undefined,
     b_insurances: hasB
-      ? [{ company: B_INSURANCE_COMPANIES[i % B_INSURANCE_COMPANIES.length], policy_number: `POL-${100000 + i * 91}` }]
+      ? [
+          {
+            company: B_INSURANCE_COMPANIES[i % B_INSURANCE_COMPANIES.length],
+            policy_number: `POL-${100000 + i * 91}`,
+            // Must come from the carrier's own roster — the agent picker
+            // matches against it, so an off-list name would render as "אחר".
+            agent_name: INSURANCE_AGENTS_BY_COMPANY[B_INSURANCE_COMPANIES[i % B_INSURANCE_COMPANIES.length]][i % 4],
+          },
+        ]
       : undefined,
     status: i % 5 === 0 ? "לא פעיל" : i % 7 === 0 ? "ממתין" : "פעיל",
     // Every seeded patient is assigned to one of the three demo providers —
@@ -2692,7 +2713,9 @@ SEED_PATIENTS[0].k_level = "מכבי שלי";
 // The company MUST be a canonical B_INSURANCE_COMPANIES string — the B price
 // is matched against it, so the short form "מגדל" would silently never match
 // a provider's "מגדל ביטוח" agreement.
-SEED_PATIENTS[0].b_insurances = [{ company: "מגדל ביטוח", policy_number: "POL-100000" }];
+SEED_PATIENTS[0].b_insurances = [
+  { company: "מגדל ביטוח", policy_number: "POL-100000", agent_name: "יעל אדרי סוכנות ביטוח" },
+];
 
 // ---------------------------------------------------------------------------
 // Consent records (§4.2, §11.1) — required consents granted at signup for

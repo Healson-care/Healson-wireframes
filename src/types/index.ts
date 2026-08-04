@@ -24,6 +24,23 @@ export const B_INSURANCE_COMPANIES = [
   "ליברה",
 ] as const;
 
+// Agents are picked per carrier, not typed free-hand — knowing which agent a
+// policy runs through is what lets us quote the patient the price their own
+// policy actually entitles them to (see the explainer in
+// InsuranceProfileForm). "אחר" falls back to free text.
+export const INSURANCE_AGENTS_BY_COMPANY: Record<(typeof B_INSURANCE_COMPANIES)[number], string[]> = {
+  "כלל ביטוח": ["אבי שרון סוכנות לביטוח", "מיטב סוכנות ביטוח", "רונן לוי – סוכן ביטוח", "אשכול ביטוחים"],
+  "הראל ביטוח": ["דוד פרידמן סוכנות לביטוח", "נועם ברק ביטוחים", "אופק סוכנות לביטוח", "שלמה את יעקב ביטוחים"],
+  "מגדל ביטוח": ["יעל אדרי סוכנות ביטוח", "מרום סוכנות לביטוח", "איתן כהן – סוכן ביטוח", "גל ביטוחים"],
+  "הפניקס": ["שגב סוכנות לביטוח", "ליאור מזרחי ביטוחים", "תמיר אשכנזי – סוכן ביטוח", "פסגות סוכנות ביטוח"],
+  "מנורה מבטחים": ["נועה גרינברג סוכנות לביטוח", "כרמל ביטוחים", "עמית דגן – סוכן ביטוח", "רימון סוכנות ביטוח"],
+  "איילון": ["אורן ביטון סוכנות לביטוח", "שחר ביטוחים", "מאיר טל – סוכן ביטוח", "נוף סוכנות לביטוח"],
+  "הכשרה ביטוח": ["יובל אריאל סוכנות לביטוח", "מגן ביטוחים", "רועי שמיר – סוכן ביטוח", "תבור סוכנות ביטוח"],
+  "שירביט": ["אלון רפאלי סוכנות לביטוח", "ספיר ביטוחים", "דנה הלוי – סוכנת ביטוח", "אלמוג סוכנות לביטוח"],
+  AIG: ["ניר אבידן סוכנות לביטוח", "גלובל ביטוחים", "שירן קדוש – סוכנת ביטוח", "אורבן סוכנות ביטוח"],
+  "ליברה": ["טל בן שושן סוכנות לביטוח", "דיגיטל ביטוחים", "עידו רם – סוכן ביטוח", "נובה סוכנות לביטוח"],
+};
+
 export type CommunicationLanguage = "he" | "en";
 export const COMMUNICATION_LANGUAGES: CommunicationLanguage[] = ["he", "en"];
 export const COMMUNICATION_LANGUAGE_LABELS: Record<CommunicationLanguage, string> = {
@@ -456,6 +473,10 @@ export interface OtpIssueReport {
 export interface PatientInsurance {
   company: string;
   policy_number?: string;
+  // Optional but strongly encouraged — the agent behind the policy determines
+  // which terms apply, so it drives how accurately we can price for this
+  // patient. Picked from INSURANCE_AGENTS_BY_COMPANY, or free text via "אחר".
+  agent_name?: string;
 }
 
 export interface Patient {
@@ -463,6 +484,9 @@ export interface Patient {
   full_name: string;
   email?: string;
   phone?: string;
+  // A fallback number (spouse, parent, work line) — contact only, never an
+  // auth channel: OTP always goes to `phone`, the verified one.
+  secondary_phone?: string;
   id_number?: string;
   id_document_type?: "id" | "passport";
   id_document_photo?: UploadedFile;

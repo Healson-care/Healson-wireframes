@@ -370,6 +370,15 @@ function AdminPatientChartPageContent() {
                 icon={patient.phone ? <Phone className="h-3.5 w-3.5" /> : undefined}
                 onCopy={patient.phone ? () => copyToClipboard(patient.phone!, "מספר הטלפון") : undefined}
               />
+              {patient.secondary_phone && (
+                <ContactRow
+                  label="טלפון נוסף"
+                  value={patient.secondary_phone}
+                  href={`tel:${patient.secondary_phone}`}
+                  icon={<Phone className="h-3.5 w-3.5" />}
+                  onCopy={() => copyToClipboard(patient.secondary_phone!, "מספר הטלפון הנוסף")}
+                />
+              )}
               <ContactRow
                 label="אימייל"
                 value={patient.email || "—"}
@@ -383,7 +392,7 @@ function AdminPatientChartPageContent() {
                 value={patient.b_insurances?.length ? patient.b_insurances.map((ins) => ins.company || "כן").join(", ") : "אין"}
               />
               <InfoRow label="כתובת" value={patient.address || "—"} />
-              {patient.parent_name && <InfoRow label="שם הורה/אפוטרופוס" value={patient.parent_name} />}
+              {patient.parent_name && <InfoRow label="שם האב" value={patient.parent_name} />}
               {patient.id_document_photo && (
                 <a
                   href={patient.id_document_photo.data_url}
