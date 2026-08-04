@@ -8,19 +8,21 @@ import { ClientLayout } from "@/components/layouts/ClientLayout";
 import { Button } from "@/components/ui/Button";
 import { useStore } from "@/lib/store";
 import { useCurrentPatient } from "@/lib/useCurrentPatient";
-import { resolveDeposit } from "@/lib/commission";
-import { balanceDueAt } from "@/lib/appointment-payments";
-import { resolveProviderPrice } from "@/lib/pricing";
-import { BookingStepper, BookingStepperMode } from "@/components/book/BookingStepper";
-import { ServiceDiscovery, SelectedServiceItem } from "@/components/book/ServiceDiscovery";
-import { DoctorPicker } from "@/components/book/DoctorPicker";
+import { resolvePriceBreakdown } from "@/lib/pricing";
+import { BookingStepper, REFERRAL_FLOW_STEPS, SEARCH_FLOW_STEPS } from "@/components/book/BookingStepper";
+import { ReferralStep } from "@/components/book/ReferralStep";
+import { UnitApprovalPending } from "@/components/book/UnitApprovalPending";
+import { ServiceSearch } from "@/components/search/ServiceSearch";
+import { Offer, SearchQuery, emptyQuery } from "@/lib/search";
 import { SlotPicker } from "@/components/book/SlotPicker";
 import { PaymentPanel } from "@/components/book/PaymentPanel";
 import { BookingConfirmation } from "@/components/book/BookingConfirmation";
 import { WaitlistJoinDialog } from "@/components/book/WaitlistJoinDialog";
 import { buildIcsDataUrl } from "@/lib/utils";
+import { fileToDataUrl } from "@/lib/file";
+import { requiresReferral } from "@/lib/referral";
 import { POST_REGISTER_REDIRECT_KEY } from "@/lib/constants";
-import { ProviderProfile } from "@/types";
+import { ConsultationType, ProviderProfile, UNIT_APPROVAL_HOLD_HOURS } from "@/types";
 
 const HOLD_SECONDS = 600;
 
@@ -40,22 +42,21 @@ export default function ClientSearchPage() {
   const addOrder = useStore((s) => s.addOrder);
   const addDocument = useStore((s) => s.addDocument);
   const showToast = useStore((s) => s.showToast);
-  const catalog = useStore((s) => s.catalog);
-  const fixedFeeRules = useStore((s) => s.fixedFeeRules);
-  const defaultCommissionRate = useStore((s) => s.defaultCommissionRate);
-  const commissionRateByServiceType = useStore((s) => s.commissionRateByServiceType);
   const currentUser = useStore((s) => s.currentUser);
   const patient = useCurrentPatient();
 
   const [step, setStep] = useState(0);
-  const [discoveryMode, setDiscoveryMode] = useState<BookingStepperMode>("service");
-  // Purely for the progress meter — ServiceDiscovery/SlotPicker each cover
-  // two conceptual steps on one screen, so these track which sub-choice is
-  // still in progress within the current `step` without adding new screens.
-  const [discoveryDoctorForItems, setDiscoveryDoctorForItems] = useState<ProviderProfile | null>(null);
+  // Purely for the progress meter — SlotPicker covers two conceptual steps on
+  // one screen (location, then time), so this tracks which of the two is
+  // still in progress within the current `step` without adding a new screen.
   const [discoveryClinicId, setDiscoveryClinicId] = useState<string | null>(null);
-  const [selectedItem, setSelectedItem] = useState<SelectedServiceItem | null>(null);
+  // The exact service being booked, straight off the chosen Offer — no need to
+  // re-match it by name against the provider's catalogue.
+  const [selectedService, setSelectedService] = useState<ConsultationType | null>(null);
   const [selectedProvider, setSelectedProvider] = useState<ProviderProfile | null>(null);
+  // Search state lives here so stepping forward and back doesn't reset it.
+  const [searchQuery, setSearchQuery] = useState<SearchQuery>(emptyQuery);
+  const [openGroupKey, setOpenGroupKey] = useState<string | null>(null);
 
   const [selectedSlot, setSelectedSlot] = useState<{ date: string; time: string; label: string } | null>(null);
   const [holdExpiresAt, setHoldExpiresAt] = useState<number | null>(null);
@@ -64,6 +65,13 @@ export default function ClientSearchPage() {
 
   const [payMethod, setPayMethod] = useState<"card" | "apple" | "google">("card");
   const [paying, setPaying] = useState(false);
+  // Held here rather than inside PaymentPanel: leaving the payment step and
+  // coming back shouldn't silently drop a referral the patient already picked.
+  const [referralFile, setReferralFile] = useState<File | null>(null);
+  // Sticky once the patient has moved past the search even one time — used to
+  // drop first-visit copy when she comes back to change something. Reset only
+  // by "חיפוש שירות נוסף", which really is a fresh start.
+  const [hasAdvanced, setHasAdvanced] = useState(false);
 
   const [confirmation, setConfirmation] = useState<{
     fileNumber: string;
@@ -71,52 +79,78 @@ export default function ClientSearchPage() {
     icsUrl: string;
   } | null>(null);
 
-  // Re-matched against the chosen doctor's own consultation_types (no shared
-  // catalog id) — falls back to their first service only if the match
-  // somehow fails, which DoctorPicker's own filtering should already prevent.
-  const consultation = selectedProvider
-    ? selectedProvider.consultation_types.find(
-        (ct) => selectedItem && ct.name === selectedItem.name && ct.service_type === selectedItem.service_type
-      ) ?? selectedProvider.consultation_types[0]
-    : undefined;
-  const resolvedPrice =
-    consultation && selectedProvider ? resolveProviderPrice(consultation.prices, selectedProvider.agreements, patient) : null;
-  const price = resolvedPrice?.price ?? consultation?.prices.find((p) => p.layer === "H")?.price ?? 0;
-  // The deposit IS Healson's commission (payments meeting §3/§8) — resolved
-  // from the same rules the admin sets, never a hard-coded percentage. The
-  // patient only ever sees the shekel figure.
-  const depositAmount = resolveDeposit({
-    provider: selectedProvider,
-    serviceType: catalog.find((c) => c.id === consultation?.catalog_item_id)?.service_type,
-    price,
-    fixedFeeRules,
-    defaultRate: defaultCommissionRate,
-    rateByServiceType: commissionRateByServiceType,
-  });
-  const balanceAmount = Math.max(0, price - depositAmount);
-  // Always the private/out-of-pocket price, regardless of which layer this
-  // patient actually qualifies for — shown alongside `price` so the payment
-  // summary can show "full price" vs. "your price" as two distinct lines.
-  const fullPrice = consultation?.prices.find((p) => p.layer === "H")?.price ?? price;
+  const consultation = selectedService ?? undefined;
+  const priceBreakdown =
+    consultation && selectedProvider
+      ? resolvePriceBreakdown(consultation.prices, selectedProvider.agreements, patient, consultation.price_full)
+      : null;
+  const price = priceBreakdown?.price ?? 0;
+  // The base price (P), regardless of which layer this patient actually
+  // qualifies for — shown alongside `price` so the payment summary can show
+  // "full price" vs. "your price" as two distinct lines.
+  const fullPrice = priceBreakdown?.basePrice ?? price;
 
-  // Maps the real `step` (which screen is showing) plus the two in-screen
-  // sub-choices above onto the 6-item progress meter — see BookingStepper.
-  const visualStep =
-    step === 0
-      ? discoveryMode === "doctor"
-        ? discoveryDoctorForItems
-          ? 1
-          : 0
-        : 0
+  // Everything that isn't a consultation goes through two extra stages — the
+  // referral upload and the unit's review — so the meter has to describe a
+  // different journey for it.
+  const referralFlow = requiresReferral(consultation);
+  const flowSteps = referralFlow ? REFERRAL_FLOW_STEPS : SEARCH_FLOW_STEPS;
+
+  // step: 0 search · 1 referral · 2 slot · 5 unit approval · 3 payment · 4 done
+  const visualStep = referralFlow
+    ? step === 0
+      ? 0
       : step === 1
       ? 1
       : step === 2
-      ? (discoveryClinicId ? 3 : 2)
-      : step === 3
+      ? discoveryClinicId
+        ? 3
+        : 2
+      : step === 5
       ? 4
-      : step === 4
+      : step === 3
       ? 5
-      : step;
+      : step === 4
+      ? 6
+      : step
+    : step === 0
+    ? 0
+    : step === 2
+    ? discoveryClinicId
+      ? 2
+      : 1
+    : step === 3
+    ? 3
+    : step === 4
+    ? 4
+    : step;
+
+  /**
+   * The meter shows visual indices; the flow runs on real step numbers. This
+   * is the inverse of `visualStep` above, so tapping a completed stage lands
+   * on the screen that produced it. Forward taps are ignored — a stage isn't
+   * reachable until the one before it is done.
+   */
+  function goToVisualStep(index: number) {
+    if (index >= visualStep) return;
+    const target = referralFlow
+      ? [0, 1, 2, 2, 5, 3, 4][index] ?? 0
+      : [0, 2, 2, 3, 4][index] ?? 0;
+    // Stepping back out of payment or the unit's queue releases the slot that
+    // was being held for them, rather than leaving a stuck pending record.
+    if ((step === 3 || step === 5) && target < 3) abandonHold();
+    setStep(target);
+  }
+
+  const unitHoldUntilLabel = holdExpiresAt
+    ? new Date(holdExpiresAt).toLocaleString("he-IL", {
+        weekday: "long",
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "";
 
   // Creating the appointment here (not at payment time) is deliberate: from
   // the moment a slot is picked it's "ממתין לתשלום מקדמה" in the patient's
@@ -137,23 +171,32 @@ export default function ClientSearchPage() {
       date,
       time,
       duration_minutes: consultation?.duration_minutes ?? 30,
-      status: "ממתין לתשלום מקדמה",
+      // A referral item can't be paid for until the unit has reviewed it, so
+      // it enters the patient's history in the waiting state instead.
+      status: referralFlow ? "ממתין לאישור הפניה" : "ממתין לתשלום מקדמה",
       price,
-      funding_layer: resolvedPrice?.layer,
-      deposit_amount: depositAmount,
-      // The balance and its charge deadline are fixed at booking, because that
-      // is exactly what the patient is shown and agrees to (payments §3).
-      balance_amount: balanceAmount,
-      balance_collector: selectedProvider.balance_collector ?? "healson",
-      balance_due_at:
-        (selectedProvider.balance_collector ?? "healson") === "healson" ? balanceDueAt(date) : undefined,
+      deposit_amount: Math.round(price * 0.3),
       kupah: patient?.kupah,
       notes: "",
       created_by_id: patient?.id ?? currentUser?.id,
     });
     setPendingAppointmentId(appointment.id);
     setSelectedSlot({ date, time, label });
-     
+
+    if (referralFlow) {
+      // The slot is held for a day while the unit answers — not the 10-minute
+      // payment hold, which would expire long before a human replies.
+      setHoldExpiresAt(Date.now() + UNIT_APPROVAL_HOLD_HOURS * 60 * 60 * 1000);
+      setStep(5);
+      return;
+    }
+    setHoldExpiresAt(Date.now() + HOLD_SECONDS * 1000);
+    setStep(3);
+  }
+
+  /** Stands in for the medical unit answering from its own portal. */
+  function approveByUnit() {
+    if (pendingAppointmentId) updateAppointment(pendingAppointmentId, { status: "ממתין לתשלום מקדמה" });
     setHoldExpiresAt(Date.now() + HOLD_SECONDS * 1000);
     setStep(3);
   }
@@ -178,10 +221,12 @@ export default function ClientSearchPage() {
 
   function handleReset() {
     setStep(0);
-    setDiscoveryMode("service");
-    setDiscoveryDoctorForItems(null);
+    setHasAdvanced(false);
     setDiscoveryClinicId(null);
-    setSelectedItem(null);
+    setReferralFile(null);
+    setSearchQuery(emptyQuery());
+    setOpenGroupKey(null);
+    setSelectedService(null);
     setSelectedProvider(null);
     setSelectedSlot(null);
     setHoldExpiresAt(null);
@@ -189,10 +234,9 @@ export default function ClientSearchPage() {
     setConfirmation(null);
   }
 
-  // Shared by both discovery paths: browsing services first (DoctorPicker
-  // already knows selectedItem) and browsing by doctor first (ServiceDiscovery
-  // hands the item back together with the provider, skipping DoctorPicker).
-  function selectProviderForItem(item: SelectedServiceItem, p: ProviderProfile) {
+  // The search returns a whole Offer — service and provider resolved together
+  // — so booking goes straight from a result to picking a time.
+  function selectOffer(offer: Offer) {
     if (!patient) {
       showToast("השלימו הרשמה כדי לקבוע תור", {
         description: "כדי לראות מחירים ולקבוע תור נדרש פרופיל מטופל",
@@ -201,23 +245,33 @@ export default function ClientSearchPage() {
       router.push("/register");
       return;
     }
-    setSelectedItem(item);
-    setSelectedProvider(p);
-    setStep(2);
+    setSelectedService(offer.service);
+    setSelectedProvider(offer.provider);
+    // Clear the location and referral picked for a *previous* offer.
+    setDiscoveryClinicId(null);
+    setReferralFile(null);
+    setHasAdvanced(true);
+    // Non-consultations must produce a referral before a slot is even shown.
+    setStep(requiresReferral(offer.service) ? 1 : 2);
   }
 
-  function handlePay() {
+  async function handlePay() {
     if (!selectedProvider || !selectedSlot || !pendingAppointmentId) return;
     if (patient?.processing_restricted) {
       showToast("לא ניתן להמשיך", { description: "עיבוד הנתונים של מטופל זה חסום. פנה לתמיכה.", variant: "destructive" });
       return;
     }
+    // Guard the rule itself, not just the button: a service that demands a
+    // referral can't be booked without one, however the call got here.
+    if (requiresReferral(consultation) && !referralFile) {
+      showToast("נדרשת הפניה", { description: "צרפו הפניה תקפה מקופת החולים כדי לשריין את התור.", variant: "destructive" });
+      return;
+    }
     setPaying(true);
+    const referralDataUrl = referralFile ? await fileToDataUrl(referralFile) : "";
     setTimeout(() => {
-      const commissionRate = selectedProvider.commission_rate ?? defaultCommissionRate;
-      // The deposit already collected IS the commission (payments meeting §8),
-      // so it is never recomputed here — the two figures cannot disagree.
-      const commissionAmount = depositAmount;
+      const commissionRate = selectedProvider.commission_rate ?? 15;
+      const commissionAmount = Math.round((price * commissionRate) / 100);
       // Payment success is the moment the pending hold becomes a confirmed
       // appointment — and the moment this lead becomes a client in practice.
       updateAppointment(pendingAppointmentId, { status: "מאושר", deposit_paid_at: new Date().toISOString() });
@@ -230,8 +284,8 @@ export default function ClientSearchPage() {
         final_price: price,
         status: "מאושר",
         payment_status: "מקדמה שולמה",
-        deposit_amount: depositAmount,
-        balance_amount: balanceAmount,
+        deposit_amount: Math.round(price * 0.3),
+        balance_amount: Math.round(price * 0.7),
         commission_rate: commissionRate,
         commission_amount: commissionAmount,
         provider_payout_amount: price - commissionAmount,
@@ -274,6 +328,24 @@ export default function ClientSearchPage() {
             status: "ממתין למילוי",
           });
         }
+        // The referral was a condition of booking, not a follow-up task — it
+        // was already attached at the payment step, so it lands as a filed
+        // document rather than another thing waiting on the patient.
+        if (requiresReferral(consultation) && referralFile) {
+          addDocument({
+            patient_id: patientId,
+            category: "referral_personal",
+            title: "הפניה תקפה מקופת החולים",
+            uploaded_by: "patient",
+            appointment_id: pendingAppointmentId,
+            status: "זמין",
+            file: {
+              file_name: referralFile.name,
+              uploaded_at: new Date().toISOString(),
+              data_url: referralDataUrl,
+            },
+          });
+        }
       }
       const icsUrl = buildIcsDataUrl({
         title: `תור ל-${selectedProvider.display_name}`,
@@ -293,55 +365,93 @@ export default function ClientSearchPage() {
   return (
     <ClientLayout>
       <div className="max-w-2xl mx-auto">
-        <BookingStepper step={visualStep} mode={discoveryMode} />
+        {/* Hidden while searching: browsing isn't a stage of a booking, and a
+            meter whose length changes the moment an item is picked (a referral
+            item has two stages more than a consultation) reads as broken. It
+            appears once an item is chosen — by then its journey is known and
+            the meter never changes shape again. */}
+        {step !== 0 && step !== 4 && (
+          <BookingStepper step={visualStep} steps={flowSteps} onStepSelect={goToVisualStep} />
+        )}
+        {step === 4 && <BookingStepper step={visualStep} steps={flowSteps} />}
 
-        {step === 0 && (
-          <p
-            className={`text-xs rounded-lg px-3 py-2 mb-4 border ${
-              patient ? "text-emerald-700 bg-emerald-50 border-emerald-200" : "text-amber-700 bg-amber-50 border-amber-200"
-            }`}
-          >
-            {patient
-              ? "המחיר לכל רופא מוצג בהתאם לפרופיל הביטוחי שלך."
-              : "השלימו את הפרופיל הביטוחי שלכם בעמוד הפרופיל כדי לראות מחיר מותאם אישית."}
+        {/* Onboarding copy, so it earns its space only before the patient has
+            got going. Coming back from a later step to change something isn't
+            a fresh start, and re-reading "prices match your profile" there is
+            noise between her and the results. The missing-profile version is a
+            call to action rather than an explanation, so it always stays. */}
+        {step === 0 && !patient && (
+          <p className="text-xs rounded-lg px-3 py-2 mb-4 border text-amber-700 bg-amber-50 border-amber-200">
+            השלימו את הפרופיל הביטוחי שלכם בעמוד הפרופיל כדי לראות מחיר מותאם אישית.
           </p>
         )}
 
         <AnimatePresence mode="wait">
           {step === 0 && (
             <motion.div key="step0" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition}>
-              <ServiceDiscovery
+              {/* Compact on a phone so the results start above the fold —
+                  the explanation is only worth vertical space on a wide screen. */}
+              <div className="mb-4">
+                <h1 className="text-xl font-bold text-slate-900 sm:text-center sm:text-3xl">
+                  {hasAdvanced ? "חזרה לחיפוש" : "קבע תור חדש"}
+                </h1>
+                {!hasAdvanced && (
+                  <p className="mt-1 hidden text-slate-500 sm:block sm:text-center">
+                    התוצאות מוצגות מיד — כל סינון מצמצם אותן, והמחיר לפי הפרופיל הביטוחי שלכם
+                  </p>
+                )}
+              </div>
+              <ServiceSearch
                 providers={providers}
                 patient={patient}
-                title="קבע תור חדש"
-                description="חיפוש חופשי, או לפי סוג השירות — המחיר יוצג לפי הביטוח שלכם"
-                onSelectItem={(item) => {
-                  setSelectedItem(item);
-                  setStep(1);
-                }}
-                onSelectItemWithProvider={selectProviderForItem}
-                onDoctorForItemsChange={setDiscoveryDoctorForItems}
-                onModeChange={setDiscoveryMode}
+                query={searchQuery}
+                onQueryChange={setSearchQuery}
+                openKey={openGroupKey}
+                onOpenKeyChange={setOpenGroupKey}
+                onSelectOffer={selectOffer}
               />
             </motion.div>
           )}
 
-          {step === 1 && selectedItem && (
+          {step === 1 && selectedProvider && (
             <motion.div key="step1" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition}>
-              <DoctorPicker
-                providers={providers}
-                item={selectedItem}
-                patient={patient}
+              <ReferralStep
+                provider={selectedProvider}
+                consultation={consultation}
+                file={referralFile}
+                onFileChange={setReferralFile}
                 onBack={() => setStep(0)}
-                onSelect={(p) => selectProviderForItem(selectedItem, p)}
+                onContinue={() => setStep(2)}
+              />
+            </motion.div>
+          )}
+
+          {step === 5 && selectedProvider && selectedSlot && (
+            <motion.div key="step5" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition}>
+              <UnitApprovalPending
+                provider={selectedProvider}
+                consultation={consultation}
+                selectedSlot={selectedSlot}
+                clinicName={
+                  selectedProvider.clinic_locations.find((c) => c.id === discoveryClinicId)?.name ??
+                  selectedProvider.clinic_locations[0]?.name
+                }
+                holdUntilLabel={unitHoldUntilLabel}
+                onSimulateApproval={approveByUnit}
               />
             </motion.div>
           )}
 
           {step === 2 && selectedProvider && (
             <motion.div key="step2" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition}>
-              <button onClick={() => setStep(1)} className="text-sm text-primary mb-4 flex items-center gap-1">
-                <ArrowRight className="h-3.5 w-3.5" /> בחירת רופא אחר
+              {/* Back to the search exactly as she left it — same query, same
+                  filters, same card still open — instead of a separate
+                  "pick another doctor" screen that duplicates it. */}
+              <button
+                onClick={() => setStep(referralFlow ? 1 : 0)}
+                className="text-sm text-primary mb-4 flex items-center gap-1"
+              >
+                <ArrowRight className="h-3.5 w-3.5" /> {referralFlow ? "חזרה להפניה" : "חזרה לבחירה"}
               </button>
               <SlotPicker
                 provider={selectedProvider}
@@ -368,10 +478,11 @@ export default function ClientSearchPage() {
               <PaymentPanel
                 provider={selectedProvider}
                 itemName={consultation?.name}
+                consultation={consultation}
                 clinicId={discoveryClinicId ?? undefined}
                 selectedSlot={selectedSlot}
                 kupah={patient?.kupah}
-                layer={resolvedPrice?.layer}
+                layer={priceBreakdown?.layer}
                 price={price}
                 fullPrice={fullPrice}
                 holdExpiresAt={holdExpiresAt}
@@ -380,6 +491,8 @@ export default function ClientSearchPage() {
                 onPayMethodChange={setPayMethod}
                 paying={paying}
                 onPay={handlePay}
+                referralFile={referralFile}
+                onReferralFileChange={setReferralFile}
               />
             </motion.div>
           )}

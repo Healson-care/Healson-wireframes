@@ -9,8 +9,10 @@ import { B_INSURANCE_COMPANIES, KUPOT, K_LEVELS_BY_KUPAH, Kupah, KLevel, Patient
 const OTHER_COMPANY = "אחר";
 
 export interface InsuranceProfileValue {
-  // "" = no Israeli kupah (tourist/no institutional coverage) — only ever a
-  // valid choice when the caller passes allowNoKupah (see below).
+  // "" plays two roles: the not-yet-picked placeholder (blocked by the
+  // Select's `required` for ת"ז holders, so it can never be submitted), and
+  // the meaningful "no Israeli kupah" choice (tourist/no institutional
+  // coverage) when the caller passes allowNoKupah (see below).
   kupah: Kupah | "";
   k_level: KLevel | "";
   // A patient can hold several private policies at once (unlike kupah,
@@ -20,8 +22,11 @@ export interface InsuranceProfileValue {
   address: string;
 }
 
+// kupah starts unpicked on purpose — a prefilled "כללית" let users click
+// straight through and get saved with the wrong kupah, which feeds pricing
+// (getPatientLayers). The required Select forces an active choice instead.
 export const EMPTY_INSURANCE_PROFILE: InsuranceProfileValue = {
-  kupah: "כללית",
+  kupah: "",
   k_level: "",
   b_insurances: [],
   address: "",
@@ -76,6 +81,10 @@ export function InsuranceProfileForm({
         onChange={(e) => onChange({ ...value, kupah: e.target.value as Kupah | "", k_level: "" })}
         required={!allowNoKupah}
       >
+        {/* For ת"ז holders "" is only a placeholder (required blocks it);
+            for passport holders "" is the real tourist option below, which
+            therefore doubles as their pre-selected default. */}
+        {!allowNoKupah && <option value="">בחרו קופת חולים</option>}
         {KUPOT.map((k) => (
           <option key={k} value={k}>
             {k}
@@ -129,6 +138,7 @@ export function InsuranceProfileForm({
                         setOtherPickedRows((prev) => ({ ...prev, [index]: next === OTHER_COMPANY }));
                         updateRow(index, { company: next === OTHER_COMPANY ? "" : next });
                       }}
+                      required
                     >
                       <option value="">בחרו חברה</option>
                       {B_INSURANCE_COMPANIES.map((c) => (
@@ -161,6 +171,7 @@ export function InsuranceProfileForm({
                     placeholder="הזינו את שם חברת הביטוח"
                     value={ins.company}
                     onChange={(e) => updateRow(index, { company: e.target.value })}
+                    required
                   />
                 )}
               </div>

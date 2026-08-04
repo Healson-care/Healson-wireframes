@@ -7,21 +7,23 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, LogOut } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useCurrentPatient } from "@/lib/useCurrentPatient";
-import { resolveDeposit } from "@/lib/commission";
-import { balanceDueAt } from "@/lib/appointment-payments";
-import { resolveProviderPrice } from "@/lib/pricing";
+import { resolvePriceBreakdown } from "@/lib/pricing";
 import { BOOK_RESUME_ITEM_KEY, BOOK_RESUME_PROVIDER_KEY, POST_REGISTER_REDIRECT_KEY } from "@/lib/constants";
 import { Logo } from "@/components/shared/Logo";
 import { ConfirmDialog } from "@/components/ui/Dialog";
-import { BookingStepper, BookingStepperMode } from "@/components/book/BookingStepper";
-import { ServiceDiscovery, SelectedServiceItem } from "@/components/book/ServiceDiscovery";
-import { DoctorPicker } from "@/components/book/DoctorPicker";
+import { BookingStepper, REFERRAL_FLOW_STEPS, SEARCH_FLOW_STEPS } from "@/components/book/BookingStepper";
+import { ReferralStep } from "@/components/book/ReferralStep";
+import { UnitApprovalPending } from "@/components/book/UnitApprovalPending";
+import { ServiceSearch } from "@/components/search/ServiceSearch";
+import { Offer, SearchQuery, emptyQuery } from "@/lib/search";
 import { SlotPicker } from "@/components/book/SlotPicker";
 import { PaymentPanel } from "@/components/book/PaymentPanel";
 import { BookingConfirmation } from "@/components/book/BookingConfirmation";
 import { WaitlistJoinDialog } from "@/components/book/WaitlistJoinDialog";
 import { buildIcsDataUrl } from "@/lib/utils";
-import { ProviderProfile } from "@/types";
+import { fileToDataUrl } from "@/lib/file";
+import { requiresReferral } from "@/lib/referral";
+import { ConsultationType, ProviderProfile, UNIT_APPROVAL_HOLD_HOURS } from "@/types";
 
 const HOLD_SECONDS = 600;
 
@@ -43,10 +45,6 @@ export default function BookPage() {
   const addOrder = useStore((s) => s.addOrder);
   const addDocument = useStore((s) => s.addDocument);
   const showToast = useStore((s) => s.showToast);
-  const catalog = useStore((s) => s.catalog);
-  const fixedFeeRules = useStore((s) => s.fixedFeeRules);
-  const defaultCommissionRate = useStore((s) => s.defaultCommissionRate);
-  const commissionRateByServiceType = useStore((s) => s.commissionRateByServiceType);
   const patient = useCurrentPatient();
 
   // Booking is strictly "pick a service, pick a doctor, pick a time, pay" —
@@ -55,15 +53,18 @@ export default function BookPage() {
   // instead of letting the flow continue.
   const [step, setStep] = useState(0);
   const [showAuthRequired, setShowAuthRequired] = useState(false);
-  const [discoveryMode, setDiscoveryMode] = useState<BookingStepperMode>("service");
-  // Purely for the progress meter — ServiceDiscovery/SlotPicker each cover
-  // two conceptual steps on one screen, so these track which sub-choice is
-  // still in progress within the current `step` without adding new screens.
-  const [discoveryDoctorForItems, setDiscoveryDoctorForItems] = useState<ProviderProfile | null>(null);
+  // Purely for the progress meter — SlotPicker covers two conceptual steps on
+  // one screen (location, then time), so this tracks which of the two is
+  // still in progress within the current `step` without adding a new screen.
   const [discoveryClinicId, setDiscoveryClinicId] = useState<string | null>(null);
 
-  const [selectedItem, setSelectedItem] = useState<SelectedServiceItem | null>(null);
+  // The exact service being booked, straight off the chosen Offer — no need to
+  // re-match it by name against the provider's catalogue.
+  const [selectedService, setSelectedService] = useState<ConsultationType | null>(null);
   const [selectedProvider, setSelectedProvider] = useState<ProviderProfile | null>(null);
+  // Search state lives here so stepping forward and back doesn't reset it.
+  const [searchQuery, setSearchQuery] = useState<SearchQuery>(emptyQuery);
+  const [openGroupKey, setOpenGroupKey] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<{ date: string; time: string; label: string } | null>(null);
   const [holdExpiresAt, setHoldExpiresAt] = useState<number | null>(null);
   const [pendingAppointmentId, setPendingAppointmentId] = useState<string | null>(null);
@@ -71,6 +72,13 @@ export default function BookPage() {
 
   const [payMethod, setPayMethod] = useState<"card" | "apple" | "google">("card");
   const [paying, setPaying] = useState(false);
+  // Held here rather than inside PaymentPanel: leaving the payment step and
+  // coming back shouldn't silently drop a referral the patient already picked.
+  const [referralFile, setReferralFile] = useState<File | null>(null);
+  // Sticky once the patient has moved past the search even one time — used to
+  // drop first-visit copy when she comes back to change something. Reset only
+  // by a full flow restart.
+  const [hasAdvanced, setHasAdvanced] = useState(false);
 
   const [confirmation, setConfirmation] = useState<{
     fileNumber: string;
@@ -78,66 +86,96 @@ export default function BookPage() {
     icsUrl: string;
   } | null>(null);
 
-  // Re-matched against the chosen doctor's own consultation_types (no shared
-  // catalog id) — falls back to their first service only if the match
-  // somehow fails, which DoctorPicker's own filtering should already prevent.
-  const consultation = selectedProvider
-    ? selectedProvider.consultation_types.find(
-        (ct) => selectedItem && ct.name === selectedItem.name && ct.service_type === selectedItem.service_type
-      ) ?? selectedProvider.consultation_types[0]
-    : undefined;
-  const resolvedPrice =
-    consultation && selectedProvider ? resolveProviderPrice(consultation.prices, selectedProvider.agreements, patient) : null;
-  const price = resolvedPrice?.price ?? consultation?.prices.find((p) => p.layer === "H")?.price ?? 0;
-  // The deposit IS Healson's commission (payments meeting §3/§8) — resolved
-  // from the same rules the admin sets, never a hard-coded percentage. The
-  // patient only ever sees the shekel figure.
-  const depositAmount = resolveDeposit({
-    provider: selectedProvider,
-    serviceType: catalog.find((c) => c.id === consultation?.catalog_item_id)?.service_type,
-    price,
-    fixedFeeRules,
-    defaultRate: defaultCommissionRate,
-    rateByServiceType: commissionRateByServiceType,
-  });
-  const balanceAmount = Math.max(0, price - depositAmount);
-  // Always the private/out-of-pocket price, regardless of which layer this
-  // patient actually qualifies for — shown alongside `price` so the payment
-  // summary can show "full price" vs. "your price" as two distinct lines.
-  const fullPrice = consultation?.prices.find((p) => p.layer === "H")?.price ?? price;
+  const consultation = selectedService ?? undefined;
+  const priceBreakdown =
+    consultation && selectedProvider
+      ? resolvePriceBreakdown(consultation.prices, selectedProvider.agreements, patient, consultation.price_full)
+      : null;
+  const price = priceBreakdown?.price ?? 0;
+  // The base price (P), regardless of which layer this patient actually
+  // qualifies for — shown alongside `price` so the payment summary can show
+  // "full price" vs. "your price" as two distinct lines.
+  const fullPrice = priceBreakdown?.basePrice ?? price;
 
-  // Maps the real `step` (which screen is showing) plus the two in-screen
-  // sub-choices above onto the 6-item progress meter — see BookingStepper.
-  const visualStep =
-    step === 0
-      ? discoveryMode === "doctor"
-        ? discoveryDoctorForItems
-          ? 1
-          : 0
-        : 0
+  // Everything that isn't a consultation goes through two extra stages — the
+  // referral upload and the unit's review — so the meter has to describe a
+  // different journey for it.
+  const referralFlow = requiresReferral(consultation);
+  const flowSteps = referralFlow ? REFERRAL_FLOW_STEPS : SEARCH_FLOW_STEPS;
+
+  // step: 0 search · 1 referral · 2 slot · 5 unit approval · 3 payment · 4 done
+  const visualStep = referralFlow
+    ? step === 0
+      ? 0
       : step === 1
       ? 1
       : step === 2
-      ? (discoveryClinicId ? 3 : 2)
-      : step === 3
+      ? discoveryClinicId
+        ? 3
+        : 2
+      : step === 5
       ? 4
-      : step === 4
+      : step === 3
       ? 5
-      : step;
+      : step === 4
+      ? 6
+      : step
+    : step === 0
+    ? 0
+    : step === 2
+    ? discoveryClinicId
+      ? 2
+      : 1
+    : step === 3
+    ? 3
+    : step === 4
+    ? 4
+    : step;
 
-  // Shared by both discovery paths: browsing services first (DoctorPicker
-  // already knows selectedItem) and browsing by doctor first (ServiceDiscovery
-  // hands the item back together with the provider, skipping DoctorPicker).
-  function selectProviderForItem(item: SelectedServiceItem, p: ProviderProfile) {
+  /**
+   * The meter shows visual indices; the flow runs on real step numbers. This
+   * is the inverse of `visualStep` above, so tapping a completed stage lands
+   * on the screen that produced it. Forward taps are ignored — a stage isn't
+   * reachable until the one before it is done.
+   */
+  function goToVisualStep(index: number) {
+    if (index >= visualStep) return;
+    const target = referralFlow
+      ? [0, 1, 2, 2, 5, 3, 4][index] ?? 0
+      : [0, 2, 2, 3, 4][index] ?? 0;
+    // Stepping back out of payment or the unit's queue releases the slot that
+    // was being held for them, rather than leaving a stuck pending record.
+    if ((step === 3 || step === 5) && target < 3) abandonHold();
+    setStep(target);
+  }
+
+  const unitHoldUntilLabel = holdExpiresAt
+    ? new Date(holdExpiresAt).toLocaleString("he-IL", {
+        weekday: "long",
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "";
+
+  // The search returns a whole Offer — service and provider resolved together
+  // — so booking goes straight from a result to picking a time.
+  function selectOffer(offer: Offer) {
     if (!patient) {
-      sessionStorage.setItem(BOOK_RESUME_PROVIDER_KEY, p.id);
-      sessionStorage.setItem(BOOK_RESUME_ITEM_KEY, JSON.stringify(item));
+      sessionStorage.setItem(BOOK_RESUME_PROVIDER_KEY, offer.provider.id);
+      sessionStorage.setItem(BOOK_RESUME_ITEM_KEY, offer.service.id);
       setShowAuthRequired(true);
       return;
     }
-    setSelectedItem(item);
-    setSelectedProvider(p);
-    setStep(2);
+    setSelectedService(offer.service);
+    setSelectedProvider(offer.provider);
+    // Clear the location and referral picked for a *previous* offer.
+    setDiscoveryClinicId(null);
+    setReferralFile(null);
+    setHasAdvanced(true);
+    // Non-consultations must produce a referral before a slot is even shown.
+    setStep(requiresReferral(offer.service) ? 1 : 2);
   }
 
   // Resume straight at the slot picker for whichever provider/service the
@@ -147,24 +185,21 @@ export default function BookPage() {
   useEffect(() => {
     if (!patient) return;
     const resumeProviderId = sessionStorage.getItem(BOOK_RESUME_PROVIDER_KEY);
-    const resumeItemRaw = sessionStorage.getItem(BOOK_RESUME_ITEM_KEY);
-    if (!resumeProviderId || !resumeItemRaw) return;
+    const resumeServiceId = sessionStorage.getItem(BOOK_RESUME_ITEM_KEY);
+    if (!resumeProviderId || !resumeServiceId) return;
     sessionStorage.removeItem(BOOK_RESUME_PROVIDER_KEY);
     sessionStorage.removeItem(BOOK_RESUME_ITEM_KEY);
     const resumeProvider = providers.find((p) => p.id === resumeProviderId);
+    // Only the ids are stored, so a service that was edited or removed while
+    // the visitor was registering simply drops them back at the search.
+    const resumeService = resumeProvider?.consultation_types.find((ct) => ct.id === resumeServiceId);
     // Syncing from sessionStorage (external, only known once patient/
     // hydration resolves) — not a derived-state anti-pattern.
     /* eslint-disable react-hooks/set-state-in-effect */
-    if (resumeProvider) {
-      try {
-        const resumeItem = JSON.parse(resumeItemRaw) as SelectedServiceItem;
-        setSelectedItem(resumeItem);
-        setSelectedProvider(resumeProvider);
-        setStep(2);
-      } catch {
-        // Malformed/stale sessionStorage payload — ignore and let the
-        // visitor restart the flow from the service list.
-      }
+    if (resumeProvider && resumeService) {
+      setSelectedService(resumeService);
+      setSelectedProvider(resumeProvider);
+      setStep(2);
     }
     /* eslint-enable react-hooks/set-state-in-effect */
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -190,23 +225,25 @@ export default function BookPage() {
       date,
       time,
       duration_minutes: consultation?.duration_minutes ?? 30,
-      status: "ממתין לתשלום מקדמה",
+      // A referral item can't be paid for until the unit has reviewed it, so
+      // it enters the patient's history in the waiting state instead.
+      status: referralFlow ? "ממתין לאישור הפניה" : "ממתין לתשלום מקדמה",
       price,
-      funding_layer: resolvedPrice?.layer,
-      deposit_amount: depositAmount,
-      // The balance and its charge deadline are fixed at booking, because that
-      // is exactly what the patient is shown and agrees to (payments §3).
-      balance_amount: balanceAmount,
-      balance_collector: selectedProvider.balance_collector ?? "healson",
-      balance_due_at:
-        (selectedProvider.balance_collector ?? "healson") === "healson" ? balanceDueAt(date) : undefined,
+      deposit_amount: Math.round(price * 0.3),
       kupah: patient.kupah,
       notes: "",
       created_by_id: patient?.id ?? currentUser?.id,
     });
     setPendingAppointmentId(appointment.id);
     setSelectedSlot({ date, time, label });
-     
+
+    if (referralFlow) {
+      // The slot is held for a day while the unit answers — not the 10-minute
+      // payment hold, which would expire long before a human replies.
+      setHoldExpiresAt(Date.now() + UNIT_APPROVAL_HOLD_HOURS * 60 * 60 * 1000);
+      setStep(5);
+      return;
+    }
     setHoldExpiresAt(Date.now() + HOLD_SECONDS * 1000);
     setStep(3);
   }
@@ -221,6 +258,13 @@ export default function BookPage() {
     setHoldExpiresAt(null);
   }
 
+  /** Stands in for the medical unit answering from its own portal. */
+  function approveByUnit() {
+    if (pendingAppointmentId) updateAppointment(pendingAppointmentId, { status: "ממתין לתשלום מקדמה" });
+    setHoldExpiresAt(Date.now() + HOLD_SECONDS * 1000);
+    setStep(3);
+  }
+
   const handleHoldExpire = useCallback(() => {
     showToast("ה-Hold פג", { description: "התור שוחרר. רוצה לנסות שוב?", variant: "destructive" });
     if (pendingAppointmentId) updateAppointment(pendingAppointmentId, { status: "בוטל" });
@@ -230,18 +274,23 @@ export default function BookPage() {
     setStep(2);
   }, [pendingAppointmentId, showToast, updateAppointment]);
 
-  function handlePay() {
+  async function handlePay() {
     if (!selectedProvider || !selectedSlot || !pendingAppointmentId || !patient) return;
     if (patient.processing_restricted) {
       showToast("לא ניתן להמשיך", { description: "עיבוד הנתונים של מטופל זה חסום. פנה לתמיכה.", variant: "destructive" });
       return;
     }
+    // Guard the rule itself, not just the button: a service that demands a
+    // referral can't be booked without one, however the call got here.
+    if (requiresReferral(consultation) && !referralFile) {
+      showToast("נדרשת הפניה", { description: "צרפו הפניה תקפה מקופת החולים כדי לשריין את התור.", variant: "destructive" });
+      return;
+    }
     setPaying(true);
+    const referralDataUrl = referralFile ? await fileToDataUrl(referralFile) : "";
     setTimeout(() => {
-      const commissionRate = selectedProvider.commission_rate ?? defaultCommissionRate;
-      // The deposit already collected IS the commission (payments meeting §8),
-      // so it is never recomputed here — the two figures cannot disagree.
-      const commissionAmount = depositAmount;
+      const commissionRate = selectedProvider.commission_rate ?? 15;
+      const commissionAmount = Math.round((price * commissionRate) / 100);
       // Payment success is the moment the pending hold becomes a confirmed
       // appointment.
       updateAppointment(pendingAppointmentId, { status: "מאושר", deposit_paid_at: new Date().toISOString() });
@@ -254,8 +303,8 @@ export default function BookPage() {
         final_price: price,
         status: "מאושר",
         payment_status: "מקדמה שולמה",
-        deposit_amount: depositAmount,
-        balance_amount: balanceAmount,
+        deposit_amount: Math.round(price * 0.3),
+        balance_amount: Math.round(price * 0.7),
         commission_rate: commissionRate,
         commission_amount: commissionAmount,
         provider_payout_amount: price - commissionAmount,
@@ -297,6 +346,24 @@ export default function BookPage() {
             uploaded_by: "system",
             appointment_id: pendingAppointmentId,
             status: "ממתין למילוי",
+          });
+        }
+        // The referral was a condition of booking, not a follow-up task — it
+        // was already attached at the payment step, so it lands as a filed
+        // document rather than another thing waiting on the patient.
+        if (requiresReferral(consultation) && referralFile) {
+          addDocument({
+            patient_id: patientId,
+            category: "referral_personal",
+            title: "הפניה תקפה מקופת החולים",
+            uploaded_by: "patient",
+            appointment_id: pendingAppointmentId,
+            status: "זמין",
+            file: {
+              file_name: referralFile.name,
+              uploaded_at: new Date().toISOString(),
+              data_url: referralDataUrl,
+            },
           });
         }
       }
@@ -351,41 +418,67 @@ export default function BookPage() {
       </header>
 
       <main className="mx-auto max-w-4xl px-4 py-10">
-        <BookingStepper step={visualStep} mode={discoveryMode} />
+        {/* Hidden while searching: browsing isn't a stage of a booking, and a
+            meter whose length changes the moment an item is picked (a referral
+            item has two stages more than a consultation) reads as broken. It
+            appears once an item is chosen — by then its journey is known and
+            the meter never changes shape again. */}
+        {step !== 0 && step !== 4 && (
+          <BookingStepper step={visualStep} steps={flowSteps} onStepSelect={goToVisualStep} />
+        )}
+        {step === 4 && <BookingStepper step={visualStep} steps={flowSteps} />}
 
         <AnimatePresence mode="wait">
         {step === 0 && (
-          <motion.div key="step0" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition}>
-            <ServiceDiscovery
+          <motion.div key="step0" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition} className="max-w-2xl mx-auto">
+            <ServiceSearch
               providers={providers}
               patient={patient}
-              onSelectItem={(item) => {
-                setSelectedItem(item);
-                setStep(1);
-              }}
-              onSelectItemWithProvider={selectProviderForItem}
-              onDoctorForItemsChange={setDiscoveryDoctorForItems}
-              onModeChange={setDiscoveryMode}
+              query={searchQuery}
+              onQueryChange={setSearchQuery}
+              openKey={openGroupKey}
+              onOpenKeyChange={setOpenGroupKey}
+              onSelectOffer={selectOffer}
             />
           </motion.div>
         )}
 
-        {step === 1 && selectedItem && (
-          <motion.div key="step1" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition}>
-            <DoctorPicker
-              providers={providers}
-              item={selectedItem}
-              patient={patient}
+        {step === 1 && selectedProvider && (
+          <motion.div key="step1" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition} className="max-w-2xl mx-auto">
+            <ReferralStep
+              provider={selectedProvider}
+              consultation={consultation}
+              file={referralFile}
+              onFileChange={setReferralFile}
               onBack={() => setStep(0)}
-              onSelect={(p) => selectProviderForItem(selectedItem, p)}
+              onContinue={() => setStep(2)}
+            />
+          </motion.div>
+        )}
+
+        {step === 5 && selectedProvider && selectedSlot && (
+          <motion.div key="step5" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition} className="max-w-2xl mx-auto">
+            <UnitApprovalPending
+              provider={selectedProvider}
+              consultation={consultation}
+              selectedSlot={selectedSlot}
+              clinicName={
+                selectedProvider.clinic_locations.find((c) => c.id === discoveryClinicId)?.name ??
+                selectedProvider.clinic_locations[0]?.name
+              }
+              holdUntilLabel={unitHoldUntilLabel}
+              onSimulateApproval={approveByUnit}
             />
           </motion.div>
         )}
 
         {step === 2 && selectedProvider && (
           <motion.div key="step2" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition} className="max-w-2xl mx-auto">
-            <button onClick={() => setStep(1)} className="text-sm text-primary mb-4 flex items-center gap-1">
-              <ArrowRight className="h-3.5 w-3.5" /> בחירת רופא אחר
+            {/* Back to the search exactly as she left it — same query, same
+                filters, same card still open — instead of a separate
+                "pick another service" screen that duplicates it. */}
+            <button onClick={() => setStep(referralFlow ? 1 : 0)} className="text-sm text-primary mb-4 flex items-center gap-1">
+              <ArrowRight className="h-3.5 w-3.5" /> {referralFlow ? "חזרה להפניה" : "חזרה לבחירה"}
             </button>
             <SlotPicker
               provider={selectedProvider}
@@ -416,7 +509,7 @@ export default function BookPage() {
               clinicId={discoveryClinicId ?? undefined}
               selectedSlot={selectedSlot}
               kupah={patient?.kupah}
-              layer={resolvedPrice?.layer}
+              layer={priceBreakdown?.layer}
               price={price}
               fullPrice={fullPrice}
               holdExpiresAt={holdExpiresAt}
@@ -425,6 +518,8 @@ export default function BookPage() {
               onPayMethodChange={setPayMethod}
               paying={paying}
               onPay={handlePay}
+              referralFile={referralFile}
+              onReferralFileChange={setReferralFile}
             />
           </motion.div>
         )}

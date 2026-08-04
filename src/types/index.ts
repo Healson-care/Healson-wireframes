@@ -221,6 +221,10 @@ export const APPOINTMENT_STATUSES: AppointmentStatus[] = [
   "בוטל — יתרה לא שולמה",
 ];
 
+/** How long a slot stays reserved while the medical unit reviews the referral
+ * ("ממתין לאישור הפניה"). */
+export const UNIT_APPROVAL_HOLD_HOURS = 24;
+
 /** The two cancellation states, kept together so callers never test one and
  * forget the other (a cancelled slot is free again either way). */
 export const CANCELLED_APPOINTMENT_STATUSES: AppointmentStatus[] = [

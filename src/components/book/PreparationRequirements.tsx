@@ -1,4 +1,5 @@
 import { AlertCircle } from "lucide-react";
+import { requiresReferral } from "@/lib/referral";
 import { ANESTHESIA_TYPE_LABELS, ConsultationType } from "@/types";
 
 /** Turns a ConsultationType's scattered prep/logistics fields (set by the
@@ -8,7 +9,7 @@ import { ANESTHESIA_TYPE_LABELS, ConsultationType } from "@/types";
  * the patient anywhere in the booking flow. */
 function buildPreparationItems(consultation: ConsultationType): string[] {
   const items: string[] = [];
-  if (consultation.requires_referral) items.push("יש להגיע עם הפניה תקפה מקופת החולים");
+  if (requiresReferral(consultation)) items.push("יש להעלות הפניה תקפה מקופת החולים לפני קביעת התור");
   if (consultation.requires_fasting) items.push("יש להגיע בצום (לא לאכול/לשתות לפני הבדיקה)");
   if (consultation.requires_contrast) items.push("הבדיקה כוללת הזרקת חומר ניגוד");
   if (consultation.has_radiation) items.push("הבדיקה כרוכה בחשיפה לקרינה מייננת");

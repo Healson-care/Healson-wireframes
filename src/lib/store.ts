@@ -2225,7 +2225,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 35,
+      version: 36,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
       // records), the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER seed
       // account, the v3 -> v4 AppointmentStatus rename ("ממתין לאישור" ->
@@ -2336,7 +2336,15 @@ export const useStore = create<Store>()(
       // sitting in הקמה with nothing entered yet. Every other unit in the seed is
       // already fully built, so this is the only record that can demo the setup
       // itself from the unit's side — reseed clean so it appears.
-      migrate: (persistedState, version) => (version < 35 ? ({} as Store) : (persistedState as Store)),
+      // v35 -> v36 is the merge of the payments branch into the faceted-search
+      // branch. Both had independently claimed v34/v35 for unrelated schemas, so
+      // neither persisted blob is a valid ancestor of this one: v35 carries the
+      // payments fields but not the SKBHP prices, v34 carries the SKBHP price
+      // migration (price_full base price on every item, H repurposed as a
+      // dedicated tourist price, S entries zeroed since basket coverage has no
+      // payable amount, "ביטוח ישיר" placeholder policy dropped) but none of the
+      // payments fields. Bumped past both so either one reseeds clean.
+      migrate: (persistedState, version) => (version < 36 ? ({} as Store) : (persistedState as Store)),
       // Uploaded files (photos/PDFs) are stored as base64 data URLs inside
       // this same persisted blob (no real backend — see file.ts). If a
       // single write ever still exceeds the browser's localStorage quota

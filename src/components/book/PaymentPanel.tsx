@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { CreditCard, MapPin, ShieldCheck, Smartphone, Stethoscope } from "lucide-react";
+import { CreditCard, FileCheck2, MapPin, ShieldCheck, Smartphone, Stethoscope } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { HoldTimer } from "@/components/book/HoldTimer";
 import { PreparationRequirements } from "@/components/book/PreparationRequirements";
+import { requiresReferral } from "@/lib/referral";
 import { formatCurrency } from "@/lib/utils";
 import { ConsultationType, InsuranceLayer, Kupah, LAYER_LABELS, ProviderProfile } from "@/types";
 
@@ -27,6 +28,8 @@ export function PaymentPanel({
   onPayMethodChange,
   paying,
   onPay,
+  referralFile,
+  onReferralFileChange,
 }: {
   provider: ProviderProfile;
   itemName?: string;
@@ -47,6 +50,9 @@ export function PaymentPanel({
   onPayMethodChange: (method: "card" | "apple" | "google") => void;
   paying: boolean;
   onPay: () => void;
+  /** The kupah referral attached so far, when this service demands one. */
+  referralFile?: File | null;
+  onReferralFileChange?: (file: File | null) => void;
 }) {
   const [saveCard, setSaveCard] = useState(false);
   const depositAmount = Math.round((price * DEPOSIT_PERCENT) / 100);
@@ -54,6 +60,13 @@ export function PaymentPanel({
   const clinic = provider.clinic_locations.find((c) => c.id === clinicId) ?? provider.clinic_locations[0];
   const resolvedFullPrice = fullPrice ?? price;
   const hasArrangement = !!layer && layer !== "H" && price < resolvedFullPrice;
+  // Basket-covered service (route S): nothing is paid on the platform — the
+  // patient arrives with a kupah commitment instead of paying a deposit.
+  const basketCovered = layer === "S" && price === 0;
+  // A referral isn't advice, it's a condition of the booking: the kupah won't
+  // honour the appointment without one, so payment is blocked until it's here.
+  const referralRequired = requiresReferral(consultation) && !!onReferralFileChange;
+  const referralMissing = referralRequired && !referralFile;
 
   return (
     <div>
@@ -114,41 +127,61 @@ export function PaymentPanel({
         <PreparationRequirements consultation={consultation} />
       </div>
 
+      {/* By the time payment is reached the referral has already been
+          uploaded and approved by the unit — this is a receipt of that, not
+          another chance to attach it. */}
+      {referralRequired && referralFile && (
+        <div className="rounded-2xl border border-success-border bg-success-bg p-4 shadow-sm mb-4">
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-success-text">
+            <FileCheck2 className="h-4 w-4 shrink-0" /> ההפניה אושרה על ידי היחידה
+          </p>
+          <p className="mt-0.5 text-xs text-success-text/80">
+            {referralFile.name} · תישמר במסמכים שלך יחד עם התור
+          </p>
+        </div>
+      )}
+
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm mb-4">
         <p className="text-xs text-slate-400 mb-2">מחיר</p>
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-slate-500">מחיר מלא</span>
-          <span className={hasArrangement ? "text-slate-400 line-through" : "font-medium text-slate-900"}>
-            {formatCurrency(resolvedFullPrice)}
-          </span>
-        </div>
-        <div className="flex items-center justify-between text-sm mt-2">
-          <span className="text-slate-500">המחיר שלך</span>
-          <span className="font-medium text-slate-900">{formatCurrency(price)}</span>
-        </div>
-        {hasArrangement && layer && (
-          <p className="text-[11px] text-slate-400 mt-1">
-            * המחיר מבוסס על ה{LAYER_LABELS[layer]}
-            {layer === "S" && kupah ? ` שלך ב${kupah}` : " שלך"} — בהנחת זכאות מלאה. מגבלות זכאות אישיות (למשל תקרת
-            מספר טיפולים מוטבים בשנה) לא מוצגות כאן ואינן ידועות למערכת; מומלץ לוודא מול חברת הביטוח/הקופה שלך.
-          </p>
+        {basketCovered ? (
+          <p className="text-sm font-medium text-emerald-700">מכוסה בסל הבריאות — לא נדרש תשלום באתר. יש להצטייד בהתחייבות (טופס 17) מהקופה.</p>
+        ) : (
+          <>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-500">מחיר מלא</span>
+              <span className={hasArrangement ? "text-slate-400 line-through" : "font-medium text-slate-900"}>
+                {formatCurrency(resolvedFullPrice)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-sm mt-2">
+              <span className="text-slate-500">המחיר שלך</span>
+              <span className="font-medium text-slate-900">{formatCurrency(price)}</span>
+            </div>
+            {hasArrangement && layer && (
+              <p className="text-[11px] text-slate-400 mt-1">
+                * המחיר מבוסס על ה{LAYER_LABELS[layer]}
+                {layer === "S" && kupah ? ` שלך ב${kupah}` : " שלך"} — בהנחת זכאות מלאה. מגבלות זכאות אישיות (למשל תקרת
+                מספר טיפולים מוטבים בשנה) לא מוצגות כאן ואינן ידועות למערכת; מומלץ לוודא מול חברת הביטוח/הקופה שלך.
+              </p>
+            )}
+            <div className="h-px bg-slate-100 my-3" />
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-500">אחוז מקדמה</span>
+              <span className="font-medium text-slate-900">{DEPOSIT_PERCENT}%</span>
+            </div>
+            <div className="flex items-center justify-between mt-2">
+              <span className="text-sm font-semibold text-slate-700">מקדמה לתשלום</span>
+              <span className="text-lg font-bold text-primary">{formatCurrency(depositAmount)}</span>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1">
+              לשריון התור נדרש תשלום מקדמה עכשיו. היתרה תיגבה במועד התור.
+            </p>
+            <div className="flex items-center justify-between mt-2">
+              <span className="text-[11px] text-slate-400">יתרה לתשלום בתור</span>
+              <span className="text-[11px] text-slate-400">{formatCurrency(balanceAmount)}</span>
+            </div>
+          </>
         )}
-        <div className="h-px bg-slate-100 my-3" />
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-slate-500">אחוז מקדמה</span>
-          <span className="font-medium text-slate-900">{DEPOSIT_PERCENT}%</span>
-        </div>
-        <div className="flex items-center justify-between mt-2">
-          <span className="text-sm font-semibold text-slate-700">מקדמה לתשלום</span>
-          <span className="text-lg font-bold text-primary">{formatCurrency(depositAmount)}</span>
-        </div>
-        <p className="text-[11px] text-slate-400 mt-1">
-          לשריון התור נדרש תשלום מקדמה עכשיו. היתרה תיגבה במועד התור.
-        </p>
-        <div className="flex items-center justify-between mt-2">
-          <span className="text-[11px] text-slate-400">יתרה לתשלום בתור</span>
-          <span className="text-[11px] text-slate-400">{formatCurrency(balanceAmount)}</span>
-        </div>
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -194,9 +227,14 @@ export function PaymentPanel({
         <p className="flex items-center gap-1.5 text-[11px] text-slate-400 mb-4">
           <ShieldCheck className="h-3.5 w-3.5" /> תשלום מאובטח בתקן PCI DSS · מצב הדגמה, לא מתבצע חיוב אמיתי
         </p>
-        <Button size="lg" className="w-full" loading={paying} onClick={onPay}>
-          שלם {formatCurrency(depositAmount)} ואשר תור
+        <Button size="lg" className="w-full" loading={paying} onClick={onPay} disabled={referralMissing}>
+          {basketCovered ? "אשר תור (ללא תשלום)" : `שלם ${formatCurrency(depositAmount)} ואשר תור`}
         </Button>
+        {referralMissing && (
+          <p className="mt-2 text-center text-[11px] text-warning-text">
+            לא ניתן לשריין תור לשירות הזה ללא הפניה תקפה — צרפו אותה למעלה.
+          </p>
+        )}
       </div>
     </div>
   );
