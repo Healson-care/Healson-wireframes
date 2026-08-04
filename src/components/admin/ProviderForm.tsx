@@ -5,6 +5,7 @@ import { Dialog } from "@/components/ui/Dialog";
 import { Input, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { PROVIDER_TYPE_LABELS, PROVIDER_TYPES, ProviderType } from "@/types";
+import { DEFAULT_COMMISSION_RATE } from "@/lib/commission";
 
 export interface ProviderFormValues {
   // Healson ops creates real organizations by hand; units and their login
@@ -29,7 +30,7 @@ const EMPTY: ProviderFormValues = {
   contact_phone: "",
   contact_email: "",
   license_number: "",
-  commission_rate: 15,
+  commission_rate: DEFAULT_COMMISSION_RATE,
 };
 
 export function ProviderForm({

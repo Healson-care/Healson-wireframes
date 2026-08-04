@@ -24,6 +24,12 @@ import {
   CatalogKind,
   CatalogRequest,
   CatalogRequestStatus,
+  K_LEVELS_BY_KUPAH,
+  KUPOT,
+  PAYER_ARRANGEMENT_MODES,
+  PayerArrangementMode,
+  PayerPrice,
+  PRIVATE_INSURANCE_COMPANIES,
   PriceByLayer,
   PROVIDER_SERVICE_TYPE_LABELS,
   ProviderProfile,
@@ -288,6 +294,9 @@ interface ItemFormValues {
   requires_referral: boolean;
   provider_id: string;
   is_active: boolean;
+  // Per-payer breakdown behind K/B (payments meeting §8). Healson items only —
+  // a מב"ר item is a Ministry of Health price list, with nothing to negotiate.
+  payer_prices: PayerPrice[];
 }
 
 function priceOf(item: CatalogItem, layer: PriceByLayer["layer"]): string {
@@ -316,6 +325,7 @@ function makeEmptyForm(
     requires_referral: false,
     provider_id: "",
     is_active: true,
+    payer_prices: [],
   };
 }
 
@@ -336,6 +346,7 @@ function formFromItem(item: CatalogItem): ItemFormValues {
     requires_referral: item.requires_referral,
     provider_id: item.provider_id ?? "",
     is_active: item.is_active,
+    payer_prices: item.payer_prices ?? [],
   };
 }
 
@@ -365,7 +376,150 @@ function buildCatalogValues(form: ItemFormValues): Omit<CatalogItem, "id"> {
     requires_referral: form.requires_referral,
     provider_id: form.provider_id || undefined,
     is_active: form.is_active,
+    payer_prices:
+      form.catalog === "healson" && form.payer_prices.length > 0 ? form.payer_prices : undefined,
   };
+}
+
+/** Per-payer prices behind the K/B tariffs (payments meeting §8).
+ *
+ * Every שב"ן plan and every private carrier is negotiated separately, and the
+ * outcome is two facts: HOW it settles (הסדר — the payer pays the provider and
+ * the patient is left with a co-pay; החזר — the patient pays in full and claims
+ * it back themselves; שניהם — depends on their plan) and, for an הסדר, the
+ * co-pay itself. Rows left as "לא רלוונטי" are simply not saved, so the table
+ * stays as short as the actual agreements are.
+ *
+ * This is the ONLY place these are entered — the provider portal shows the same
+ * table read-only. */
+function PayerPricesEditor({
+  value,
+  onChange,
+}: {
+  value: PayerPrice[];
+  onChange: (value: PayerPrice[]) => void;
+}) {
+  function rowFor(match: (p: PayerPrice) => boolean): PayerPrice | undefined {
+    return value.find(match);
+  }
+
+  function setRow(match: (p: PayerPrice) => boolean, next: PayerPrice | null) {
+    const rest = value.filter((p) => !match(p));
+    onChange(next ? [...rest, next] : rest);
+  }
+
+  function ModeAndPrice({
+    row,
+    onSet,
+  }: {
+    row: PayerPrice | undefined;
+    onSet: (mode: PayerArrangementMode | "", price: string) => void;
+  }) {
+    const mode = row?.mode ?? "";
+    // A pure החזר never has a co-pay — the money doesn't pass through Healson.
+    const priceRelevant = mode === "הסדר" || mode === "שניהם";
+    return (
+      <div className="flex items-center gap-1.5">
+        <Select
+          value={mode}
+          onChange={(e) => onSet(e.target.value as PayerArrangementMode | "", String(row?.price ?? ""))}
+          className="h-8 w-28 text-xs"
+        >
+          <option value="">לא רלוונטי</option>
+          {PAYER_ARRANGEMENT_MODES.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </Select>
+        <Input
+          type="number"
+          placeholder="השתתפות"
+          disabled={!priceRelevant}
+          value={row?.price != null ? String(row.price) : ""}
+          onChange={(e) => onSet((mode || "הסדר") as PayerArrangementMode, e.target.value)}
+          className="h-8 w-24 text-xs"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="sm:col-span-2 flex flex-col gap-3 rounded-lg border border-slate-200 p-3">
+      <div>
+        <p className="text-xs font-medium text-slate-600">מחירים לפי משלם</p>
+        <p className="text-[11px] text-slate-400">
+          תחת &quot;הסדר&quot; הסכום הוא ההשתתפות העצמית של המטופל; תחת &quot;החזר&quot; המטופל משלם מחיר מלא
+          ומגיש תביעה למבטח בעצמו — ולכן אין סכום.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-2.5">
+        {KUPOT.map((kupah) => (
+          <div key={kupah}>
+            <p className="mb-1 text-[11px] font-medium text-slate-500">{kupah} — שב&quot;ן</p>
+            <div className="flex flex-col gap-1">
+              {K_LEVELS_BY_KUPAH[kupah].map((level) => {
+                const match = (p: PayerPrice) => p.layer === "K" && p.level === level;
+                return (
+                  <div key={level} className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-slate-700">{level}</span>
+                    <ModeAndPrice
+                      row={rowFor(match)}
+                      onSet={(mode, price) =>
+                        setRow(
+                          match,
+                          mode
+                            ? {
+                                layer: "K",
+                                kupah,
+                                level,
+                                mode,
+                                price: mode === "החזר" || price === "" ? undefined : Number(price) || 0,
+                              }
+                            : null
+                        )
+                      }
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+
+        <div>
+          <p className="mb-1 text-[11px] font-medium text-slate-500">ביטוח פרטי — לפי מבטח</p>
+          <div className="flex flex-col gap-1">
+            {PRIVATE_INSURANCE_COMPANIES.map((insurer) => {
+              const match = (p: PayerPrice) => p.layer === "B" && p.insurer === insurer;
+              return (
+                <div key={insurer} className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-slate-700">{insurer}</span>
+                  <ModeAndPrice
+                    row={rowFor(match)}
+                    onSet={(mode, price) =>
+                      setRow(
+                        match,
+                        mode
+                          ? {
+                              layer: "B",
+                              insurer,
+                              mode,
+                              price: mode === "החזר" || price === "" ? undefined : Number(price) || 0,
+                            }
+                          : null
+                      )
+                    }
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /** Shared create/edit form for a catalog item (fields + submit). Holds its own
@@ -511,6 +665,13 @@ function CatalogItemForm({
           />
         </div>
       </div>
+      {form.catalog === "healson" && (
+        <PayerPricesEditor
+          value={form.payer_prices}
+          onChange={(payer_prices) => setForm({ ...form, payer_prices })}
+        />
+      )}
+
       <Input
         label="משך טיפול ממוצע (דקות)"
         type="number"

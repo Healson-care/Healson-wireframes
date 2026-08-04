@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useStore } from "@/lib/store";
+import { DEFAULT_COMMISSION_RATE, matchFixedFeeRule } from "@/lib/commission";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/Tabs";
 import { Badge, ProviderStatusBadge, ProviderPublishedBadge } from "@/components/ui/Badge";
 import { Avatar, EmptyState } from "@/components/ui/Misc";
@@ -18,6 +19,8 @@ import {
   OrganizationBranch,
   ORGANIZATION_MEMBER_TYPES,
   ProviderProfile,
+  BALANCE_COLLECTOR_LABELS,
+  isUnitProviderType,
   PROVIDER_TYPE_LABELS,
   ProviderType,
   UploadedFile,
@@ -43,6 +46,7 @@ import {
   UserRound,
   Building2,
   Percent,
+  Wallet,
   MapPin,
   Stethoscope,
   Handshake,
@@ -183,11 +187,17 @@ export function AdminProviderProfile({
   const reinstateProvider = useStore((s) => s.reinstateProvider);
   const updateProviderById = useStore((s) => s.updateProviderById);
   const setProviderCommission = useStore((s) => s.setProviderCommission);
+  const fixedFeeRules = useStore((s) => s.fixedFeeRules);
   const showToast = useStore((s) => s.showToast);
 
-  const [commission, setCommission] = useState<string>(String(provider?.commission_rate ?? 15));
+  const [commission, setCommission] = useState<string>(String(provider?.commission_rate ?? DEFAULT_COMMISSION_RATE));
 
   if (!provider) return null;
+
+  const isUnit = isUnitProviderType(provider.provider_type);
+  // A flat-fee rule, if one covers this provider — it silently overrides the
+  // percentage above, so ops has to see it on the same card.
+  const fixedRule = matchFixedFeeRule(fixedFeeRules, provider, undefined);
 
   const user = users.find((u) => u.id === provider.user_id);
   const parentOrg = provider.parent_organization_id
@@ -252,7 +262,7 @@ export function AdminProviderProfile({
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={commission === String(provider.commission_rate ?? 15) || commission === ""}
+                  disabled={commission === String(provider.commission_rate ?? DEFAULT_COMMISSION_RATE) || commission === ""}
                   onClick={() => {
                     const rate = Math.max(0, Math.min(100, Number(commission) || 0));
                     setProviderCommission(provider.id, rate);
@@ -263,7 +273,31 @@ export function AdminProviderProfile({
                   עדכן
                 </Button>
               </div>
+              {/* The single sentence that stops "where do I set the deposit?"
+                  (payments meeting §8) — plus the flat rule when one applies. */}
+              <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
+                המקדמה שהמטופל משלם בקביעת התור נגזרת מהעמלה הזו — אין שדה מקדמה נפרד.
+                {fixedRule && (
+                  <span className="mt-0.5 block text-amber-700">
+                    כלל עמלת פיקס גובר על האחוז: {fixedRule.amount} ₪ לעסקה.
+                  </span>
+                )}
+              </p>
             </div>
+
+            {/* Who collects the balance — a unit-level policy the provider sets
+                themselves (payments meeting §5); ops needs to see it here when
+                a settlement question comes in. */}
+            {isUnit && (
+              <div className="border-t border-slate-100 pt-3">
+                <p className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-slate-500">
+                  <Wallet className="h-3.5 w-3.5" /> גביית היתרה
+                </p>
+                <Badge tone={provider.balance_collector === "unit" ? "accent" : "blue"}>
+                  {BALANCE_COLLECTOR_LABELS[provider.balance_collector ?? "healson"]}
+                </Badge>
+              </div>
+            )}
           </div>
 
           {/* Contextual lifecycle actions */}

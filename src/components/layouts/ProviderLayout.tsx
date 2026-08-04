@@ -8,6 +8,7 @@ import {
   Users,
   CalendarDays,
   UserRound,
+  Inbox,
   LogOut,
   Home,
   ChevronDown,
@@ -33,8 +34,13 @@ import { getProfileSections } from "@/components/provider/profile-sections";
 // people in it. Standalone "הזמנות" and "הפניות" boards were removed — orders
 // are settled in the profile's payments/reports screens, and lab referrals are
 // read in the patient's own chart, where the clinical context lives.
+// "בקשות" is the one exception to that narrowness: a booking that arrives with
+// a referral waits for the unit to approve it (payments meeting §7) and holds a
+// slot while it waits, so it is work with a clock on it — it gets its own queue
+// rather than living only inside the diary.
 const OPERATIONAL_NAV = [
   { href: "/provider/dashboard", label: "ראשי", icon: LayoutDashboard },
+  { href: "/provider/requests", label: "בקשות", icon: Inbox },
   { href: "/provider/patients", label: "מטופלים", icon: Users },
   { href: "/provider/appointments", label: "תורים", icon: CalendarDays },
 ];
@@ -47,6 +53,11 @@ export function ProviderLayout({ children }: { children: ReactNode }) {
   const provider = useCurrentProvider();
   const appointments = useStore((s) => s.appointments);
   const notifications = buildProviderNotifications(provider, appointments);
+  // Bookings waiting on this provider’s referral decision — surfaced as a
+  // count on the nav so the queue is never silently ignored.
+  const pendingRequestCount = provider
+    ? appointments.filter((a) => a.provider_id === provider.id && a.status === "ממתין לאישור הפניה").length
+    : 0;
 
   const status = provider?.status;
   const isPendingReview = ready && status === "pending_review";
@@ -138,6 +149,11 @@ export function ProviderLayout({ children }: { children: ReactNode }) {
               >
                 <item.icon className="h-4 w-4" />
                 {item.label}
+                {item.href === "/provider/requests" && pendingRequestCount > 0 && (
+                  <span className="rounded-full bg-danger px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+                    {pendingRequestCount}
+                  </span>
+                )}
               </Link>
             ))}
             {showProfileMenu && (

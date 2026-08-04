@@ -10,6 +10,7 @@ import { Badge, ProviderStatusBadge, ProviderPublishedBadge } from "@/components
 import { Input, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { DataTable, DataTableColumn } from "@/components/ui/DataTable";
+import { DEFAULT_COMMISSION_RATE } from "@/lib/commission";
 import { ProgressBar } from "@/components/ui/Progress";
 import { ProviderProfile, PROVIDER_TYPE_LABELS, ProviderType } from "@/types";
 import { ProviderForm, ProviderFormValues } from "@/components/admin/ProviderForm";
@@ -380,8 +381,8 @@ export default function ProvidersPage() {
               key: "commission",
               header: "עמלה",
               sortable: true,
-              sortValue: (p) => p.commission_rate ?? 15,
-              render: (p) => <span className="text-slate-700">{p.commission_rate ?? 15}%</span>,
+              sortValue: (p) => p.commission_rate ?? DEFAULT_COMMISSION_RATE,
+              render: (p) => <span className="text-slate-700">{p.commission_rate ?? DEFAULT_COMMISSION_RATE}%</span>,
             },
           ] satisfies DataTableColumn<ProviderProfile>[]
         }

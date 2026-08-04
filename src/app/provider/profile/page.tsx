@@ -37,6 +37,7 @@ const EMPTY_CLINIC_HOURS: Clinic["hours"] = {
 export default function ProviderProfileOverviewPage() {
   const currentUser = useStore((s) => s.currentUser);
   const provider = useCurrentProvider();
+  const affiliations = useStore((s) => s.affiliations);
 
   if (!provider || !currentUser) {
     return (
@@ -52,12 +53,21 @@ export default function ProviderProfileOverviewPage() {
 
   const setupConfig = getProviderSetupConfig(provider.provider_type);
   const sections = getProfileSections(setupConfig).filter((s) => s.key !== "overview");
+  const inheritsArrangements =
+    provider.clinic_locations.length === 0 &&
+    affiliations.some(
+      (a) => a.provider_id === provider.id && (a.status === "active" || a.status === "unclaimed")
+    );
 
   const isVerified = provider.status === "approved";
   const checklist: { ok: boolean; label: string }[] = [
     { ok: !!provider.license_number, label: "מספר רישיון" },
     { ok: !!provider.specialty, label: "תחום התמחות" },
-    ...(setupConfig.showAgreements ? [{ ok: provider.agreements.length > 0, label: "הסדרי ביטוח (S/K/B/H)" }] : []),
+    // A provider who works only inside units inherits their arrangements
+    // (payments meeting §5) — the line would otherwise sit unchecked forever.
+    ...(setupConfig.showAgreements && !inheritsArrangements
+      ? [{ ok: provider.agreements.length > 0, label: "הסדרי ביטוח (S/K/B/H)" }]
+      : []),
     { ok: isCatalogComplete(provider), label: setupConfig.catalogLabel },
     ...(setupConfig.locationTypes.length > 0
       ? [{ ok: isLocationsComplete(provider), label: setupConfig.locationLabelPlural }]

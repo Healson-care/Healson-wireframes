@@ -223,7 +223,7 @@ export default function ClientSearchPage() {
       duration_minutes: consultation?.duration_minutes ?? 30,
       // A referral item can't be paid for until the unit has reviewed it, so
       // it enters the patient's history in the waiting state instead.
-      status: referralFlow ? "ממתין לאישור היחידה הרפואית" : "ממתין לתשלום מקדמה",
+      status: referralFlow ? "ממתין לאישור הפניה" : "ממתין לתשלום מקדמה",
       price,
       deposit_amount: resolveDepositAmount(price, consultation),
       kupah: patient?.kupah,

@@ -32,11 +32,15 @@ export function monthGridDays(anchor: Date): Date[] {
 export const WEEKDAY_LABELS = ["א", "ב", "ג", "ד", "ה", "ו", "ש"];
 
 export const APPOINTMENT_CHIP_TONE: Record<string, string> = {
+  "ממתין לאישור הפניה": "bg-indigo-50 text-indigo-700 border-indigo-200",
+  "ממתין להתחייבות": "bg-amber-50 text-amber-700 border-amber-200",
   "ממתין לתשלום מקדמה": "bg-amber-50 text-amber-700 border-amber-200",
   "מאושר": "bg-blue-50 text-blue-700 border-blue-200",
+  "ממתין לתשלום יתרה": "bg-orange-50 text-orange-700 border-orange-200",
   "שולם במלואו": "bg-purple-50 text-purple-700 border-purple-200",
   "בוצע": "bg-emerald-50 text-emerald-700 border-emerald-200",
   "בוטל": "bg-rose-50 text-rose-700 border-rose-200 line-through",
+  "בוטל — יתרה לא שולמה": "bg-rose-50 text-rose-700 border-rose-200 line-through",
 };
 
 // ---------------------------------------------------------------------------

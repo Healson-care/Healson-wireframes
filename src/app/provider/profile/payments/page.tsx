@@ -7,7 +7,10 @@ import { StatusBadge } from "@/components/ui/Badge";
 import { EmptyState, StatCard } from "@/components/ui/Misc";
 import { BarChartSimple } from "@/components/charts/SimpleCharts";
 import { BankAccountSection } from "@/components/provider/BankAccountSection";
+import { BalanceCollectionSection } from "@/components/provider/BalanceCollectionSection";
 import { formatCurrency, buildMonthlyData } from "@/lib/utils";
+import { isUnitProvider } from "@/lib/unit-resources";
+import { DEFAULT_COMMISSION_RATE } from "@/lib/commission";
 
 export default function ProviderPaymentsPage() {
   const orders = useStore((s) => s.orders);
@@ -33,6 +36,16 @@ export default function ProviderPaymentsPage() {
                 to miss buried under the stats/transactions. */}
             <BankAccountSection provider={provider} onSave={(data) => update(data)} showToast={showToast} />
 
+            {/* Who collects the balance is a UNIT-level policy (payments
+                meeting §5) — a solo provider is always settled through
+                Healson, so the choice isn't offered there. */}
+            {isUnitProvider(provider) && (
+              <BalanceCollectionSection
+                value={provider.balance_collector ?? "healson"}
+                onChange={(balance_collector) => update({ balance_collector })}
+              />
+            )}
+
             <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3">
               <StatCard label="הכנסה ברוטו" value={formatCurrency(completedRevenue)} tone="green" />
               <StatCard label="עמלת Healson" value={formatCurrency(commissionPaid)} tone="rose" />
@@ -52,7 +65,8 @@ export default function ProviderPaymentsPage() {
               <CardHeader>
                 <CardTitle>עסקאות אחרונות</CardTitle>
                 <p className="text-sm text-slate-500">
-                  עמלת Healson הנוכחית: {provider.commission_rate ?? 15}% לעסקה · &quot;נטו לספק&quot; משלם רק על סכומים שהתקבלו בפועל
+                  עמלת Healson הנוכחית: {provider.commission_rate ?? DEFAULT_COMMISSION_RATE}% לעסקה — נקבעת על ידי Healson ואינה ניתנת
+                  לעריכה כאן · &quot;נטו לספק&quot; משלם רק על סכומים שהתקבלו בפועל
                 </p>
               </CardHeader>
               <CardContent>

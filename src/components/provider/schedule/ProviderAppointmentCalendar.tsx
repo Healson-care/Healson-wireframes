@@ -63,8 +63,14 @@ import {
   LOCATION_TYPE_LABELS,
   Patient,
   ProviderProfile,
+  isCancelledAppointment,
   isPractitionerProviderType,
 } from "@/types";
+import {
+  AppointmentPaymentPanel,
+  PaymentStateBadge,
+  ReferralReviewPanel,
+} from "@/components/provider/AppointmentReferralPanel";
 import { AppointmentTimeGrid, ApptGridColumn, DropTarget } from "./AppointmentTimeGrid";
 import { AppointmentMonthView } from "./AppointmentMonthView";
 import { FilterSelect } from "./FilterSelect";
@@ -348,7 +354,7 @@ export function ProviderAppointmentCalendar({ provider }: { provider: ProviderPr
   const contextCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const a of scoped) {
-      if (!inRange(a.date) || a.status === "בוטל") continue;
+      if (!inRange(a.date) || isCancelledAppointment(a.status)) continue;
       const laneId = laneOf(a);
       counts.set(laneId, (counts.get(laneId) ?? 0) + 1);
     }
@@ -644,7 +650,7 @@ export function ProviderAppointmentCalendar({ provider }: { provider: ProviderPr
   // A unit with no עמדות modelled yet still books against its general hours
   // (the unmodelled fallback in unit-resources) — only a missing catalog blocks.
   const canBook = provider.consultation_types.length > 0;
-  const rangeCount = blocks.filter((b) => b.status !== "בוטל").length;
+  const rangeCount = blocks.filter((b) => !isCancelledAppointment(b.status)).length;
 
   function openCreate(target?: DropTarget) {
     const fallbackDate = view === "month" ? new Date() : dates[0] ?? new Date();
@@ -1123,6 +1129,7 @@ function DetailBody({
         </div>
         <div className="flex flex-col items-end gap-1">
           <StatusBadge status={a.status} kind="appointment" />
+          <PaymentStateBadge appointment={a} />
           {laneName && laneName !== provider.display_name && <Badge tone="neutral">{laneName}</Badge>}
           {typeof a.price === "number" && (
             <span className="text-xs font-medium text-slate-600">{formatCurrency(a.price)}</span>
@@ -1137,6 +1144,12 @@ function DetailBody({
           ידי היחידה.
         </p>
       )}
+
+      {/* The referral decision and the money picture — the two things a
+          provider needs on an incoming booking (payments meeting §7). Both are
+          owner-only: a reflection of another calendar's booking is read-only. */}
+      {owned && <ReferralReviewPanel appointment={a} />}
+      {owned && <AppointmentPaymentPanel appointment={a} />}
 
       {a.notes && !editing && (
         <div className="rounded-lg border border-slate-200 px-3 py-2">
