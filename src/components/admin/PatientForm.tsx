@@ -118,10 +118,11 @@ export function PatientForm({
           />
           <Select
             label="מגדר"
+            required
             value={form.gender}
             onChange={(e) => setForm({ ...form, gender: e.target.value as Gender })}
           >
-            <option value="">לא צוין</option>
+            <option value="">בחרו מגדר</option>
             {GENDERS.map((g) => (
               <option key={g} value={g}>
                 {g}
@@ -129,7 +130,7 @@ export function PatientForm({
             ))}
           </Select>
         </div>
-        <Input label="שם הורה (קטין)" value={form.parent_name} onChange={(e) => setForm({ ...form, parent_name: e.target.value })} />
+        <Input label="שם האב" required value={form.parent_name} onChange={(e) => setForm({ ...form, parent_name: e.target.value })} />
 
         <InsuranceProfileForm
           value={insuranceValue}

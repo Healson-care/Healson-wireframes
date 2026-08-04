@@ -255,6 +255,7 @@ interface AuthState {
     data: {
       full_name: string;
       phone?: string;
+      secondary_phone?: string;
       id_number: string;
       id_document_type?: "id" | "passport";
       id_document_photo?: UploadedFile;
@@ -1044,6 +1045,7 @@ export const useStore = create<Store>()(
           full_name: data.full_name,
           email: user?.email,
           phone: data.phone,
+          secondary_phone: data.secondary_phone,
           id_number: data.id_number,
           id_document_type: data.id_document_type,
           id_document_photo: data.id_document_photo,

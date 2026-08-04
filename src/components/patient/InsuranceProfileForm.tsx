@@ -4,9 +4,20 @@ import { useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Input, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
-import { B_INSURANCE_COMPANIES, KUPOT, K_LEVELS_BY_KUPAH, Kupah, KLevel, PatientInsurance } from "@/types";
+import {
+  B_INSURANCE_COMPANIES,
+  INSURANCE_AGENTS_BY_COMPANY,
+  KUPOT,
+  K_LEVELS_BY_KUPAH,
+  Kupah,
+  KLevel,
+  PatientInsurance,
+} from "@/types";
 
 const OTHER_COMPANY = "אחר";
+const OTHER_AGENT = "אחר";
+
+const AGENTS_BY_COMPANY = INSURANCE_AGENTS_BY_COMPANY as Record<string, string[] | undefined>;
 
 export interface InsuranceProfileValue {
   // "" plays two roles: the not-yet-picked placeholder (blocked by the
@@ -54,6 +65,8 @@ export function InsuranceProfileForm({
   // "אחר" even though the underlying field is momentarily "" — keyed by row
   // index, same reasoning as the old single-insurance local flag.
   const [otherPickedRows, setOtherPickedRows] = useState<Record<number, boolean>>({});
+  // Same trick for the agent picker — "אחר" selected but nothing typed yet.
+  const [otherAgentRows, setOtherAgentRows] = useState<Record<number, boolean>>({});
 
   const hasBInsurance = value.b_insurances.length > 0;
 
@@ -67,6 +80,11 @@ export function InsuranceProfileForm({
   function removeRow(index: number) {
     onChange({ ...value, b_insurances: value.b_insurances.filter((_, i) => i !== index) });
     setOtherPickedRows((prev) => {
+      const next = { ...prev };
+      delete next[index];
+      return next;
+    });
+    setOtherAgentRows((prev) => {
       const next = { ...prev };
       delete next[index];
       return next;
@@ -120,12 +138,24 @@ export function InsuranceProfileForm({
 
       {hasBInsurance && (
         <div className="flex flex-col gap-2">
+          <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5">
+            <p className="text-xs font-semibold text-primary">למה כדאי לציין את שם הסוכן?</p>
+            <p className="mt-1 text-xs leading-relaxed text-slate-600">
+              לכל סוכן ביטוח יש הסכמים ותנאים משלו מול חברות הביטוח. כשאנחנו יודעים מי הסוכן שלכם, נוכל להציג לכם את
+              המחיר המדויק שמגיע לכם לפי הפוליסה — ולטפל בהחזר מול הסוכן ישירות, בלי שתצטרכו לרדוף אחריו.
+            </p>
+          </div>
           {value.b_insurances.map((ins, index) => {
             // "אחר" — a carrier the patient typed that isn't on the canonical
             // list (the list is `as const`, hence the widened compare).
             const isOtherCompany = ins.company
               ? !(B_INSURANCE_COMPANIES as readonly string[]).includes(ins.company)
               : otherPickedRows[index];
+            // A carrier typed as "אחר" has no agent roster of its own, so
+            // that case skips the picker and asks for the name directly.
+            const companyAgents = AGENTS_BY_COMPANY[ins.company] ?? [];
+            const agentName = ins.agent_name ?? "";
+            const isOtherAgent = agentName ? !companyAgents.includes(agentName) : otherAgentRows[index];
             return (
               <div key={index} className="rounded-lg border border-slate-200 p-3 flex flex-col gap-2">
                 <div className="flex items-start gap-2">
@@ -136,7 +166,11 @@ export function InsuranceProfileForm({
                       onChange={(e) => {
                         const next = e.target.value;
                         setOtherPickedRows((prev) => ({ ...prev, [index]: next === OTHER_COMPANY }));
-                        updateRow(index, { company: next === OTHER_COMPANY ? "" : next });
+                        // Agents are carrier-specific — keeping the old pick
+                        // would leave e.g. a מגדל agent attached to a הפניקס
+                        // policy.
+                        setOtherAgentRows((prev) => ({ ...prev, [index]: false }));
+                        updateRow(index, { company: next === OTHER_COMPANY ? "" : next, agent_name: "" });
                       }}
                       required
                     >
@@ -174,6 +208,43 @@ export function InsuranceProfileForm({
                     required
                   />
                 )}
+                {ins.company &&
+                  (companyAgents.length > 0 ? (
+                    <>
+                      <Select
+                        label="שם סוכן הביטוח (מומלץ)"
+                        value={isOtherAgent ? OTHER_AGENT : agentName}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          setOtherAgentRows((prev) => ({ ...prev, [index]: next === OTHER_AGENT }));
+                          updateRow(index, { agent_name: next === OTHER_AGENT ? "" : next });
+                        }}
+                      >
+                        <option value="">לא ידוע / אין סוכן</option>
+                        {companyAgents.map((a) => (
+                          <option key={a} value={a}>
+                            {a}
+                          </option>
+                        ))}
+                        <option value={OTHER_AGENT}>אחר</option>
+                      </Select>
+                      {isOtherAgent && (
+                        <Input
+                          label="שם הסוכן"
+                          placeholder="הזינו את שם סוכן הביטוח"
+                          value={agentName}
+                          onChange={(e) => updateRow(index, { agent_name: e.target.value })}
+                        />
+                      )}
+                    </>
+                  ) : (
+                    <Input
+                      label="שם סוכן הביטוח (מומלץ)"
+                      placeholder="הזינו את שם סוכן הביטוח"
+                      value={agentName}
+                      onChange={(e) => updateRow(index, { agent_name: e.target.value })}
+                    />
+                  ))}
               </div>
             );
           })}
@@ -192,10 +263,11 @@ export function InsuranceProfileForm({
       {showAddress && (
         <>
           <Input
-            label="כתובת (אופציונלי)"
+            label="כתובת"
             placeholder="רחוב, מספר, עיר"
             value={value.address}
             onChange={(e) => onChange({ ...value, address: e.target.value })}
+            required
           />
           <p className="text-xs text-slate-400 -mt-2">לצורך שליחת תוצאות בדיקות ומול חברות הביטוח</p>
         </>

@@ -168,6 +168,7 @@ export default function ClientLoginPage() {
   const [dateOfBirth, setDateOfBirth] = useState("");
   const [gender, setGender] = useState<Gender | "">("");
   const [phone, setPhone] = useState("");
+  const [secondaryPhone, setSecondaryPhone] = useState("");
   const [parentName, setParentName] = useState("");
   const [insurance, setInsurance] = useState<InsuranceProfileValue>(EMPTY_INSURANCE_PROFILE);
   // Collected as two short fields instead of one free-text "address" box —
@@ -191,7 +192,6 @@ export default function ClientLoginPage() {
     : undefined;
   const phoneForOtpDisplay = mode === "new" ? phone : loginPatientPhone;
   const dobAge = calcAge(dateOfBirth);
-  const isMinor = dobAge !== null && dobAge < 18;
 
   // Live per-field validation for the credentials + personal-details steps —
   // computed on every keystroke (not just on submit) so the user sees what's
@@ -215,6 +215,15 @@ export default function ClientLoginPage() {
     : undefined;
   const dobError = !dateOfBirth ? undefined : dobAge === null || dobAge > 120 ? "תאריך לידה לא תקין" : undefined;
   const phoneError = phone && !isValidIsraeliPhone(phone) ? "מספר טלפון לא תקין" : undefined;
+  // Optional field, so an empty value is fine — but a typed one still has to
+  // be a real number, and can't just repeat the one already verified.
+  const secondaryPhoneError = !secondaryPhone
+    ? undefined
+    : !isValidIsraeliPhone(secondaryPhone)
+    ? "מספר טלפון לא תקין"
+    : secondaryPhone === phone
+    ? "מספר הטלפון הנוסף זהה למספר הראשי"
+    : undefined;
 
   function switchMode(next: Mode) {
     setMode(next);
@@ -345,6 +354,10 @@ export default function ClientLoginPage() {
   function handleProfileSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    if (!gender) {
+      setError("יש לבחור מגדר");
+      return;
+    }
     if (!idNumberTrimmed || idNumberError) {
       setError(idNumberError ?? `יש להזין ${documentType === "id" ? "מספר תעודת זהות" : "מספר דרכון"}`);
       return;
@@ -357,8 +370,16 @@ export default function ClientLoginPage() {
       setError(dobError ?? "יש להזין תאריך לידה");
       return;
     }
-    if (isMinor && !parentName.trim()) {
-      setError("יש להזין את שם ההורה עבור מטופל קטין");
+    if (!parentName.trim()) {
+      setError("יש להזין את שם האב");
+      return;
+    }
+    if (secondaryPhoneError) {
+      setError(secondaryPhoneError);
+      return;
+    }
+    if (!addressCity || !addressStreet) {
+      setError("יש לבחור עיר ורחוב");
       return;
     }
     setInsurance((prev) => ({
@@ -408,12 +429,13 @@ export default function ClientLoginPage() {
       {
         full_name: fullName,
         phone,
+        secondary_phone: secondaryPhone.trim() || undefined,
         id_number: idNumber.trim(),
         id_document_type: documentType,
         id_document_photo: photo,
         date_of_birth: dateOfBirth,
         gender: gender || undefined,
-        parent_name: isMinor ? parentName.trim() || undefined : undefined,
+        parent_name: parentName.trim() || undefined,
         kupah: insurance.kupah || undefined,
         k_level: insurance.k_level || undefined,
         b_insurances: insurance.b_insurances.length > 0 ? insurance.b_insurances : undefined,
@@ -740,7 +762,10 @@ export default function ClientLoginPage() {
           <Input label="שם מלא" icon={<UserIcon className="h-4 w-4" />} value={fullName} onChange={(e) => setFullName(e.target.value)} required />
 
           <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-slate-500">מגדר</span>
+            <span className="text-xs font-medium text-slate-500">
+              מגדר
+              <span aria-hidden className="text-danger">{" *"}</span>
+            </span>
             {GENDERS.map((g) => (
               <button
                 key={g}
@@ -835,25 +860,37 @@ export default function ClientLoginPage() {
             error={dobError}
             required
           />
-          {isMinor && (
-            <Input
-              label="שם ההורה"
-              icon={<UserIcon className="h-4 w-4" />}
-              value={parentName}
-              onChange={(e) => setParentName(e.target.value)}
-              required
-            />
-          )}
+          <Input
+            label="שם האב"
+            icon={<UserIcon className="h-4 w-4" />}
+            value={parentName}
+            onChange={(e) => setParentName(e.target.value)}
+            required
+          />
+          {/* The primary phone is already verified by this step (see the
+              otp-sms phase), so this one is purely a fallback contact — it
+              never receives an OTP and therefore isn't verified either. */}
+          <Input
+            label="מספר טלפון נוסף (אופציונלי)"
+            type="tel"
+            icon={<Phone className="h-4 w-4" />}
+            placeholder="למשל בן/בת זוג, הורה או טלפון בעבודה"
+            value={secondaryPhone}
+            onChange={(e) => setSecondaryPhone(e.target.value)}
+            error={secondaryPhoneError}
+            hint={phone ? `המספר הראשי שאומת: ${phone}` : undefined}
+          />
           <div className="grid grid-cols-2 gap-2">
             <Select
-              label="עיר (אופציונלי)"
+              label="עיר"
+              required
               value={addressCity}
               onChange={(e) => {
                 setAddressCity(e.target.value);
                 setAddressStreet("");
               }}
             >
-              <option value="">לא צוין</option>
+              <option value="">בחרו עיר</option>
               {CITIES.map((c) => (
                 <option key={c} value={c}>
                   {c}
@@ -861,7 +898,8 @@ export default function ClientLoginPage() {
               ))}
             </Select>
             <Select
-              label="רחוב ומספר (אופציונלי)"
+              label="רחוב ומספר"
+              required
               value={addressStreet}
               onChange={(e) => setAddressStreet(e.target.value)}
               disabled={!addressCity}

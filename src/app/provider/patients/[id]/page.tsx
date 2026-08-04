@@ -160,7 +160,7 @@ export default function ProviderPatientChartPage() {
                 value={patient.b_insurances?.length ? patient.b_insurances.map((ins) => ins.company || "כן").join(", ") : "אין"}
               />
               <InfoRow label="כתובת" value={patient.address || "—"} />
-              {patient.parent_name && <InfoRow label="שם הורה/אפוטרופוס" value={patient.parent_name} />}
+              {patient.parent_name && <InfoRow label="שם האב" value={patient.parent_name} />}
             </CardContent>
           </Card>
 

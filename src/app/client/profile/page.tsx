@@ -262,7 +262,13 @@ export default function ClientProfilePage() {
 
   // Email/phone are no longer part of this batch form — each is edited and
   // saved independently by its own EditableContactRow (see above).
-  const [form, setForm] = useState<{ gender: Gender | "" }>({ gender: "" });
+  // secondary_phone lives here and not in the "פרטי קשר" card above on
+  // purpose — it never receives an OTP, so it doesn't need (or deserve) the
+  // per-field re-auth those rows enforce.
+  const [form, setForm] = useState<{ gender: Gender | ""; secondary_phone: string }>({
+    gender: "",
+    secondary_phone: "",
+  });
   const [preferences, setPreferences] = useState<{
     communication_language: CommunicationLanguage;
     notification_channel: NotificationChannel;
@@ -281,7 +287,7 @@ export default function ClientProfilePage() {
   if (loadKey && loadKey !== loadedFor) {
     setLoadedFor(loadKey);
     if (patient) {
-      setForm({ gender: patient.gender ?? "" });
+      setForm({ gender: patient.gender ?? "", secondary_phone: patient.secondary_phone ?? "" });
       setPreferences({
         communication_language: patient.communication_language ?? "he",
         notification_channel: patient.notification_channel ?? "email",
@@ -298,6 +304,16 @@ export default function ClientProfilePage() {
     }
   }
 
+  // Empty is fine (the field is optional), but a typed number still has to be
+  // valid and distinct from the verified one in "פרטי קשר".
+  const secondaryPhoneError = !form.secondary_phone
+    ? undefined
+    : !isValidIsraeliPhone(form.secondary_phone)
+    ? "מספר טלפון לא תקין"
+    : form.secondary_phone === patient?.phone
+    ? "מספר הטלפון הנוסף זהה למספר הראשי"
+    : undefined;
+
   const pendingRectification = patient
     ? dsrRequests.find(
         (r) => r.patient_id === patient.id && r.type === "rectification" && OPEN_DSR_STATUSES.includes(r.status)
@@ -308,8 +324,13 @@ export default function ClientProfilePage() {
     e.preventDefault();
     setError("");
     if (!patient) return;
+    if (secondaryPhoneError) {
+      setError(secondaryPhoneError);
+      return;
+    }
     updatePatient(patient.id, {
       gender: form.gender || undefined,
+      secondary_phone: form.secondary_phone.trim() || undefined,
       communication_language: preferences.communication_language,
       notification_channel: preferences.notification_channel,
       address: [addressStreet.trim(), addressCity.trim()].filter(Boolean).join(", ") || undefined,
@@ -382,7 +403,7 @@ export default function ClientProfilePage() {
                   label="תאריך לידה"
                   value={patient?.date_of_birth ? formatDateHe(patient.date_of_birth) : ""}
                 />
-                <LockedField label="שם הורה (אם המטופל קטין)" value={patient?.parent_name ?? ""} />
+                <LockedField label="שם האב" value={patient?.parent_name ?? ""} />
                 <Button
                   type="button"
                   variant="outline"
@@ -432,6 +453,15 @@ export default function ClientProfilePage() {
                     </option>
                   ))}
                 </Select>
+                <Input
+                  label="מספר טלפון נוסף (אופציונלי)"
+                  type="tel"
+                  placeholder="למשל בן/בת זוג, הורה או טלפון בעבודה"
+                  value={form.secondary_phone}
+                  onChange={(e) => setForm({ ...form, secondary_phone: e.target.value })}
+                  error={secondaryPhoneError}
+                  hint="מספר לגיבוי בלבד — קודי אימות תמיד נשלחים למספר הראשי"
+                />
                 <div className="grid grid-cols-2 gap-2">
                   <Select
                     label="עיר (אופציונלי)"
@@ -703,7 +733,7 @@ const RECTIFY_FIELD_LABELS: Record<"full_name" | "id_number" | "date_of_birth" |
   full_name: "שם מלא",
   id_number: "תעודת זהות / דרכון",
   date_of_birth: "תאריך לידה",
-  parent_name: "שם הורה",
+  parent_name: "שם האב",
 };
 
 type RectifyPhase = "form" | "password" | "otp";
@@ -862,7 +892,7 @@ function RectifyDetailsDialog({
             onChange={(e) => setValues({ ...values, date_of_birth: e.target.value })}
           />
           <Input
-            label="שם הורה (אם המטופל קטין)"
+            label="שם האב"
             value={values.parent_name}
             onChange={(e) => setValues({ ...values, parent_name: e.target.value })}
           />
