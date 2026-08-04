@@ -16,10 +16,13 @@ import {
   ConsultationType,
   DEFAULT_SLOT_MINUTES,
   DayKey,
-  LOCATION_TYPE_LABELS,
+  BRANCH_TYPE_LABELS,
   ScheduleBreak,
   ScheduleException,
   ScheduleShift,
+  SHIFT_RECURRENCES,
+  SHIFT_RECURRENCE_LABELS,
+  ShiftRecurrence,
   SLOT_MINUTE_OPTIONS,
   WeeklySchedule,
 } from "@/types";
@@ -177,7 +180,7 @@ function WeeklyEditor({
           key={selected.id}
           holder={selected}
           title={selected.name}
-          subtitle={LOCATION_TYPE_LABELS[selected.location_type ?? "clinic"]}
+          subtitle={BRANCH_TYPE_LABELS[selected.location_type ?? "clinic"]}
           services={services.filter(
             (s) => (s.linked_clinic_ids?.length ?? 0) === 0 || s.linked_clinic_ids!.includes(selected.id)
           )}
@@ -620,8 +623,18 @@ function ShiftChip({
         <span className="flex items-center gap-1.5 text-xs font-medium text-slate-800">
           <span dir="ltr">{formatShift(shift)}</span>
           {shift.label && <span className="text-slate-400">· {shift.label}</span>}
+          {shift.recurrence === "temporary" && (
+            <span className="rounded-full bg-warning-bg px-1.5 py-px text-[9px] font-semibold text-warning-text">
+              זמנית
+            </span>
+          )}
         </span>
         <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-slate-500">
+          {shift.recurrence === "temporary" && (shift.valid_from || shift.valid_until) && (
+            <span dir="ltr">
+              {shift.valid_from} → {shift.valid_until}
+            </span>
+          )}
           <span>{slotCount} תורים</span>
           <span>· כל {shift.slot_minutes || DEFAULT_SLOT_MINUTES} דק׳</span>
           {(shift.breaks?.length ?? 0) > 0 && (
@@ -724,6 +737,9 @@ export function ShiftForm({
   const [breaks, setBreaks] = useState<ScheduleBreak[]>(initial.breaks ?? []);
   const [serviceIds, setServiceIds] = useState<string[]>(initial.service_ids ?? []);
   const [allServices, setAllServices] = useState((initial.service_ids ?? []).length === 0);
+  const [recurrence, setRecurrence] = useState<ShiftRecurrence>(initial.recurrence ?? "permanent");
+  const [validFrom, setValidFrom] = useState(initial.valid_from ?? "");
+  const [validUntil, setValidUntil] = useState(initial.valid_until ?? "");
 
   const preview: ScheduleShift = {
     ...initial,
@@ -733,9 +749,61 @@ export function ShiftForm({
     breaks,
   };
   const slotCount = slotTimesForShift(preview).length;
+  const temporaryIncomplete = recurrence === "temporary" && (!validFrom || !validUntil);
 
   return (
     <div className="flex flex-col gap-3">
+      {/* Permanent vs. temporary — a standing week, or hours that expire on
+          their own (a locum, a month of extra evenings). Same weekly grid
+          either way; a temporary shift simply stops producing slots after its
+          window (see isShiftActiveOn). */}
+      <div className="flex flex-col gap-1.5">
+        <span className="text-sm font-medium text-slate-700">סוג המשמרת</span>
+        <div className="flex gap-2">
+          {SHIFT_RECURRENCES.map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => setRecurrence(option)}
+              aria-pressed={recurrence === option}
+              className={cn(
+                "flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
+                recurrence === option
+                  ? "border-primary bg-primary/5 text-primary"
+                  : "border-slate-200 text-slate-600 hover:border-slate-300"
+              )}
+            >
+              {SHIFT_RECURRENCE_LABELS[option]}
+            </button>
+          ))}
+        </div>
+        <p className="text-[11px] leading-relaxed text-slate-500">
+          {recurrence === "permanent"
+            ? "חוזרת כל שבוע עד שתוסר."
+            : "פעילה רק בין התאריכים שתגדירו, ואחריהם נעלמת מהלו״ז לבד."}
+        </p>
+      </div>
+
+      {recurrence === "temporary" && (
+        <div className="grid gap-3 rounded-lg border border-slate-200 p-3 sm:grid-cols-2">
+          <Input
+            type="date"
+            label="מתאריך"
+            value={validFrom}
+            onChange={(e) => setValidFrom(e.target.value)}
+            required
+          />
+          <Input
+            type="date"
+            label="עד תאריך"
+            value={validUntil}
+            onChange={(e) => setValidUntil(e.target.value)}
+            error={validFrom && validUntil && validUntil < validFrom ? "תאריך הסיום מוקדם מההתחלה" : undefined}
+            required
+          />
+        </div>
+      )}
+
       <div className="grid gap-3 sm:grid-cols-2">
         <Input type="time" label="שעת התחלה" value={start} onChange={(e) => setStart(e.target.value)} />
         <Input type="time" label="שעת סיום" value={end} onChange={(e) => setEnd(e.target.value)} />
@@ -880,6 +948,8 @@ export function ShiftForm({
       </p>
 
       <Button
+        disabled={temporaryIncomplete}
+        title={temporaryIncomplete ? "יש להגדיר תאריך התחלה וסיום למשמרת זמנית" : undefined}
         onClick={() =>
           onSave({
             ...initial,
@@ -889,6 +959,9 @@ export function ShiftForm({
             slot_minutes: slotMinutes,
             breaks,
             service_ids: allServices ? [] : serviceIds,
+            recurrence,
+            valid_from: recurrence === "temporary" ? validFrom : undefined,
+            valid_until: recurrence === "temporary" ? validUntil : undefined,
           })
         }
       >

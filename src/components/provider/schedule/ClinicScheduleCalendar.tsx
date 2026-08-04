@@ -14,7 +14,7 @@ import {
   Clinic,
   ConsultationType,
   DayKey,
-  LOCATION_TYPE_LABELS,
+  BRANCH_TYPE_LABELS,
   ScheduleShift,
   WeeklySchedule,
 } from "@/types";
@@ -82,7 +82,7 @@ export function ClinicScheduleCalendar({
         id: c.id,
         kind: "doctor",
         name: c.name,
-        subtitle: LOCATION_TYPE_LABELS[c.location_type ?? "clinic"],
+        subtitle: BRANCH_TYPE_LABELS[c.location_type ?? "clinic"],
         service_ids: services
           .filter((s) => (s.linked_clinic_ids?.length ?? 0) === 0 || s.linked_clinic_ids!.includes(c.id))
           .map((s) => s.id),

@@ -10,6 +10,7 @@ import { Dialog } from "@/components/ui/Dialog";
 import { ProgressRing } from "@/components/ui/Progress";
 import { AgreementSignSection } from "@/components/provider/AgreementSignSection";
 import { ProfilePhotoField } from "@/components/provider/ProfilePhotoField";
+import { SurgicalPrivilegesSection } from "@/components/provider/SurgicalPrivilegesSection";
 import { DemoPanel } from "@/components/provider/DemoPanel";
 import { cn } from "@/lib/utils";
 import type { ProviderProfile } from "@/types";
@@ -22,6 +23,9 @@ import {
   isLocationsComplete,
   isAvailabilityComplete,
   isAffiliatedDoctorsComplete,
+  isSurgicalPrivilegesComplete,
+  needsSurgicalPrivileges,
+  requiresPlatformAgreement,
 } from "@/lib/provider-setup";
 
 interface Step {
@@ -33,6 +37,8 @@ interface Step {
   sign?: boolean;
   /** The profile-photo step also opens a dialog (upload happens in place). */
   photo?: boolean;
+  /** Surgical privileges — also an in-place dialog. */
+  surgical?: boolean;
   /** Recommended but never blocks the go-live request, and doesn't count
    * toward the completion percent. */
   optional?: boolean;
@@ -61,6 +67,7 @@ export function OnboardingProgress({ provider, className }: { provider: Provider
   const affiliations = useStore((s) => s.affiliations);
   const [signDialogOpen, setSignDialogOpen] = useState(false);
   const [photoDialogOpen, setPhotoDialogOpen] = useState(false);
+  const [surgicalDialogOpen, setSurgicalDialogOpen] = useState(false);
 
   const setupConfig = getProviderSetupConfig(provider.provider_type);
   const unitPath = isUnitPath(provider);
@@ -76,7 +83,18 @@ export function OnboardingProgress({ provider, className }: { provider: Provider
   const unitBranchIds = new Set(unitBranches.map((b) => b.id));
   const unitArrays = serviceArrays.filter((a) => unitBranchIds.has(a.branch_id));
   const steps: Step[] = [
-    { key: "sign", ok: !!provider.agreement_signed_at, label: "חתימת הסכם", sign: true },
+    // Where a surgeon may operate — moved out of registration into הקמה, since
+    // it only matters once Healson has verified they are a licensed surgeon.
+    ...(needsSurgicalPrivileges(provider)
+      ? [
+          {
+            key: "surgical",
+            ok: isSurgicalPrivilegesComplete(provider),
+            label: "הרשאות ניתוח",
+            surgical: true,
+          },
+        ]
+      : []),
     ...(setupConfig.showAgreements && !inheritsArrangements
       ? [{ key: "agreements", ok: provider.agreements.length > 0, label: "הסדרי ביטוח", href: "/provider/profile/agreements" }]
       : []),
@@ -112,6 +130,12 @@ export function OnboardingProgress({ provider, className }: { provider: Provider
         ]
       : []),
     { key: "photo", ok: !!provider.image_url, label: "תמונת פרופיל · מומלץ", photo: true, optional: true },
+    // The agreement closes the setup, it doesn't open it — a provider signs
+    // once their catalog, prices, branches and hours actually exist. A medical
+    // unit signs nothing here at all: its contract is closed off-platform.
+    ...(requiresPlatformAgreement(provider)
+      ? [{ key: "sign", ok: !!provider.agreement_signed_at, label: "חתימת הסכם", sign: true }]
+      : []),
   ];
   const requiredSteps = steps.filter((s) => !s.optional);
   const percent = Math.round((requiredSteps.filter((s) => s.ok).length / requiredSteps.length) * 100);
@@ -126,6 +150,8 @@ export function OnboardingProgress({ provider, className }: { provider: Provider
 
   const cta: { label: string; href?: string; onClick?: () => void } | null = firstIncomplete?.sign
     ? { label: "חתימה על ההסכם", onClick: () => setSignDialogOpen(true) }
+    : firstIncomplete?.surgical
+    ? { label: "הגדרת הרשאות ניתוח", onClick: () => setSurgicalDialogOpen(true) }
     : firstIncomplete
     ? { label: `המשך: ${firstIncomplete.label}`, href: firstIncomplete.href }
     : goLiveRequested
@@ -199,12 +225,18 @@ export function OnboardingProgress({ provider, className }: { provider: Provider
                   {step.label}
                 </>
               );
-              if (step.sign || step.photo) {
+              if (step.sign || step.photo || step.surgical) {
                 return (
                   <button
                     key={step.key}
                     type="button"
-                    onClick={() => (step.sign ? setSignDialogOpen(true) : setPhotoDialogOpen(true))}
+                    onClick={() =>
+                      step.sign
+                        ? setSignDialogOpen(true)
+                        : step.surgical
+                        ? setSurgicalDialogOpen(true)
+                        : setPhotoDialogOpen(true)
+                    }
                     className={chipClass}
                   >
                     {inner}
@@ -261,6 +293,22 @@ export function OnboardingProgress({ provider, className }: { provider: Provider
             </Button>
           )}
         </div>
+      </Dialog>
+
+      <Dialog
+        open={surgicalDialogOpen}
+        onClose={() => setSurgicalDialogOpen(false)}
+        title="הרשאות ניתוח"
+        className="max-w-lg"
+      >
+        <SurgicalPrivilegesSection
+          provider={provider}
+          onSave={(data) => {
+            updateProviderById(provider.id, data);
+            showToast("הרשאות הניתוח נשמרו", { variant: "success" });
+          }}
+          onDone={() => setSurgicalDialogOpen(false)}
+        />
       </Dialog>
 
       <Dialog open={signDialogOpen} onClose={() => setSignDialogOpen(false)} title="חתימה על ההסכם עם Healson">

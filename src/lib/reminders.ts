@@ -32,8 +32,8 @@ export const EXAMPLE_REMINDER_APPOINTMENT: ReminderAppointment = {
   client_name: "דנה כהן",
   date: new Date().toISOString().slice(0, 10),
   time: "10:00",
-  service_name: "ייעוץ אורתופדי",
-  provider_name: 'ד"ר לוי',
+  service_name: "ייעוץ וחוות דעת",
+  provider_name: 'ד"ר אשכנזי',
 };
 
 export function renderReminderTemplate(template: string, appointment: ReminderAppointment): string {

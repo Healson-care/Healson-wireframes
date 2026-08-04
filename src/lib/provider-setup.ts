@@ -5,6 +5,7 @@
 // doesn't need 11 hand-built screens.
 import { LocationType, ProviderProfile, ProviderType } from "@/types";
 import { hasAnyAvailability } from "./schedule";
+import { isUnitPath } from "./provider-phases";
 import { getUnitResources, isUnitProvider } from "./unit-resources";
 
 export interface ProviderTypeSetupConfig {
@@ -45,6 +46,10 @@ const DURATION_FIELD = {
 };
 
 export const PROVIDER_SETUP_CONFIG: Record<ProviderType, ProviderTypeSetupConfig> = {
+  // An individual provider works out of BRANCHES (סניפים), not "מרפאות": the
+  // same doctor may sit in a private clinic, visit patients at home and hold
+  // online consultations — three branches of one practice, one of which has no
+  // address at all.
   doctor: {
     ...DURATION_FIELD,
     catalogLabel: "פריטים",
@@ -52,9 +57,9 @@ export const PROVIDER_SETUP_CONFIG: Record<ProviderType, ProviderTypeSetupConfig
     useSkillTreeCatalog: true,
     showExamsCatalog: false,
     showAgreements: true,
-    locationTypes: ["clinic", "home_visit"],
-    locationLabelSingular: "מרפאה",
-    locationLabelPlural: "מרפאות",
+    locationTypes: ["clinic", "home_visit", "virtual"],
+    locationLabelSingular: "סניף",
+    locationLabelPlural: "סניפים",
     showAvailability: true,
   },
   caregiver: {
@@ -64,9 +69,9 @@ export const PROVIDER_SETUP_CONFIG: Record<ProviderType, ProviderTypeSetupConfig
     useSkillTreeCatalog: true,
     showExamsCatalog: false,
     showAgreements: true,
-    locationTypes: ["clinic", "home_visit"],
-    locationLabelSingular: "מיקום טיפול",
-    locationLabelPlural: "מיקומי טיפול",
+    locationTypes: ["clinic", "home_visit", "virtual"],
+    locationLabelSingular: "סניף",
+    locationLabelPlural: "סניפים",
     showAvailability: true,
   },
   lab: {
@@ -210,6 +215,24 @@ export function isFacilitiesComplete(provider: ProviderProfile): boolean {
   return (provider.facilities?.length ?? 0) > 0;
 }
 
+/** Surgical privileges are a הקמה matter, not a registration one: they are
+ * about WHERE this surgeon may operate, which is only worth collecting once
+ * Healson has verified they are a licensed surgeon at all. */
+export function needsSurgicalPrivileges(provider: ProviderProfile): boolean {
+  return provider.provider_type === "doctor" && provider.doctor_subtype === "surgeon";
+}
+
+export function isSurgicalPrivilegesComplete(provider: ProviderProfile): boolean {
+  return !needsSurgicalPrivileges(provider) || !!provider.surgical_privileges_hospital;
+}
+
+/** Whether this provider signs an agreement inside the platform at all.
+ * A medical unit does not: its contract with Healson is closed off-platform
+ * before Ops opens the account, so no signing step is ever shown to it. */
+export function requiresPlatformAgreement(provider: ProviderProfile): boolean {
+  return !isUnitPath(provider);
+}
+
 export function isSetupReadyToPublish(provider: ProviderProfile): boolean {
   const config = getProviderSetupConfig(provider.provider_type);
   if (!isCatalogComplete(provider)) return false;
@@ -222,15 +245,23 @@ export function isSetupReadyToPublish(provider: ProviderProfile): boolean {
 // checklist shown on /provider/onboarding — used to auto-select that tab.
 // Kept provider-null-safe so callers can run it unconditionally (e.g. in a
 // hook that must fire on every render, before any early return).
+// Signing comes LAST, deliberately: the agreement is what a provider commits to
+// after their catalog, prices, locations and hours exist — not a form to sign
+// blind on day one.
 export function getFirstIncompleteStepKey(provider: ProviderProfile): string | undefined {
   const config = getProviderSetupConfig(provider.provider_type);
   const steps: { done: boolean; key: string }[] = [
-    { done: !!provider.agreement_signed_at, key: "sign" },
+    ...(needsSurgicalPrivileges(provider)
+      ? [{ done: isSurgicalPrivilegesComplete(provider), key: "surgical" }]
+      : []),
     ...(config.showAgreements ? [{ done: provider.agreements.length > 0, key: "agreements" }] : []),
     { done: isCatalogComplete(provider), key: "catalog" },
     ...(config.locationTypes.length > 0 ? [{ done: isLocationsComplete(provider), key: "locations" }] : []),
     ...(config.showAvailability ? [{ done: isAvailabilityComplete(provider), key: "availability" }] : []),
     ...(config.showAffiliatedDoctors ? [{ done: isAffiliatedDoctorsComplete(provider), key: "doctors" }] : []),
+    ...(requiresPlatformAgreement(provider)
+      ? [{ done: !!provider.agreement_signed_at, key: "sign" }]
+      : []),
   ];
   return steps.find((s) => !s.done)?.key;
 }
@@ -256,7 +287,9 @@ export function getNextProviderAction(
   }
 
   if (provider.status === "onboarding") {
-    if (!provider.agreement_signed_at) return "יש לחתום על ההסכם עם Healson כדי להמשיך.";
+    if (!isSurgicalPrivilegesComplete(provider)) {
+      return "השלימו את הרשאות הניתוח — באיזה בית חולים או מרכז ניתוחים תבצעו את הניתוחים.";
+    }
     if (
       config.showAgreements &&
       !opts.inheritsArrangements &&
@@ -282,6 +315,10 @@ export function getNextProviderAction(
     }
     if (config.showAffiliatedDoctors && !isAffiliatedDoctorsComplete(provider)) {
       return "הוסיפו את נותני השירות המשויכים ושייכו אותם לפריטי הייעוץ שלכם.";
+    }
+    // Last, once there is something concrete to agree to.
+    if (requiresPlatformAgreement(provider) && !provider.agreement_signed_at) {
+      return "נותר רק לחתום על ההסכם מול Healson — זה השלב האחרון לפני הפרסום.";
     }
     if (provider.go_live_requested_at) {
       return "ביקשת פרסום — ממתינים לאישור Go-Live סופי של צוות Healson.";

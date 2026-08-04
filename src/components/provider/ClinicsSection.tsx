@@ -8,7 +8,7 @@ import { Input, Select } from "@/components/ui/Input";
 import { EmptyState } from "@/components/ui/Misc";
 import { Badge } from "@/components/ui/Badge";
 import { generateId } from "@/lib/utils";
-import { Clinic, ConsultationType, LocationType, LOCATION_TYPE_LABELS } from "@/types";
+import { Clinic, ConsultationType, LocationType, BRANCH_TYPE_LABELS } from "@/types";
 import { Plus, Pencil, Trash2, Star, MapPin, Stethoscope, MapPinned, TriangleAlert } from "lucide-react";
 
 const PHYSICAL_LOCATION_TYPES: LocationType[] = ["clinic", "store"];
@@ -194,7 +194,7 @@ export function ClinicsSection({
                         c.is_primary && <Badge tone="green">{locationLabelSingular} ראשית</Badge>
                       )}
                       {allowedLocationTypes.length > 1 && (
-                        <Badge tone="slate">{LOCATION_TYPE_LABELS[c.location_type ?? "clinic"]}</Badge>
+                        <Badge tone="slate">{BRANCH_TYPE_LABELS[c.location_type ?? "clinic"]}</Badge>
                       )}
                     </div>
                     {(c.address || c.city) && (
@@ -259,14 +259,14 @@ export function ClinicsSection({
           <div className="grid sm:grid-cols-2 gap-3">
             {allowedLocationTypes.length > 1 && (
               <Select
-                label="סוג המיקום"
+                label={`סוג ה${locationLabelSingular}`}
                 value={locationType}
                 onChange={(e) => setLocationType(e.target.value as LocationType)}
                 className="sm:col-span-2"
               >
                 {allowedLocationTypes.map((t) => (
                   <option key={t} value={t}>
-                    {LOCATION_TYPE_LABELS[t]}
+                    {BRANCH_TYPE_LABELS[t]}
                   </option>
                 ))}
               </Select>
@@ -291,7 +291,7 @@ export function ClinicsSection({
           )}
           {!isPhysical && (
             <p className="text-xs text-slate-500">
-              עבור {LOCATION_TYPE_LABELS[locationType].toLowerCase()} אין צורך בכתובת פיזית.
+              עבור {BRANCH_TYPE_LABELS[locationType].toLowerCase()} אין צורך בכתובת פיזית.
             </p>
           )}
 
