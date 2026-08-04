@@ -24,8 +24,18 @@ export function SlotPicker({
   onJoinWaitlist,
   onClinicChange,
   serviceId,
+  performerName,
+  clinicPricing,
 }: {
   provider: ProviderProfile;
+  /** Who the patient will actually see, when that isn't the provider record. */
+  performerName?: string;
+  /**
+   * The funding route per clinic id. An agreement can cover only some of a
+   * provider's branches, so choosing a location IS choosing a price — this
+   * screen has to say so rather than let her discover it at payment.
+   */
+  clinicPricing?: Record<string, { amount?: string; note?: string }>;
   appointments: Appointment[];
   onSelectSlot: (date: string, time: string, label: string, clinicId: string) => void;
   // date/time/label/clinicId are omitted for a general "any time works" request.
@@ -125,15 +135,27 @@ export function SlotPicker({
             <button
               key={clinic.id}
               onClick={() => setSelectedClinicId(clinic.id)}
-              className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-4 text-right transition-colors hover:border-primary/40 hover:bg-primary/5"
+              className="focus-ring flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-white p-4 text-right transition-colors hover:border-primary/40 hover:bg-primary/5"
             >
-              <MapPin className="h-5 w-5 shrink-0 mt-0.5 text-primary" />
-              <div>
-                <p className="font-semibold text-slate-900">{clinic.name}</p>
-                <p className="text-sm text-slate-500">
-                  {clinic.address}, {clinic.city}
-                </p>
-              </div>
+              <span className="flex min-w-0 items-start gap-3">
+                <MapPin className="h-5 w-5 shrink-0 mt-0.5 text-primary" />
+                <span className="min-w-0">
+                  <span className="block font-semibold text-slate-900">{clinic.name}</span>
+                  <span className="block text-sm text-slate-500">
+                    {clinic.address}, {clinic.city}
+                  </span>
+                </span>
+              </span>
+              {clinicPricing?.[clinic.id] && (
+                <span className="shrink-0 text-left">
+                  {clinicPricing[clinic.id].amount && (
+                    <span className="block text-sm font-bold text-slate-900">{clinicPricing[clinic.id].amount}</span>
+                  )}
+                  {clinicPricing[clinic.id].note && (
+                    <span className="block text-[11px] text-slate-500">{clinicPricing[clinic.id].note}</span>
+                  )}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -145,8 +167,11 @@ export function SlotPicker({
     <div>
       <div className="text-center mb-6">
         <h2 className="text-xl font-bold text-slate-900">בחרו תאריך ושעה</h2>
+        {/* The performer, not the owner of the catalogue: for an institute's
+            service the provider record is the institute, and naming it here
+            told the patient nothing about who she'd actually see. */}
         <p className="text-slate-500 text-sm mt-1">
-          זמינות אצל {provider.title} {provider.display_name}
+          זמינות אצל {performerName ?? `${provider.title ?? ""} ${provider.display_name}`.trim()}
         </p>
         {/* Always shown, so the chosen location is visible even when the
             service is only given at one — she shouldn't have to guess where
@@ -164,12 +189,12 @@ export function SlotPicker({
         </p>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="rounded-lg border border-slate-200 bg-white p-4">
         <div className="flex items-center justify-between mb-4">
           <Button variant="outline" onClick={() => setMonthOffset((o) => o - 1)} disabled={monthOffset === 0}>
             חודש קודם
           </Button>
-          <span className="text-sm font-semibold text-slate-800">
+          <span className="text-sm font-bold text-slate-900">
             {monthDate.toLocaleDateString("he-IL", { month: "long", year: "numeric" })}
           </span>
           <Button
@@ -242,11 +267,11 @@ export function SlotPicker({
 
       <div className="mt-5">
         {!selectedDay ? (
-          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-8 text-center text-sm text-slate-400">
+          <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 py-8 text-center text-sm text-slate-400">
             בחרו תאריך בלוח למעלה כדי לראות שעות פנויות
           </div>
         ) : selectedDay.slots.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-8 text-center text-sm text-slate-400">
+          <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 py-8 text-center text-sm text-slate-400">
             אין זמינות ביום זה — נסו לבחור תאריך אחר
           </div>
         ) : (
@@ -256,7 +281,7 @@ export function SlotPicker({
                 <button
                   key={slot.time}
                   onClick={() => setPendingSlot({ date: selectedDay.date, time: slot.time, label: dateLabel(selectedDay.date) })}
-                  className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
+                  className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
                 >
                   <span className="flex items-center gap-2">
                     <Clock className="h-4 w-4" /> {slot.time}
@@ -268,7 +293,7 @@ export function SlotPicker({
                   key={slot.time}
                   onClick={() => onJoinWaitlist(selectedDay.date, slot.time, dateLabel(selectedDay.date), selectedClinic.id)}
                   title="הצטרפות לרשימת המתנה עבור מועד זה"
-                  className="group flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-400 transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+                  className="group flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-400 transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
                 >
                   <span className="flex items-center gap-2 line-through decoration-slate-300 group-hover:no-underline">
                     <Clock className="h-4 w-4" /> {slot.time}

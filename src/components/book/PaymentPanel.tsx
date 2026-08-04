@@ -74,7 +74,7 @@ export function PaymentPanel({
         <HoldTimer expiresAt={holdExpiresAt} onExpire={onExpire} />
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm mb-4">
+      <div className="rounded-lg border border-slate-200 bg-white p-4 mb-4">
         <p className="text-xs text-slate-400 mb-2">סיכום ההזמנה</p>
         {itemName && (
           <div className="flex items-start justify-between gap-3 text-sm">
@@ -131,7 +131,7 @@ export function PaymentPanel({
           uploaded and approved by the unit — this is a receipt of that, not
           another chance to attach it. */}
       {referralRequired && referralFile && (
-        <div className="rounded-2xl border border-success-border bg-success-bg p-4 shadow-sm mb-4">
+        <div className="rounded-lg border border-success-border bg-success-bg p-4 mb-4">
           <p className="flex items-center gap-1.5 text-sm font-semibold text-success-text">
             <FileCheck2 className="h-4 w-4 shrink-0" /> ההפניה אושרה על ידי היחידה
           </p>
@@ -141,7 +141,7 @@ export function PaymentPanel({
         </div>
       )}
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm mb-4">
+      <div className="rounded-lg border border-slate-200 bg-white p-4 mb-4">
         <p className="text-xs text-slate-400 mb-2">מחיר</p>
         {basketCovered ? (
           <p className="text-sm font-medium text-emerald-700">מכוסה בסל הבריאות — לא נדרש תשלום באתר. יש להצטייד בהתחייבות (טופס 17) מהקופה.</p>
@@ -183,24 +183,24 @@ export function PaymentPanel({
         )}
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <p className="text-sm font-semibold text-slate-700 mb-3">אמצעי תשלום</p>
+      <div className="rounded-lg border border-slate-200 bg-white p-4">
+        <p className="text-sm font-bold text-slate-900 mb-3">אמצעי תשלום</p>
         <div className="grid grid-cols-3 gap-2 mb-4">
           <button
             onClick={() => onPayMethodChange("card")}
-            className={`flex flex-col items-center gap-1 rounded-xl border p-3 text-xs font-medium ${payMethod === "card" ? "border-primary bg-primary/5 text-primary" : "border-slate-200 text-slate-500"}`}
+            className={`flex flex-col items-center gap-1 rounded-lg border p-3 text-xs font-medium ${payMethod === "card" ? "border-primary bg-primary/5 text-primary" : "border-slate-200 text-slate-500"}`}
           >
             <CreditCard className="h-4 w-4" /> כרטיס אשראי
           </button>
           <button
             onClick={() => onPayMethodChange("apple")}
-            className={`flex flex-col items-center gap-1 rounded-xl border p-3 text-xs font-medium ${payMethod === "apple" ? "border-primary bg-primary/5 text-primary" : "border-slate-200 text-slate-500"}`}
+            className={`flex flex-col items-center gap-1 rounded-lg border p-3 text-xs font-medium ${payMethod === "apple" ? "border-primary bg-primary/5 text-primary" : "border-slate-200 text-slate-500"}`}
           >
             <Smartphone className="h-4 w-4" /> Apple Pay
           </button>
           <button
             onClick={() => onPayMethodChange("google")}
-            className={`flex flex-col items-center gap-1 rounded-xl border p-3 text-xs font-medium ${payMethod === "google" ? "border-primary bg-primary/5 text-primary" : "border-slate-200 text-slate-500"}`}
+            className={`flex flex-col items-center gap-1 rounded-lg border p-3 text-xs font-medium ${payMethod === "google" ? "border-primary bg-primary/5 text-primary" : "border-slate-200 text-slate-500"}`}
           >
             <Smartphone className="h-4 w-4" /> Google Pay
           </button>

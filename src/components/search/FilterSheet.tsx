@@ -61,14 +61,30 @@ export function FilterSheet({
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="סינון" description="הספירות מתעדכנות לפי מה שכבר סימנתם">
-    {/* On a phone the sheet claims a fixed slice of the screen instead of
-        hugging its content — with most accordion groups collapsed it would
-        otherwise open as a short strip at the bottom. The groups area takes
-        the slack so the apply button stays pinned to the bottom edge. */}
-    <div className="flex min-h-[70vh] flex-col sm:min-h-0">
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="סינון"
+      description="הספירות מתעדכנות לפי מה שכבר סימנתם"
+      // Height is set on the PANEL, not on inner content — a min-height on a
+      // child can't grow a parent that sizes to its content, which is why the
+      // sheet kept opening as a short strip. 85vh on a phone, content-sized
+      // from sm up where a tall modal would look odd.
+      // Full screen on a phone, not a sheet clinging to the bottom edge: the
+      // filters ARE the task while they're open, and a strip anchored low with
+      // dead space above it reads as an afterthought. max-h-none is required —
+      // Dialog caps at 85vh, and a max-height would otherwise beat the height.
+      // Nearly the whole screen on a phone — the filters ARE the task while
+      // they're open. max-h-none is required: Dialog caps at 85vh, and a
+      // max-height always beats a height.
+      className="h-[88vh] max-h-none bg-slate-50 sm:h-[78vh] sm:max-h-[90vh]"
+    >
+    <div className="flex h-full flex-col">
       <div className="flex justify-end -mt-2 mb-3">
-        <button onClick={onClearAll} className="focus-ring rounded-md px-1.5 py-1 text-sm font-medium text-primary">
+        <button
+          onClick={onClearAll}
+          className="focus-ring rounded-md px-1.5 py-1 text-sm font-medium text-[var(--brand-navy)]"
+        >
           נקה הכל
         </button>
       </div>
@@ -76,7 +92,7 @@ export function FilterSheet({
       {/* Accordion, not a flat list: with this many groups a phone would
           otherwise be a single endless scroll with no sense of what's where.
           A group opens on its own if something inside it is already active. */}
-      <div className="mb-3 flex-1 divide-y divide-slate-100 border-y border-slate-100">
+      <div className="mb-3 flex-1 overflow-y-auto divide-y divide-slate-200 border-y border-slate-200">
         {groups.map(([groupName, groupDefs]) => {
           const activeInGroup = groupDefs.filter((d) => isActive(query.filters[d.key])).length;
           const open = openGroups[groupName] ?? activeInGroup > 0;
@@ -87,7 +103,7 @@ export function FilterSheet({
                 aria-expanded={open}
                 className="focus-ring flex min-h-12 w-full items-center justify-between gap-2 py-3 text-right"
               >
-                <span className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                <span className="flex items-center gap-2 text-sm font-bold text-[var(--brand-navy)]">
                   {groupName}
                   {activeInGroup > 0 && (
                     <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
@@ -111,11 +127,12 @@ export function FilterSheet({
 
       {/* Sticky apply bar — the count is the whole point: it tells her what
           she's about to get without closing the sheet first. */}
-      <div className="sticky bottom-0 -mx-5 border-t border-slate-200 bg-white px-5 py-3">
+      {/* pb keeps the button clear of the home-bar on a modern phone. */}
+      <div className="sticky bottom-0 -mx-5 border-t border-slate-200 bg-slate-50/95 px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur">
         <button
           onClick={onClose}
           disabled={resultCount === 0}
-          className="focus-ring h-11 w-full rounded-xl bg-primary text-sm font-semibold text-white disabled:bg-slate-300"
+          className="focus-ring h-12 w-full rounded-xl bg-gradient-to-b from-[var(--brand-navy-700)] to-[var(--brand-navy)] text-sm font-semibold text-white shadow-[0_14px_28px_-14px_rgba(15,33,64,0.9)] disabled:bg-none disabled:bg-slate-300 disabled:shadow-none"
         >
           {resultCount === 0 ? "אין תוצאות — נסו להסיר מסנן" : `הצג ${resultCount} תוצאות`}
         </button>
@@ -226,9 +243,9 @@ function OptionChip({
         // tap target and these are the main controls of the whole sheet.
         "focus-ring inline-flex h-10 items-center gap-1.5 rounded-full border px-3.5 text-sm font-medium transition-colors sm:h-8 sm:px-3 sm:text-xs",
         active
-          ? "border-primary bg-primary/10 text-primary"
-          : "border-slate-300 bg-white text-slate-600 hover:border-slate-400",
-        disabled && "cursor-not-allowed opacity-40 hover:border-slate-300"
+          ? "border-[var(--brand-navy)]/25 bg-[var(--brand-navy)]/8 text-[var(--brand-navy)]"
+          : "border-slate-200 bg-white text-[var(--brand-ink-soft)] hover:border-[var(--brand-navy)]/25",
+        disabled && "cursor-not-allowed opacity-40 hover:border-slate-200"
       )}
     >
       {active && <Check className="h-3 w-3 shrink-0" />}

@@ -103,7 +103,14 @@ export function resolvePriceBreakdown(
   patient: Patient | null | undefined,
   priceFull?: number,
   /** Needed only to decide whether a B arrangement is settled by undertaking. */
-  service?: { service_type?: ProviderServiceType; requires_hospital?: boolean }
+  service?: { service_type?: ProviderServiceType; requires_hospital?: boolean },
+  /**
+   * Which location this is priced for. An agreement can be limited to some of
+   * the provider's clinics, so the same service is genuinely a different price
+   * at different branches. Omit to price against every agreement the provider
+   * holds — the right answer for a container that spans several locations.
+   */
+  clinicId?: string
 ): PriceBreakdown | null {
   if (!patient) return null;
   const basePrice = resolveBasePrice(prices, priceFull);
@@ -120,12 +127,17 @@ export function resolvePriceBreakdown(
     };
   }
 
+  // An agreement scoped to specific clinics only counts at those clinics.
+  const applicable = (agreements ?? []).filter(
+    (a) => !clinicId || !a.clinic_ids?.length || a.clinic_ids.includes(clinicId)
+  );
+
   const held = new Set(getPatientLayers(patient));
   for (const layer of ARRANGEMENT_PRIORITY) {
     if (!held.has(layer)) continue;
     const entry = prices.find((p) => p.layer === layer);
     if (!entry) continue;
-    const agreement = agreements?.find((a) => a.layer === layer);
+    const agreement = applicable.find((a) => a.layer === layer);
     if (!agreement) continue;
 
     if (layer === "S" || layer === "K") {

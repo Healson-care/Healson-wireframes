@@ -65,7 +65,7 @@ export function CommitmentStep({
         <HoldTimer expiresAt={holdExpiresAt} onExpire={onExpire} />
       </div>
 
-      <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="mb-4 rounded-lg border border-slate-200 bg-white p-4">
         <p className="mb-2 text-xs text-slate-400">סיכום ההזמנה</p>
         <div className="flex items-start justify-between gap-3 text-sm">
           <span className="flex items-center gap-1.5 text-slate-500">
@@ -97,11 +97,11 @@ export function CommitmentStep({
         </div>
       </div>
 
-      <div className="mb-4 rounded-2xl border border-teal-200 bg-teal-50 p-5">
-        <p className="flex items-center gap-1.5 text-sm font-bold text-teal-800">
+      <div className="mb-4 rounded-lg border border-success-border bg-success-bg p-4">
+        <p className="flex items-center gap-1.5 text-sm font-bold text-success-text">
           <ShieldCheck className="h-4 w-4 shrink-0" /> {coverageLabel} — לא נדרשת מקדמה
         </p>
-        <p className="mt-1 text-xs text-teal-800/80">
+        <p className="mt-1 text-xs text-success-text/80">
           {commitment.source} מממנ/ת את השירות מול נותן השירות. מחיר מלא של {formatCurrency(basePrice)} — אתם לא
           משלמים אותו כאן.
         </p>
@@ -111,8 +111,8 @@ export function CommitmentStep({
         <PreparationRequirements consultation={consultation} />
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+      <div className="rounded-lg border border-slate-200 bg-white p-4">
+        <p className="flex items-center gap-1.5 text-sm font-bold text-slate-900">
           <FileText className="h-4 w-4 shrink-0" /> {commitment.formLabel}
         </p>
         <p className="mb-3 mt-1 text-xs text-slate-500">
@@ -141,7 +141,7 @@ export function CommitmentStep({
       </div>
 
       {showFallback && (
-        <div className="mt-4 rounded-2xl border border-warning-border bg-warning-bg p-5">
+        <div className="mt-4 rounded-lg border border-warning-border bg-warning-bg p-4">
           <p className="mb-1 flex items-center gap-1.5 text-sm font-bold text-warning-text">
             <AlertTriangle className="h-4 w-4 shrink-0" /> החלטה עסקית פתוחה
           </p>
@@ -151,8 +151,8 @@ export function CommitmentStep({
           </p>
 
           <div className="mt-3 space-y-3">
-            <div className="rounded-xl border border-white/60 bg-white p-4">
-              <p className="text-sm font-semibold text-slate-800">חלופה א׳ — שריון ללא תשלום</p>
+            <div className="rounded-lg border border-white/60 bg-white p-4">
+              <p className="text-sm font-bold text-slate-900">חלופה א׳ — שריון ללא תשלום</p>
               <p className="mt-1 text-xs text-slate-500">
                 התור נשמר, וההתחייבות מועלית עד מועד הביקור. אם היא לא תגיע — התור מבוטל. אין חשיפה כספית
                 למטופל, אבל גם אין מה שמונע ביטולים ברגע האחרון.
@@ -162,8 +162,8 @@ export function CommitmentStep({
               </Button>
             </div>
 
-            <div className="rounded-xl border border-white/60 bg-white p-4">
-              <p className="text-sm font-semibold text-slate-800">חלופה ב׳ — פיקדון שיוחזר</p>
+            <div className="rounded-lg border border-white/60 bg-white p-4">
+              <p className="text-sm font-bold text-slate-900">חלופה ב׳ — פיקדון שיוחזר</p>
               <p className="mt-1 text-xs text-slate-500">
                 גובים {formatCurrency(depositAmount)} כפיקדון. כשההתחייבות מגיעה — הסכום מוחזר במלואו. מגן
                 מפני אי-הגעה, אבל גובה כסף משירות שאמור להיות חינם.

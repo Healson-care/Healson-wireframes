@@ -658,7 +658,7 @@ export default function ClientLoginPage() {
               <BlockedPanel />
             ) : (
               <div className="flex flex-col gap-3">
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
                   <div className="flex items-center gap-2 mb-2 text-slate-500">
                     <Mail className="h-4 w-4" />
                     <span className="text-xs font-medium">מייל הדגמה מ-HEALSON</span>

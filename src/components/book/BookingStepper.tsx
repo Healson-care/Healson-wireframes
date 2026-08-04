@@ -22,11 +22,24 @@ export const REFERRAL_FLOW_STEPS = ["בחירה", "הפניה", "מיקום", "�
  * charged, so that stage collects the document instead of money: same
  * position in the flow, different act.
  */
-export function flowStepsFor({ referral, commitment }: { referral: boolean; commitment: boolean }): string[] {
+export function flowStepsFor({
+  referral,
+  commitment,
+  singleLocation,
+}: {
+  referral: boolean;
+  commitment: boolean;
+  /** The service is given at one place only, so no location is ever chosen. */
+  singleLocation?: boolean;
+}): string[] {
   const steps = [...(referral ? REFERRAL_FLOW_STEPS : SEARCH_FLOW_STEPS)];
   if (commitment) {
     const payIndex = steps.indexOf("תשלום");
     if (payIndex !== -1) steps[payIndex] = "התחייבות";
+  }
+  if (singleLocation) {
+    const locationIndex = steps.indexOf("מיקום");
+    if (locationIndex !== -1) steps.splice(locationIndex, 1);
   }
   return steps;
 }
@@ -59,7 +72,11 @@ export function BookingStepper({
         />
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1.5">
+      {/* Every stage, named, at every width — the whole route has to be
+          readable in advance. On a phone that can't be one line, so it's an
+          even grid rather than a wrapped row: four then three reads as
+          structure, where an accidental wrap reads as breakage. */}
+      <div className="grid grid-cols-4 gap-1.5 sm:flex sm:items-center sm:gap-1">
         {steps.map((label, i) => {
           const done = i < step;
           const current = i === step;
@@ -67,32 +84,38 @@ export function BookingStepper({
           const Tag = canReturn ? "button" : "span";
 
           return (
-            <Tag
-              key={label}
-              {...(canReturn
-                ? { onClick: () => onStepSelect(i), type: "button" as const, title: `חזרה ל${label}` }
-                : {})}
-              aria-current={current ? "step" : undefined}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
-                current && "border-primary bg-primary text-white shadow-sm",
-                done && "border-primary/30 bg-primary/5 text-primary",
-                canReturn && "focus-ring hover:border-primary hover:bg-primary/10",
-                !done && !current && "border-slate-200 bg-white text-slate-400"
-              )}
-            >
-              <span
+            <div key={label} className="flex min-w-0 items-center gap-1">
+              <Tag
+                {...(canReturn
+                  ? { onClick: () => onStepSelect(i), type: "button" as const, title: `חזרה ל${label}` }
+                  : {})}
+                aria-current={current ? "step" : undefined}
                 className={cn(
-                  "flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-bold",
-                  current && "bg-white text-primary",
-                  done && "bg-primary text-white",
-                  !done && !current && "bg-slate-100 text-slate-400"
+                  "flex w-full min-w-0 items-center justify-center gap-1 rounded-full px-1.5 py-1 text-[10px] font-semibold transition-colors sm:w-auto sm:justify-start sm:gap-1.5 sm:px-2.5 sm:text-[11px]",
+                  current
+                    ? "bg-[var(--brand-navy)] text-white"
+                    : done
+                    ? "bg-success-bg text-success-text"
+                    : "bg-slate-100 text-slate-500",
+                  canReturn && "focus-ring hover:brightness-95"
                 )}
               >
-                {done ? <Check className="h-2.5 w-2.5" /> : i + 1}
-              </span>
-              {label}
-            </Tag>
+                {done ? (
+                  <Check className="h-3 w-3 shrink-0" />
+                ) : (
+                  <span
+                    className={cn(
+                      "flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-[9px] font-bold",
+                      current ? "bg-white/25" : "bg-slate-200 text-slate-600"
+                    )}
+                  >
+                    {i + 1}
+                  </span>
+                )}
+                <span className="truncate">{label}</span>
+              </Tag>
+              {i < steps.length - 1 && <span className="hidden h-px w-4 shrink-0 bg-slate-200 sm:block" />}
+            </div>
           );
         })}
       </div>

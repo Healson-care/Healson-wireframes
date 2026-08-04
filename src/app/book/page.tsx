@@ -17,12 +17,13 @@ import { CommitmentStep } from "@/components/book/CommitmentStep";
 import { ReferralStep } from "@/components/book/ReferralStep";
 import { UnitApprovalPending } from "@/components/book/UnitApprovalPending";
 import { ServiceSearch } from "@/components/search/ServiceSearch";
-import { Offer, SearchQuery, emptyQuery } from "@/lib/search";
+import { Offer, SearchQuery, emptyQuery, providerLabel } from "@/lib/search";
 import { SlotPicker } from "@/components/book/SlotPicker";
 import { PaymentPanel } from "@/components/book/PaymentPanel";
 import { BookingConfirmation } from "@/components/book/BookingConfirmation";
 import { WaitlistJoinDialog } from "@/components/book/WaitlistJoinDialog";
-import { buildIcsDataUrl } from "@/lib/utils";
+import { buildIcsDataUrl, formatCurrency } from "@/lib/utils";
+import { serviceOfferedAt } from "@/lib/scheduling";
 import { fileToDataUrl } from "@/lib/file";
 import { requiresReferral } from "@/lib/referral";
 import { ConsultationType, ProviderProfile, UNIT_APPROVAL_HOLD_HOURS } from "@/types";
@@ -39,6 +40,7 @@ const stepTransition = { duration: 0.25, ease: "easeOut" as const };
 export default function BookPage() {
   const router = useRouter();
   const providers = useStore((s) => s.providers);
+  const organizationBranches = useStore((s) => s.organizationBranches);
   const appointments = useStore((s) => s.appointments);
   const currentUser = useStore((s) => s.currentUser);
   const logout = useStore((s) => s.logout);
@@ -64,6 +66,9 @@ export default function BookPage() {
   // re-match it by name against the provider's catalogue.
   const [selectedService, setSelectedService] = useState<ConsultationType | null>(null);
   const [selectedProvider, setSelectedProvider] = useState<ProviderProfile | null>(null);
+  // The performing doctor, when the service belongs to an organization —
+  // "זמינות אצל" must name the person, not the institute that owns the item.
+  const [selectedDoctor, setSelectedDoctor] = useState<ProviderProfile | null>(null);
   // Search state lives here so stepping forward and back doesn't reset it.
   const [searchQuery, setSearchQuery] = useState<SearchQuery>(emptyQuery);
   const [openGroupKey, setOpenGroupKey] = useState<string | null>(null);
@@ -82,10 +87,6 @@ export default function BookPage() {
   // Set when the patient takes the "no commitment yet" fallback and pays a
   // refundable deposit instead — an open product decision, sketched only.
   const [commitmentFallback, setCommitmentFallback] = useState(false);
-  // Sticky once the patient has moved past the search even one time — used to
-  // drop first-visit copy when she comes back to change something. Reset only
-  // by a full flow restart.
-  const [hasAdvanced, setHasAdvanced] = useState(false);
 
   const [confirmation, setConfirmation] = useState<{
     fileNumber: string;
@@ -94,14 +95,19 @@ export default function BookPage() {
   } | null>(null);
 
   const consultation = selectedService ?? undefined;
+  // A doctor is in-network as a person, so their own agreements govern at any
+  // of their clinics. Only a site's agreements (imaging, lab — services with
+  // no doctor) can differ per branch, so only then does the clinic matter.
+  const doctorAgreements = selectedDoctor?.agreements?.length ? selectedDoctor.agreements : undefined;
   const priceBreakdown =
     consultation && selectedProvider
       ? resolvePriceBreakdown(
           consultation.prices,
-          selectedProvider.agreements,
+          doctorAgreements ?? selectedProvider.agreements,
           patient,
           consultation.price_full,
-          consultation
+          consultation,
+          doctorAgreements ? undefined : discoveryClinicId ?? undefined
         )
       : null;
   const price = priceBreakdown?.price ?? 0;
@@ -119,36 +125,57 @@ export default function BookPage() {
   // document in place of a payment, and take no deposit.
   const commitment = priceBreakdown?.commitment;
   const commitmentFlow = !!commitment;
-  const flowSteps = flowStepsFor({ referral: referralFlow, commitment: commitmentFlow });
+  // A service given at one location only never asks the patient to choose one,
+  // so "מיקום" would be a stage she can never stand on — drop it from the rail.
+  const bookableClinicCount =
+    selectedProvider && consultation
+      ? selectedProvider.clinic_locations.filter((c) => serviceOfferedAt(selectedProvider, consultation.id, c.id)).length
+      : 0;
+  const singleLocation = bookableClinicCount === 1;
 
-  // step: 0 search · 1 referral · 2 slot · 5 unit approval · 3 payment · 4 done
-  const visualStep = referralFlow
-    ? step === 0
+  // The location screen shows each branch's price. For a doctor that's the
+  // same everywhere — which is worth showing rather than hiding, so nobody
+  // travels further hoping for a better price. For a station-run service it
+  // genuinely differs, because the site's agreement can.
+  const clinicPricing: Record<string, { amount?: string; note?: string }> = {};
+  if (selectedProvider && consultation) {
+    for (const clinic of selectedProvider.clinic_locations) {
+      const breakdown = resolvePriceBreakdown(
+        consultation.prices,
+        doctorAgreements ?? selectedProvider.agreements,
+        patient,
+        consultation.price_full,
+        consultation,
+        doctorAgreements ? undefined : clinic.id
+      );
+      if (!breakdown) continue;
+      clinicPricing[clinic.id] =
+        breakdown.kind === "basket"
+          ? { note: breakdown.label }
+          : { amount: formatCurrency(breakdown.price), note: breakdown.label };
+    }
+  }
+  const flowSteps = flowStepsFor({ referral: referralFlow, commitment: commitmentFlow, singleLocation });
+
+  // Built from the rail itself rather than hard-coded indices, so dropping
+  // "מיקום" for a single-location service can't put the meter out of step.
+  const stageIndex = (name: string) => Math.max(0, flowSteps.indexOf(name));
+  const visualStep =
+    step === 0
       ? 0
       : step === 1
-      ? 1
+      ? stageIndex("הפניה")
       : step === 2
-      ? discoveryClinicId
-        ? 3
-        : 2
+      ? discoveryClinicId || singleLocation
+        ? stageIndex("שעה")
+        : stageIndex("מיקום")
       : step === 5
-      ? 4
+      ? stageIndex("אישור יחידה")
       : step === 3
-      ? 5
+      ? stageIndex(commitmentFlow ? "התחייבות" : "תשלום")
       : step === 4
-      ? 6
-      : step
-    : step === 0
-    ? 0
-    : step === 2
-    ? discoveryClinicId
-      ? 2
-      : 1
-    : step === 3
-    ? 3
-    : step === 4
-    ? 4
-    : step;
+      ? stageIndex("סיום")
+      : step;
 
   /**
    * The meter shows visual indices; the flow runs on real step numbers. This
@@ -158,9 +185,10 @@ export default function BookPage() {
    */
   function goToVisualStep(index: number) {
     if (index >= visualStep) return;
-    const target = referralFlow
-      ? [0, 1, 2, 2, 5, 3, 4][index] ?? 0
-      : [0, 2, 2, 3, 4][index] ?? 0;
+    // Map back through the rail's own labels, for the same reason.
+    const label = flowSteps[index];
+    const target =
+      label === "בחירה" ? 0 : label === "הפניה" ? 1 : label === "אישור יחידה" ? 5 : label === "מיקום" || label === "שעה" ? 2 : 3;
     // Stepping back out of payment or the unit's queue releases the slot that
     // was being held for them, rather than leaving a stuck pending record.
     if ((step === 3 || step === 5) && target < 3) abandonHold();
@@ -188,11 +216,11 @@ export default function BookPage() {
     }
     setSelectedService(offer.service);
     setSelectedProvider(offer.provider);
+    setSelectedDoctor(offer.doctor ?? null);
     // Clear the location and referral picked for a *previous* offer.
     setDiscoveryClinicId(null);
     setReferralFile(null);
     setCommitmentFile(null);
-    setHasAdvanced(true);
     // Non-consultations must produce a referral before a slot is even shown.
     setStep(requiresReferral(offer.service) ? 1 : 2);
   }
@@ -490,6 +518,7 @@ export default function BookPage() {
           <motion.div key="step0" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition} className="max-w-2xl mx-auto">
             <ServiceSearch
               providers={providers}
+                branches={organizationBranches}
               patient={patient}
               query={searchQuery}
               onQueryChange={setSearchQuery}
@@ -544,6 +573,8 @@ export default function BookPage() {
               onJoinWaitlist={(date, time, label) => setWaitlistSlot({ date, time, label })}
               onClinicChange={setDiscoveryClinicId}
               serviceId={consultation?.id}
+              performerName={selectedDoctor ? providerLabel(selectedDoctor) : undefined}
+              clinicPricing={clinicPricing}
             />
           </motion.div>
         )}

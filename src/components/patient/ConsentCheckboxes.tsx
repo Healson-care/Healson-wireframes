@@ -21,7 +21,7 @@ export function ConsentCheckboxes({
         return (
           <label
             key={type}
-            className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3.5 cursor-pointer hover:border-primary/40"
+            className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-3.5 cursor-pointer hover:border-primary/40"
           >
             <input
               type="checkbox"

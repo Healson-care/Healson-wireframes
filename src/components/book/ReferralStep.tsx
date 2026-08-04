@@ -38,8 +38,8 @@ export function ReferralStep({
         </p>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+      <div className="rounded-lg border border-slate-200 bg-white p-4">
+        <p className="flex items-center gap-1.5 text-sm font-bold text-slate-900">
           <FileText className="h-4 w-4 shrink-0" /> הפניה תקפה מקופת החולים
         </p>
         <p className="mt-1 mb-3 text-xs text-slate-500">

@@ -369,6 +369,8 @@ const provider1: ProviderProfile = {
   created_date: isoDateDaysFromNow(-600),
   agreements: [
     { id: generateId("agr"), provider_id: "prov_1", layer: "S", kupah_list: ["כללית", "מכבי", "מאוחדת", "לאומית"] },
+    // Deliberately NOT clinic-scoped: a doctor is in-network as a person, so
+    // the same patient gets the same price at either of their clinics.
     { id: generateId("agr"), provider_id: "prov_1", layer: "K" },
     // A private surgery is what B cover is actually FOR — without this layer the
     // surgery below would only ever price at the full private rate.

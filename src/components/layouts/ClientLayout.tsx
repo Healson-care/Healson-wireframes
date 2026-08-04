@@ -72,8 +72,19 @@ export function ClientLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur">
+    // The brand stage without /apply's ivory ground: on a screen the patient
+    // returns to daily, the warm cream read as a colour rather than as paper.
+    // A near-white slate keeps the navy cards and their long shadows floating,
+    // which is what carried the look — the tint was never doing that work.
+    <div className="relative flex min-h-screen flex-col overflow-hidden bg-slate-50 text-[var(--brand-ink)]">
+      {/* Navy only — the gold glow was tinting the whole ground and reading as
+          a gold page rather than as depth behind it. Gold stays a hairline on
+          the hero, never an area of colour. */}
+      <div aria-hidden className="pointer-events-none absolute inset-0">
+        <div className="animate-brand-drift absolute -top-24 right-[-30%] h-[320px] w-[320px] rounded-full bg-[radial-gradient(circle,rgba(20,42,79,0.07),transparent_70%)] sm:right-[-12%] sm:h-[520px] sm:w-[520px]" />
+        <div className="absolute bottom-[-10%] left-[-30%] h-[300px] w-[300px] rounded-full bg-[radial-gradient(circle,rgba(20,42,79,0.06),transparent_70%)] sm:left-[-8%] sm:h-[480px] sm:w-[480px]" />
+      </div>
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-slate-50/85 backdrop-blur">
         <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-3">
           <Link href="/client">
             <Logo />
@@ -123,7 +134,7 @@ export function ClientLayout({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      <main className="flex-1 mx-auto w-full max-w-2xl px-4 py-6 pb-24 sm:pb-10">{children}</main>
+      <main className="relative z-10 flex-1 mx-auto w-full max-w-2xl px-4 py-6 pb-24 sm:pb-10">{children}</main>
 
       <nav className="fixed bottom-0 inset-x-0 z-30 border-t border-slate-200 bg-white sm:hidden">
         <div className="grid grid-cols-5">
