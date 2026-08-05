@@ -1,9 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { ChevronDown, Paperclip, Plus, Trash2 } from "lucide-react";
 import { Input, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
+import { FileDropzone } from "@/components/ui/FileDropzone";
+import { fileToDataUrl } from "@/lib/file";
+import { cn } from "@/lib/utils";
 import {
   B_INSURANCE_COMPANIES,
   INSURANCE_AGENTS_BY_COMPANY,
@@ -43,7 +46,7 @@ export const EMPTY_INSURANCE_PROFILE: InsuranceProfileValue = {
   address: "",
 };
 
-const EMPTY_B_INSURANCE: PatientInsurance = { company: "", policy_number: "" };
+const EMPTY_B_INSURANCE: PatientInsurance = { company: "" };
 
 /** Patient insurance profile fields (§4.3) — kupah (S), optional K-level
  * (שב"ן), optional B (one or more private health insurance policies). */
@@ -67,6 +70,28 @@ export function InsuranceProfileForm({
   const [otherPickedRows, setOtherPickedRows] = useState<Record<number, boolean>>({});
   // Same trick for the agent picker — "אחר" selected but nothing typed yet.
   const [otherAgentRows, setOtherAgentRows] = useState<Record<number, boolean>>({});
+  // The policy upload is a bonus, so it ships collapsed — open only where the
+  // patient asked for it. Registration must not grow a file picker's worth of
+  // height for something nobody is required to provide.
+  const [policyOpenRows, setPolicyOpenRows] = useState<Record<number, boolean>>({});
+  // The File as just picked, kept only so FileDropzone can show its name and a
+  // remove button. The durable value is `policy_document` on the row.
+  const [policyFileRows, setPolicyFileRows] = useState<Record<number, File | null>>({});
+
+  async function setPolicyFile(index: number, file: File | null) {
+    setPolicyFileRows((prev) => ({ ...prev, [index]: file }));
+    if (!file) {
+      updateRow(index, { policy_document: undefined });
+      return;
+    }
+    updateRow(index, {
+      policy_document: {
+        file_name: file.name,
+        uploaded_at: new Date().toISOString(),
+        data_url: await fileToDataUrl(file),
+      },
+    });
+  }
 
   const hasBInsurance = value.b_insurances.length > 0;
 
@@ -85,6 +110,16 @@ export function InsuranceProfileForm({
       return next;
     });
     setOtherAgentRows((prev) => {
+      const next = { ...prev };
+      delete next[index];
+      return next;
+    });
+    setPolicyOpenRows((prev) => {
+      const next = { ...prev };
+      delete next[index];
+      return next;
+    });
+    setPolicyFileRows((prev) => {
       const next = { ...prev };
       delete next[index];
       return next;
@@ -159,7 +194,7 @@ export function InsuranceProfileForm({
             return (
               <div key={index} className="rounded-lg border border-slate-200 p-3 flex flex-col gap-2">
                 <div className="flex items-start gap-2">
-                  <div className="grid grid-cols-2 gap-2 flex-1">
+                  <div className="flex-1">
                     <Select
                       label="חברת ביטוח"
                       value={isOtherCompany ? OTHER_COMPANY : ins.company}
@@ -182,11 +217,6 @@ export function InsuranceProfileForm({
                       ))}
                       <option value={OTHER_COMPANY}>אחר</option>
                     </Select>
-                    <Input
-                      label="מספר פוליסה (אופציונלי)"
-                      value={ins.policy_number ?? ""}
-                      onChange={(e) => updateRow(index, { policy_number: e.target.value })}
-                    />
                   </div>
                   {value.b_insurances.length > 1 && (
                     <button
@@ -245,6 +275,55 @@ export function InsuranceProfileForm({
                       onChange={(e) => updateRow(index, { agent_name: e.target.value })}
                     />
                   ))}
+
+                {/* Bonus, never a condition — so it is one quiet line until
+                    tapped, and says up front that skipping it is fine. A
+                    filed policy still shows its name while collapsed, so the
+                    row never hides work the patient already did. */}
+                <div className="border-t border-slate-100 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setPolicyOpenRows((prev) => ({ ...prev, [index]: !prev[index] }))}
+                    aria-expanded={!!policyOpenRows[index]}
+                    className="focus-ring flex w-full items-center justify-between gap-2 rounded-md px-1 py-1 text-right text-xs text-slate-600 hover:bg-slate-50"
+                  >
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <Paperclip className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                      <span className="truncate">
+                        צירוף מסמך הפוליסה
+                        <span className="text-slate-400"> · אופציונלי</span>
+                      </span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-1.5">
+                      {ins.policy_document && !policyOpenRows[index] && (
+                        <span className="max-w-[9rem] truncate text-[11px] font-medium text-success-text">
+                          {ins.policy_document.file_name}
+                        </span>
+                      )}
+                      <ChevronDown
+                        className={cn(
+                          "h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform",
+                          policyOpenRows[index] && "rotate-180"
+                        )}
+                      />
+                    </span>
+                  </button>
+
+                  {policyOpenRows[index] && (
+                    <div className="mt-2 flex flex-col gap-2">
+                      <p className="text-[11px] leading-relaxed text-slate-500">
+                        לא חובה, ואפשר גם מאוחר יותר. הפוליסה עצמה מכילה את התנאים, המספר והתאריכים — כך שנוכל
+                        לדייק לכם את המחיר ואת ההחזר בלי שתצטרכו לחפש מספרים.
+                      </p>
+                      <FileDropzone
+                        file={policyFileRows[index] ?? null}
+                        onFileChange={(file) => void setPolicyFile(index, file)}
+                        existingFileName={policyFileRows[index] ? undefined : ins.policy_document?.file_name}
+                        ariaLabel="העלאת מסמך פוליסת ביטוח"
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}

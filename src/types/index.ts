@@ -196,10 +196,17 @@ export interface PriceByKupah {
 // Booking lifecycle (payments meeting 02.08.2026). Which states a booking
 // actually passes through depends on the item and on the funding route:
 //
-//   referral gate (every item EXCEPT a consultation)
+//   referral gate (every item EXCEPT a consultation or a treatment)
 //     ממתין לאישור הפניה   — referral uploaded, the medical unit reviews it and
-//                             approves/rejects; the slot is held meanwhile
-//                             (slot_hold_expires_at).
+//                             approves/rejects. NO time has been chosen yet:
+//                             the referral is approved against the unit, not
+//                             against the diary, so nothing is held and the
+//                             booking has no date until the answer comes back.
+//     ממתין לקביעת מועד    — the unit approved. Only now does the slot picker
+//                             open, either straight after the answer in the
+//                             booking flow or later from "קבע מועד" on the
+//                             request under "התורים שלי". Picking a slot
+//                             hands the booking to the funding gate below.
 //   funding gate
 //     route S, and route B backed by an insurer commitment (mostly surgery):
 //       ממתין להתחייבות  — waiting for the commitment document (טופס 17 /
@@ -217,6 +224,7 @@ export interface PriceByKupah {
 // time — kept distinct because it is a collection failure, not a decision).
 export type AppointmentStatus =
   | "ממתין לאישור הפניה"
+  | "ממתין לקביעת מועד"
   | "ממתין להתחייבות"
   | "ממתין לתשלום מקדמה"
   | "מאושר"
@@ -228,6 +236,7 @@ export type AppointmentStatus =
 
 export const APPOINTMENT_STATUSES: AppointmentStatus[] = [
   "ממתין לאישור הפניה",
+  "ממתין לקביעת מועד",
   "ממתין להתחייבות",
   "ממתין לתשלום מקדמה",
   "מאושר",
@@ -237,10 +246,6 @@ export const APPOINTMENT_STATUSES: AppointmentStatus[] = [
   "בוטל",
   "בוטל — יתרה לא שולמה",
 ];
-
-/** How long a slot stays reserved while the medical unit reviews the referral
- * ("ממתין לאישור הפניה"). */
-export const UNIT_APPROVAL_HOLD_HOURS = 24;
 
 /** The two cancellation states, kept together so callers never test one and
  * forget the other (a cancelled slot is free again either way). */
@@ -472,7 +477,12 @@ export interface OtpIssueReport {
 
 export interface PatientInsurance {
   company: string;
-  policy_number?: string;
+  // The policy itself, scanned. Replaced the old free-text policy number: a
+  // number the patient types from memory is worth little, while the document
+  // carries the terms, the number and the dates at once. Strictly a bonus —
+  // nothing is ever blocked on it, and the disclosure that collects it stays
+  // collapsed until the patient opens it.
+  policy_document?: UploadedFile;
   // Optional but strongly encouraged — the agent behind the policy determines
   // which terms apply, so it drives how accurately we can price for this
   // patient. Picked from INSURANCE_AGENTS_BY_COMPANY, or free text via "אחר".
@@ -806,7 +816,10 @@ export interface ConsultationType {
   // the authoritative link is still each עמדה's `service_ids`.
   limited_to_stations?: boolean;
   // Requires a referral/pre-authorization from the patient's kupah before
-  // booking — relevant across every service_type, so kept ungated.
+  // booking. One-way: setting it ADDS the gate to an item whose type would
+  // otherwise be exempt (a ייעוץ, a טיפול, a מוצר). Clearing it never lifts the
+  // platform rule for a type that is gated anyway — see requiresReferral() in
+  // lib/referral.ts, which is the only thing the patient flow reads.
   requires_referral?: boolean;
   // "test" (בדיקה) prep fields.
   requires_fasting?: boolean;
