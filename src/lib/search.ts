@@ -3,11 +3,13 @@
 // Two ideas carry this file:
 //
 // 1. The unit of search is an **Offer**: one service, offered by one provider,
-//    bookable at that provider's locations. A provider with 3 services and 2
-//    clinics produces 3 offers (not 6) — the clinic is a property of the offer,
-//    chosen at slot-picking time, because a price is per provider+service and
-//    never per clinic. This is what lets "search by doctor" and "search by
-//    service" be two *presentations* of one result set instead of two screens.
+//    at ONE branch. A provider with 3 services and 2 clinics produces 6 offers,
+//    because the branch is part of what she is choosing, not a detail settled
+//    afterwards: it decides the drive, and — where a site's agreements differ
+//    per branch — the price too. Splitting here rather than at render time is
+//    what keeps the result count, the facet counts and the cards describing one
+//    same set. It also lets "search by doctor" and "search by service" stay two
+//    *presentations* of one result set instead of two screens.
 //
 // 2. Filters are **data, not screens**. FILTER_REGISTRY declares each filter's
 //    group, control type, options and match predicate; the sheet UI renders
@@ -23,7 +25,6 @@ import {
   OrganizationBranch,
   ConsultationType,
   InsuranceLayer,
-  LOCATION_TYPE_LABELS,
   LocationType,
   Patient,
   PROVIDER_SERVICE_TYPE_LABELS,
@@ -100,18 +101,19 @@ export interface Offer {
   organization?: ProviderProfile;
   service: ConsultationType;
   /**
-   * Where this specific service can be booked. A service may be restricted to
+   * The ONE place this offer is bookable at. A service may be restricted to
    * some of the provider's clinics via `linked_clinic_ids`; an affiliated
    * doctor may work at only some of those; and an imaging item is bound to
-   * the branches whose stations actually perform it.
+   * the branches whose stations actually perform it. Whatever survives all
+   * three, each surviving branch becomes an offer of its own.
    */
-  clinics: OfferLocation[];
+  clinic: OfferLocation;
 }
 
 /**
- * Flattens published providers into the offer index the whole search runs on.
- * Services with no bookable location drop out — an offer that can't be booked
- * shouldn't be findable.
+ * Flattens published providers into the offer index the whole search runs on,
+ * one row per service × performer × BRANCH. Services with no bookable location
+ * drop out — an offer that can't be booked shouldn't be findable.
  */
 export function buildOffers(providers: ProviderProfile[], branches: OrganizationBranch[] = []): Offer[] {
   const byId = new Map(providers.map((p) => [p.id, p]));
@@ -157,13 +159,15 @@ export function buildOffers(providers: ProviderProfile[], branches: Organization
       if (serviceClinics.length === 0) continue;
 
       if (!isOrganization(provider)) {
-        offers.push({
-          id: `${provider.id}:${service.id}`,
-          provider,
-          doctor: provider,
-          service,
-          clinics: serviceClinics,
-        });
+        for (const clinic of serviceClinics) {
+          offers.push({
+            id: `${provider.id}:${service.id}:${clinic.id}`,
+            provider,
+            doctor: provider,
+            service,
+            clinic,
+          });
+        }
         continue;
       }
 
@@ -181,28 +185,31 @@ export function buildOffers(providers: ProviderProfile[], branches: Organization
         // No doctor at all, and that's correct: imaging and lab work are
         // delivered by a station. The offer still exists, it just has no
         // person to group it under.
-        offers.push({
-          id: `${provider.id}:${service.id}`,
-          provider,
-          organization: provider,
-          service,
-          clinics: serviceClinics,
-        });
+        for (const clinic of serviceClinics) {
+          offers.push({
+            id: `${provider.id}:${service.id}:${clinic.id}`,
+            provider,
+            organization: provider,
+            service,
+            clinic,
+          });
+        }
         continue;
       }
 
       for (const affiliation of affiliations) {
         const clinicIds = affiliation.clinic_ids;
         const clinics = clinicIds?.length ? serviceClinics.filter((c) => clinicIds.includes(c.id)) : serviceClinics;
-        if (clinics.length === 0) continue;
-        offers.push({
-          id: `${provider.id}:${service.id}:${affiliation.id}`,
-          provider,
-          doctor: byId.get(affiliation.doctor_provider_id),
-          organization: provider,
-          service,
-          clinics,
-        });
+        for (const clinic of clinics) {
+          offers.push({
+            id: `${provider.id}:${service.id}:${affiliation.id}:${clinic.id}`,
+            provider,
+            doctor: byId.get(affiliation.doctor_provider_id),
+            organization: provider,
+            service,
+            clinic,
+          });
+        }
       }
     }
   }
@@ -268,6 +275,10 @@ export interface OfferPricing {
  * - A service run by a station with no doctor (imaging, lab) is funded by the
  *   PLACE, so the site's agreements govern and they can differ per branch —
  *   which is the only case where `clinicId` changes the answer.
+ *
+ * An offer now IS one branch, so `clinicId` defaults to that branch: every
+ * price on a card is the price at the place the card names, and a caller has
+ * to opt out explicitly rather than get an unscoped answer by omission.
  */
 export function offerPricing(offer: Offer, patient?: Patient | null, clinicId?: string): OfferPricing | null {
   const doctorAgreements = offer.doctor?.agreements?.length ? offer.doctor.agreements : undefined;
@@ -278,7 +289,7 @@ export function offerPricing(offer: Offer, patient?: Patient | null, clinicId?: 
     offer.service.price_full,
     offer.service,
     // Only the site's own agreements are ever branch-scoped.
-    doctorAgreements ? undefined : clinicId
+    doctorAgreements ? undefined : clinicId ?? offer.clinic.id
   );
   if (!breakdown) return null;
 
@@ -380,17 +391,40 @@ function expandTerms(text: string): string[] {
   return terms;
 }
 
+/**
+ * Everything one offer can be found by. The box is a single field, so this is
+ * the whole vocabulary the patient may type — she doesn't know, and shouldn't
+ * have to know, which of these is "the searchable one".
+ */
 function offerHaystack(offer: Offer): string {
-  const { doctor, organization, service } = offer;
+  const { doctor, organization, service, clinic } = offer;
   const person = attributeSource(offer);
+  const domainId = offerDomainId(offer);
+  const subdomainId = offerSubdomainId(offer);
   return [
+    // The code is searchable text like any other: a referral slip says 54021
+    // long before it says "MRI עמוד שדרה מותני".
+    service.moh_code,
     service.name,
     doctor?.display_name,
     doctor?.title,
     organization?.display_name,
+    // "מכון", "בית חולים" — she may be looking for a kind of place, not a name.
+    organization?.provider_type ? PROVIDER_TYPE_LABELS[organization.provider_type] : "",
     person.specialty,
     ...(person.sub_specialties ?? []),
     service.service_type ? PROVIDER_SERVICE_TYPE_LABELS[service.service_type] : "",
+    // WHERE. Now that an offer is one branch, the place is part of what she's
+    // searching for: "MRI חיפה" has to be one query, not a search then a filter.
+    clinic.name,
+    clinic.city,
+    clinic.facilityName,
+    getRegionForCity(clinic.city),
+    // The catalogue's own name for the field. A doctor's specialty string
+    // doesn't always carry it, and a station-run MRI has no doctor at all — so
+    // without this, "אורתופדיה" simply misses every machine-run item.
+    domainId ? domainLabel(domainId) : "",
+    subdomainId ? subdomainLabel(subdomainId) : "",
   ]
     .filter(Boolean)
     .join(" ")
@@ -408,18 +442,22 @@ function matchesText(offer: Offer, text: string): boolean {
 // Omnibox suggestions
 // ---------------------------------------------------------------------------
 
-export type SuggestionKind = "provider" | "service" | "referral";
+export type SuggestionKind = "provider" | "service" | "referral" | "organization" | "city";
 
 /**
- * What the search box is currently looking for. Bound to the result grouping:
- * browsing "לפי שירות" searches services, browsing "לפי נותן שירות" searches
- * providers — so the box never returns a kind of thing the results can't show.
+ * What the patient is currently browsing. It no longer decides WHAT the box
+ * may return — every kind of entity is always reachable, because a single
+ * field that silently refuses to find a city is a field she has to be taught.
+ * Scope now only decides the ORDER: browsing by provider puts people first.
  */
 export type SearchScope = "service" | "provider";
 
 export interface Suggestion {
   kind: SuggestionKind;
-  /** Provider id for "provider", service name for "service" / "referral". */
+  /**
+   * Provider id for "provider", organization id for "organization", the town
+   * for "city", and the service name for "service" / "referral".
+   */
   value: string;
   label: string;
   /** Second line — specialty, or how many providers offer this service. */
@@ -452,12 +490,16 @@ function doctorSuggestions(offers: Offer[], terms: string[] | null, lower: strin
     if (terms && !terms.some((t) => hay.includes(t))) continue;
     seen.add(doctor.id);
     const own = offers.filter((o) => o.doctor?.id === doctor.id);
-    const clinicCount = new Set(own.flatMap((o) => o.clinics.map((c) => c.id))).size;
+    // Counted over the offer rows, which are now per branch — so both numbers
+    // have to be de-duplicated, or a doctor with 2 clinics would be credited
+    // with twice the services she actually gives.
+    const serviceCount = new Set(own.map((o) => o.service.id)).size;
+    const clinicCount = new Set(own.map((o) => o.clinic.id)).size;
     out.push({
       kind: "provider",
       value: doctor.id,
       label: providerLabel(doctor),
-      detail: `${doctor.specialty} · ${own.length} שירותים · ${clinicCount} מיקומים`,
+      detail: `${doctor.specialty} · ${serviceCount} שירותים · ${clinicCount} מיקומים`,
       viaSynonym: terms ? synonymHint(lower, hay) : undefined,
     });
   }
@@ -466,34 +508,106 @@ function doctorSuggestions(offers: Offer[], terms: string[] | null, lower: strin
 
 /** Distinct service names in the index. `terms === null` means "return them all". */
 function serviceSuggestions(offers: Offer[], terms: string[] | null, lower: string): Suggestion[] {
-  const counts = new Map<string, number>();
+  // Two distinct counts, because the offer rows are per branch: how many
+  // performers give it, and how many places it can be had at. "3 נותני שירות"
+  // taken off the raw row count would double any provider with two branches.
+  const performers = new Map<string, Set<string>>();
+  const branches = new Map<string, Set<string>>();
   for (const offer of offers) {
     const hay = offer.service.name.toLowerCase();
     if (terms && !terms.some((t) => hay.includes(t))) continue;
-    counts.set(offer.service.name, (counts.get(offer.service.name) ?? 0) + 1);
+    const name = offer.service.name;
+    if (!performers.has(name)) performers.set(name, new Set());
+    if (!branches.has(name)) branches.set(name, new Set());
+    performers.get(name)!.add(offer.doctor?.id ?? offer.provider.id);
+    branches.get(name)!.add(offer.clinic.id);
   }
-  return Array.from(counts.entries())
-    .map(([name, count]) => ({
+  return Array.from(performers.entries())
+    .map(([name, providerIds]) => ({
       kind: "service" as const,
       value: name,
       label: name,
-      detail: `${count} נותני שירות`,
+      detail: `${providerIds.size} נותני שירות · ${branches.get(name)?.size ?? 0} סניפים`,
       viaSynonym: terms ? synonymHint(lower, name.toLowerCase()) : undefined,
     }))
     .sort((a, b) => a.label.localeCompare(b.label, "he"));
 }
 
+/** Distinct institutes and hospitals — places, as opposed to people. */
+function organizationSuggestions(offers: Offer[], terms: string[] | null, lower: string): Suggestion[] {
+  const out: Suggestion[] = [];
+  const seen = new Set<string>();
+  for (const offer of offers) {
+    const org = offer.organization;
+    if (!org || seen.has(org.id)) continue;
+    const typeLabel = org.provider_type ? PROVIDER_TYPE_LABELS[org.provider_type] ?? "" : "";
+    const hay = `${org.display_name} ${typeLabel}`.toLowerCase();
+    if (terms && !terms.some((t) => hay.includes(t))) continue;
+    seen.add(org.id);
+    const own = offers.filter((o) => o.organization?.id === org.id);
+    out.push({
+      kind: "organization",
+      value: org.id,
+      label: providerLabel(org),
+      detail: [typeLabel, `${new Set(own.map((o) => o.service.id)).size} שירותים`, `${new Set(own.map((o) => o.clinic.id)).size} סניפים`]
+        .filter(Boolean)
+        .join(" · "),
+      viaSynonym: terms ? synonymHint(lower, hay) : undefined,
+    });
+  }
+  return out.sort((a, b) => a.label.localeCompare(b.label, "he"));
+}
+
 /**
- * Typed-entity suggestions within the current scope. A referral code is only
- * meaningful when searching services, since it names one.
+ * Towns the catalogue actually reaches. Worth its own kind rather than being
+ * left to free text: "חיפה" typed into the box should narrow the map, which is
+ * a filter, not a search term that has to keep re-matching every row.
  */
-export function suggest(text: string, offers: Offer[], scope: SearchScope, limit = 6): Suggestion[] {
+function citySuggestions(offers: Offer[], terms: string[] | null, lower: string): Suggestion[] {
+  const counts = new Map<string, number>();
+  for (const offer of offers) {
+    const city = offer.clinic.city;
+    if (!city) continue;
+    const hay = `${city} ${getRegionForCity(city)}`.toLowerCase();
+    if (terms && !terms.some((t) => hay.includes(t))) continue;
+    counts.set(city, (counts.get(city) ?? 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([city, count]) => ({
+      kind: "city" as const,
+      value: city,
+      label: city,
+      detail: `${getRegionForCity(city)} · ${count} הצעות`,
+      viaSynonym: terms ? synonymHint(lower, city.toLowerCase()) : undefined,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label, "he"));
+}
+
+/**
+ * Every kind of thing the box can resolve, blended into one list. Scope no
+ * longer gates the kinds — it only decides which bucket leads — because a
+ * single field that finds doctors but not the institute down the road is a
+ * field the patient has to learn the rules of.
+ *
+ * One of each kind is taken before any bucket goes deep, so a common word that
+ * matches thirty services can't crowd the one matching hospital off the list.
+ */
+function blend(buckets: Suggestion[][], limit: number): Suggestion[] {
+  const out: Suggestion[] = [];
+  for (const bucket of buckets) if (bucket[0]) out.push(bucket[0]);
+  for (const bucket of buckets) for (const suggestion of bucket.slice(1)) out.push(suggestion);
+  return out.slice(0, limit);
+}
+
+/**
+ * Typed-entity suggestions. A referral code always leads when one is typed —
+ * it names exactly one thing, so there is nothing to rank it against.
+ */
+export function suggest(text: string, offers: Offer[], scope: SearchScope, limit = 8): Suggestion[] {
   const raw = text.trim();
   if (raw.length < 2) return [];
   const terms = expandTerms(raw);
   const lower = raw.toLowerCase();
-
-  if (scope === "provider") return doctorSuggestions(offers, terms, lower).slice(0, limit);
 
   const out: Suggestion[] = [];
   if (isReferralCode(raw)) {
@@ -512,16 +626,36 @@ export function suggest(text: string, offers: Offer[], scope: SearchScope, limit
       });
     }
   }
-  return [...out, ...serviceSuggestions(offers, terms, lower)].slice(0, limit);
+
+  const services = serviceSuggestions(offers, terms, lower);
+  const doctors = doctorSuggestions(offers, terms, lower);
+  const organizations = organizationSuggestions(offers, terms, lower);
+  const cities = citySuggestions(offers, terms, lower);
+  const buckets =
+    scope === "provider"
+      ? [doctors, organizations, services, cities]
+      : [services, doctors, organizations, cities];
+
+  return [...out, ...blend(buckets, limit - out.length)];
 }
 
 /**
- * The whole list for the current scope — what the dropdown offers before
- * anything is typed, so the patient can browse instead of having to guess a
- * name. Same shape as suggestions, so the dropdown renders them identically.
+ * The whole catalogue, browsable before anything is typed — so choosing never
+ * depends on already knowing a name. Blended like the typed suggestions, and
+ * for the same reason: the entry points are services, people, places and
+ * towns, and the box shouldn't hide three of the four until she guesses right.
  */
-export function listEntities(offers: Offer[], scope: SearchScope): Suggestion[] {
-  return scope === "provider" ? doctorSuggestions(offers, null, "") : serviceSuggestions(offers, null, "");
+export function listEntities(offers: Offer[], scope: SearchScope, limit = 40): Suggestion[] {
+  const services = serviceSuggestions(offers, null, "");
+  const doctors = doctorSuggestions(offers, null, "");
+  const organizations = organizationSuggestions(offers, null, "");
+  const cities = citySuggestions(offers, null, "");
+  return blend(
+    scope === "provider"
+      ? [doctors, organizations, services, cities]
+      : [services, doctors, organizations, cities],
+    limit
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -561,11 +695,7 @@ export interface FilterDef {
 }
 
 const AVAILABILITY_MAX_DAYS: Record<string, number> = { week: 7, twoWeeks: 14, month: 30 };
-const PRICE_CEILINGS: Record<string, number> = { p300: 300, p600: 600 };
-
-function offerClinicTypes(offer: Offer): LocationType[] {
-  return offer.clinics.map((c) => c.locationType ?? "clinic");
-}
+const PRICE_CEILINGS: Record<string, number> = { p150: 150, p300: 300, p600: 600, p1000: 1000, p1500: 1500 };
 
 function uniqueSorted(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b, "he"));
@@ -633,6 +763,21 @@ function byLabel(a: FilterOption, b: FilterOption): number {
   return a.label.localeCompare(b.label, "he");
 }
 
+/**
+ * The age band an item is offered for, in the words the catalogue uses —
+ * "18+", "עד 12", "6–18", or no limit at all. Read straight off the item's own
+ * min_age/max_age, so the filter can never claim an age rule the item doesn't
+ * carry.
+ */
+export function ageBandOf(service: ConsultationType): string {
+  const min = service.min_age;
+  const max = service.max_age;
+  if (!min && !max) return "כל הגילאים";
+  if (min && !max) return `${min}+`;
+  if (!min && max) return `עד ${max}`;
+  return `${min}–${max}`;
+}
+
 export const FILTER_REGISTRY: FilterDef[] = [
   // The four primary axes, first in the sheet because they answer "in what
   // field, what kind of thing, from what kind of person, at what kind of
@@ -678,6 +823,9 @@ export const FILTER_REGISTRY: FilterDef[] = [
     match: (offer, value) =>
       !Array.isArray(value) || value.length === 0 || value.includes(offer.service.service_type ?? "consultation"),
   },
+  // No control of its own any more: the performer gate writes this when she
+  // picks a KIND of unit without naming one ("כל המכונים"). Still a gate, so
+  // the sheet doesn't draw a second control for it.
   {
     key: "unitType",
     group: "סוג יחידה רפואית",
@@ -699,28 +847,48 @@ export const FILTER_REGISTRY: FilterDef[] = [
     key: "region",
     group: "מיקום",
     type: "multi",
+    // Where in the country is one of the questions asked before price or
+    // timing — it belongs on the bar, not three taps deep in the sheet.
+    primary: true,
     collapsible: true,
     options: (ctx) =>
-      uniqueSorted(ctx.offers.flatMap((o) => o.clinics.map((c) => getRegionForCity(c.city)))).map((v) => ({
+      uniqueSorted(ctx.offers.map((o) => getRegionForCity(o.clinic.city))).map((v) => ({
         value: v,
         label: v,
       })),
     match: (offer, value) =>
-      !Array.isArray(value) ||
-      value.length === 0 ||
-      offer.clinics.some((c) => value.includes(getRegionForCity(c.city))),
+      !Array.isArray(value) || value.length === 0 || value.includes(getRegionForCity(offer.clinic.city)),
   },
+  // Age is a property of the ITEM, not of whoever is searching: each item
+  // declares the range it's offered for (min_age / max_age), and this filter
+  // groups the items by the range they carry. Bands, never an exact age —
+  // "16+" is what the catalogue actually says, and asking her to type 34 would
+  // invent a precision the data doesn't have.
   {
-    key: "locationType",
-    group: "מיקום",
+    key: "ageBand",
+    group: "קבוצת גיל",
     type: "multi",
-    options: (ctx) =>
-      uniqueSorted(ctx.offers.flatMap((o) => offerClinicTypes(o))).map((v) => ({
-        value: v,
-        label: LOCATION_TYPE_LABELS[v as LocationType] ?? v,
-      })),
+    options: (ctx) => {
+      const bands = new Map<string, number>();
+      for (const offer of ctx.offers) bands.set(ageBandOf(offer.service), offer.service.min_age ?? 0);
+      return Array.from(bands.entries())
+        .sort((a, b) => a[1] - b[1])
+        .map(([label]) => ({ value: label, label }));
+    },
     match: (offer, value) =>
-      !Array.isArray(value) || value.length === 0 || offerClinicTypes(offer).some((t) => value.includes(t)),
+      !Array.isArray(value) || value.length === 0 || value.includes(ageBandOf(offer.service)),
+  },
+  // The second level of מיקום: the actual towns the branches sit in. Region is
+  // how you narrow when you don't know the map; a town is how you narrow when
+  // you do. Driven by the region gate, never drawn on its own.
+  {
+    key: "city",
+    group: "עיר",
+    type: "multi",
+    primary: true,
+    options: (ctx) => uniqueSorted(ctx.offers.map((o) => o.clinic.city)).map((v) => ({ value: v, label: v })),
+    match: (offer, value) =>
+      !Array.isArray(value) || value.length === 0 || value.includes(offer.clinic.city),
   },
   {
     key: "availability",
@@ -739,15 +907,29 @@ export const FILTER_REGISTRY: FilterDef[] = [
       return max === undefined || nextAvailableInDays(attributeSource(offer).id) <= max;
     },
   },
+  /**
+   * Not "is it cheap" but "who is paying, and how". The six answers are the
+   * real routes a bill can take in this system, told apart by the layer that
+   * settles it — which is why they're split by SOURCE (קופה vs. ביטוח) and not
+   * lumped into one "יש כיסוי": a patient with a שב"ן and a private policy is
+   * asking about two different wallets, and one chip can't answer both.
+   *
+   * "ייתכן החזר" stays deliberately hedged. Reimbursement is never computed
+   * anywhere in this system — the plan is worth calling, that's all we know —
+   * and a chip reading "החזר מהקופה" would promise a sum nobody calculated.
+   */
   {
     key: "coverage",
     group: "מחיר וכיסוי",
+    label: "כיסוי ביטוחי",
     type: "single",
     options: [
-      { value: "basket", label: "מכוסה בסל" },
-      { value: "arrangement", label: "יש הסדר לפרופיל שלי" },
-      { value: "hint", label: "ייתכן החזר" },
-      { value: "base", label: "מחיר מלא" },
+      { value: "basket", label: "כלול בסל" },
+      { value: "arrangementK", label: 'הסדר עם הקופה (שב"ן)' },
+      { value: "arrangementB", label: "הסדר עם הביטוח הפרטי" },
+      { value: "reimburseK", label: "ייתכן החזר מהקופה" },
+      { value: "reimburseB", label: "ייתכן החזר מהביטוח" },
+      { value: "base", label: "מחיר מלא, ללא כיסוי" },
     ],
     match: (offer, value, ctx) => {
       if (typeof value !== "string" || !value) return true;
@@ -755,19 +937,50 @@ export const FILTER_REGISTRY: FilterDef[] = [
       // Without a patient profile we can't know the funding route, so this
       // filter simply doesn't exclude anything rather than emptying the page.
       if (!pricing) return true;
-      // "ייתכן החזר" is not a route of its own — it's the base route carrying
-      // an informational hint, so it gets its own filter value.
-      if (value === "hint") return pricing.kind === "base" && (pricing.reimbursementHint?.length ?? 0) > 0;
-      return pricing.kind === value;
+      const patient = ctx.patient;
+      const hint = pricing.reimbursementHint ?? [];
+
+      switch (value) {
+        case "basket":
+          return pricing.kind === "basket";
+        case "arrangementK":
+          return pricing.kind === "arrangement" && pricing.layer === "K";
+        case "arrangementB":
+          return pricing.kind === "arrangement" && pricing.layer === "B";
+        // A hint names the PLANS worth checking, so "from the kupah" means her
+        // own שב"ן is among them — never merely that some plan is.
+        case "reimburseK":
+          return pricing.kind === "base" && !!patient?.k_level && hint.includes(patient.k_level);
+        case "reimburseB":
+          return (
+            pricing.kind === "base" &&
+            (patient?.b_insurances ?? []).some((insurance) => hint.includes(insurance.company))
+          );
+        case "base":
+          return pricing.kind === "base" && hint.length === 0;
+        // The umbrella behind the "יש הסדר לפרופיל שלי" quick chip: either
+        // arrangement will do. Not offered in the sheet, where the two
+        // specific answers are the more useful question.
+        case "arrangement":
+          return pricing.kind === "arrangement";
+        default:
+          return true;
+      }
     },
   },
   {
     key: "priceCeiling",
     group: "מחיר וכיסוי",
+    label: "תקרת מחיר",
     type: "single",
+    // Read against what SHE pays after her own coverage, not the list price —
+    // an item in the basket sits under every ceiling, which is correct.
     options: [
+      { value: "p150", label: "עד 150 ₪" },
       { value: "p300", label: "עד 300 ₪" },
       { value: "p600", label: "עד 600 ₪" },
+      { value: "p1000", label: "עד 1,000 ₪" },
+      { value: "p1500", label: "עד 1,500 ₪" },
     ],
     match: (offer, value, ctx) => {
       if (typeof value !== "string" || !value) return true;
@@ -778,18 +991,13 @@ export const FILTER_REGISTRY: FilterDef[] = [
       return pricing.price <= ceiling;
     },
   },
-  {
-    key: "specialty",
-    group: "נותן השירות",
-    type: "multi",
-    collapsible: true,
-    options: (ctx) => uniqueSorted(ctx.offers.map((o) => attributeSource(o).specialty)).map((v) => ({ value: v, label: v })),
-    match: (offer, value) =>
-      !Array.isArray(value) || value.length === 0 || value.includes(attributeSource(offer).specialty),
-  },
+  // Location and "who gives it" left the sheet: both are gates on the bar now,
+  // and a second control writing the same axis would fight the first. What
+  // stays here is what the bar doesn't ask — the language they speak and how
+  // they're rated.
   {
     key: "language",
-    group: "נותן השירות",
+    group: "שפות",
     type: "multi",
     collapsible: true,
     options: (ctx) =>
@@ -799,12 +1007,19 @@ export const FILTER_REGISTRY: FilterDef[] = [
       value.length === 0 ||
       value.every((lang) => (attributeSource(offer).languages ?? []).includes(lang)),
   },
+  // A floor, not a band: nobody looks for "exactly 4 stars". Single-select,
+  // because two floors at once is a contradiction.
   {
-    key: "rating4",
-    group: "נותן השירות",
-    type: "toggle",
-    label: "דירוג 4 ומעלה",
-    match: (offer, value) => value !== true || (attributeSource(offer).rating ?? 0) >= 4,
+    key: "rating",
+    group: "דירוגים",
+    type: "single",
+    options: [
+      { value: "4.5", label: "4.5 ומעלה" },
+      { value: "4", label: "4 ומעלה" },
+      { value: "3.5", label: "3.5 ומעלה" },
+    ],
+    match: (offer, value) =>
+      typeof value !== "string" || !value || (attributeSource(offer).rating ?? 0) >= Number(value),
   },
   {
     key: "noReferral",
@@ -877,21 +1092,23 @@ export function primaryFilters(): FilterDef[] {
 }
 
 /**
- * A gate's options as the rest of the search leaves them: derived from the
- * offers that pass everything EXCEPT this gate itself. That is what ties the
- * gates to one another — picking "הדמיה" leaves only the domains that actually
- * have imaging in them, instead of listing every domain the catalogue knows.
+ * A gate's options, ordered by what the rest of the search leaves reachable:
+ * everything that passes the other gates first, everything else after it. The
+ * unreachable ones are NOT dropped — each still renders, greyed out by its own
+ * zero count, because a domain that silently disappears the moment she picks
+ * "הדמיה" reads as a bug, while a greyed one says "not with what you've
+ * chosen" and can be reasoned about.
  *
- * Its own value is excluded from the probe on purpose: a gate that erased its
- * own alternatives the moment it was used could only be cleared, never
- * changed. Anything already selected stays listed for the same reason.
+ * The gate's own value is excluded from the probe on purpose: a gate that
+ * erased its own alternatives the moment it was used could only be cleared,
+ * never changed.
  */
 export function gateOptions(def: FilterDef, query: SearchQuery, ctx: SearchContext): FilterOption[] {
   const probe: SearchQuery = { ...query, filters: { ...query.filters, [def.key]: undefined } };
   const scoped: SearchContext = { ...ctx, offers: ctx.offers.filter((o) => matchesQuery(o, probe, ctx)) };
   const available = new Set(filterOptions(def, scoped).map((o) => o.value));
-  const selected = Array.isArray(query.filters[def.key]) ? (query.filters[def.key] as string[]) : [];
-  return filterOptions(def, ctx).filter((o) => available.has(o.value) || selected.includes(o.value));
+  const all = filterOptions(def, ctx);
+  return [...all.filter((o) => available.has(o.value)), ...all.filter((o) => !available.has(o.value))];
 }
 
 /** Whether a stored filter value actually narrows anything. */
@@ -925,7 +1142,33 @@ export function matchesQuery(offer: Offer, query: SearchQuery, ctx: SearchContex
 }
 
 export function searchOffers(query: SearchQuery, ctx: SearchContext): Offer[] {
-  return ctx.offers.filter((offer) => matchesQuery(offer, query, ctx));
+  return sortOffers(
+    ctx.offers.filter((offer) => matchesQuery(offer, query, ctx)),
+    ctx.patient
+  );
+}
+
+/**
+ * One item appears once per unit/provider that offers it AND once per branch —
+ * MRI ראש at five institutes with two branches each is ten results, every one
+ * of them a place she could actually drive to, with that place's own price.
+ * That's the whole point of the offer model, so the ordering has to make the
+ * repetition legible: identical items land next to each other, cheapest first
+ * within the group. Otherwise the copies scatter through the list and the
+ * comparison she came to make is impossible to see.
+ *
+ * City breaks a price tie, so the branches of one provider don't interleave
+ * with another's at the same price — at equal cost the next question is where.
+ */
+export function sortOffers(offers: Offer[], patient?: Patient | null): Offer[] {
+  const price = (offer: Offer) => offerPricing(offer, patient)?.price ?? Number.POSITIVE_INFINITY;
+  return [...offers].sort(
+    (a, b) =>
+      a.service.name.localeCompare(b.service.name, "he") ||
+      price(a) - price(b) ||
+      a.clinic.city.localeCompare(b.clinic.city, "he") ||
+      a.clinic.name.localeCompare(b.clinic.name, "he")
+  );
 }
 
 /**
@@ -936,6 +1179,37 @@ export function searchOffers(query: SearchQuery, ctx: SearchContext): Offer[] {
 export function facetCount(query: SearchQuery, key: string, value: FilterValue, ctx: SearchContext): number {
   const probe: SearchQuery = { ...query, filters: { ...query.filters, [key]: value } };
   return ctx.offers.reduce((n, offer) => (matchesQuery(offer, probe, ctx) ? n + 1 : n), 0);
+}
+
+/** Which region a town belongs to — the parent link of the מיקום gate. */
+export function cityRegion(city: string): string {
+  return getRegionForCity(city);
+}
+
+export interface GateChip {
+  key: string;
+  value: string;
+  label: string;
+  group: string;
+}
+
+/**
+ * Everything the gates are currently narrowing by, one chip per value. The bar
+ * shows the first choice per axis and a "+2"; this is the full list, so nothing
+ * she picked can keep filtering from a place she can't see it — every chip
+ * carries its own X.
+ */
+export function activeGateChips(query: SearchQuery, ctx: SearchContext): GateChip[] {
+  const chips: GateChip[] = [];
+  for (const def of primaryFilters()) {
+    const value = query.filters[def.key];
+    if (!Array.isArray(value) || value.length === 0) continue;
+    const options = filterOptions(def, ctx);
+    for (const v of value) {
+      chips.push({ key: def.key, value: v, label: options.find((o) => o.value === v)?.label ?? v, group: def.group });
+    }
+  }
+  return chips;
 }
 
 /** Toggling one value of a multi-select, returning the next array. */
@@ -1026,32 +1300,15 @@ export function coverageSummary(offers: Offer[], patient?: Patient | null): Cove
  */
 function bestPricingOf(offers: Offer[], patient?: Patient | null): OfferPricing | null {
   let best: OfferPricing | null = null;
+  // No inner loop over branches any more: an offer IS a branch, so the set
+  // handed in already contains every place she could go, each priced at its
+  // own site's agreements.
   for (const offer of offers) {
-    // Priced per branch, since an agreement may cover only some of them — the
-    // "from" price has to be the cheapest place she could actually go.
-    for (const clinic of offer.clinics) {
-      const pricing = offerPricing(offer, patient, clinic.id);
-      if (!pricing || pricing.kind === "basket") continue;
-      if (!best || pricing.price < best.price) best = pricing;
-    }
+    const pricing = offerPricing(offer, patient);
+    if (!pricing || pricing.kind === "basket") continue;
+    if (!best || pricing.price < best.price) best = pricing;
   }
   return best;
-}
-
-/** Every funding route an offer has across its locations, one per clinic. */
-export function offerPricingByClinic(
-  offer: Offer,
-  patient?: Patient | null
-): { clinic: Offer["clinics"][number]; pricing: OfferPricing | null }[] {
-  return offer.clinics.map((clinic) => ({ clinic, pricing: offerPricing(offer, patient, clinic.id) }));
-}
-
-/** True when the funding route genuinely differs between an offer's branches. */
-export function hasPerClinicPricing(offer: Offer, patient?: Patient | null): boolean {
-  const seen = new Set(
-    offerPricingByClinic(offer, patient).map(({ pricing }) => `${pricing?.kind}:${pricing?.price}:${pricing?.label}`)
-  );
-  return seen.size > 1;
 }
 
 /** The kinds of work a performer does — ייעוץ / בדיקה / ניתוח and so on. */
@@ -1065,9 +1322,9 @@ function serviceTypesOf(offers: Offer[]): ProviderServiceType[] {
 function clinicNamesOf(offers: Offer[]): string[] {
   const names = new Set<string>();
   for (const offer of offers) {
-    for (const clinic of offer.clinics) {
-      names.add(offer.organization ? `${offer.organization.display_name} · ${clinic.name}` : clinic.name);
-    }
+    names.add(
+      offer.organization ? `${offer.organization.display_name} · ${offer.clinic.name}` : offer.clinic.name
+    );
   }
   return Array.from(names);
 }
@@ -1111,7 +1368,7 @@ export function groupOffers(offers: Offer[], groupBy: SearchQuery["groupBy"], pa
         key: id,
         doctor: groupOffersList[0].doctor as ProviderProfile,
         offers: groupOffersList,
-        clinicCount: new Set(groupOffersList.flatMap((o) => o.clinics.map((c) => c.id))).size,
+        clinicCount: new Set(groupOffersList.map((o) => o.clinic.id)).size,
         clinicNames: clinicNamesOf(groupOffersList),
         serviceTypes: serviceTypesOf(groupOffersList),
         bestPricing: bestPricingOf(groupOffersList, patient),
