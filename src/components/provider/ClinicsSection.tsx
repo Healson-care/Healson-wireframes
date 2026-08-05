@@ -465,9 +465,8 @@ export function ClinicsSection({
               A single-site unit skips it — every service is delivered at the
               unit, and the resource that delivers it is picked elsewhere. */}
           <div className={singleLocation ? "hidden" : undefined}>
-            <p className="text-sm font-medium text-slate-700 mb-2">פריטים המוצעים במיקום זה</p>
             {services.length === 0 ? (
-              <p className="flex items-center gap-1.5 rounded-lg bg-warning-bg border border-warning-border px-3 py-2 text-xs text-warning-text">
+              <p >
               </p>
             ) : (
               <div className="flex flex-col gap-1.5">
