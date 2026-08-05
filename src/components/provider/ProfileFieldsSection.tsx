@@ -28,6 +28,11 @@ export function ProfileFieldsSection({
 }) {
   const [form, setForm] = useState({
     display_name: provider.display_name ?? "",
+    // The three contact_* fields are one record about one person — collected
+    // together at registration, so they are edited together here. The name was
+    // missing entirely until now, which left a phone and an email belonging to
+    // nobody.
+    contact_name: provider.contact_name ?? "",
     contact_phone: provider.contact_phone ?? "",
     contact_email: provider.contact_email ?? "",
     bio: provider.bio ?? "",
@@ -79,24 +84,49 @@ export function ProfileFieldsSection({
                 }}
               />
             </div>
-            <Input
-              label="שם תצוגה (כינוי)"
-              value={form.display_name}
-              onChange={(e) => setForm({ ...form, display_name: e.target.value })}
-              required
-            />
-            <Input
-              label="טלפון ליצירת קשר"
-              value={form.contact_phone}
-              onChange={(e) => setForm({ ...form, contact_phone: e.target.value })}
-            />
-            <Input
-              label="אימייל ליצירת קשר"
-              type="email"
-              value={form.contact_email}
-              onChange={(e) => setForm({ ...form, contact_email: e.target.value })}
-              className="sm:col-span-2"
-            />
+            <div className="sm:col-span-2">
+              <Input
+                label="שם תצוגה (כינוי)"
+                value={form.display_name}
+                onChange={(e) => setForm({ ...form, display_name: e.target.value })}
+                required
+              />
+            </div>
+
+            {/* Grouped and named, because these are NOT the provider's own
+                patient-facing details: contact_* is never rendered on any
+                patient surface — it is who Healson calls. Left unlabelled, a
+                provider could reasonably put their clinic's public number here.
+                Same reasoning as the coordination_notes field below. */}
+            <fieldset className="sm:col-span-2 rounded-lg border border-slate-200 p-3">
+              <legend className="px-1 text-sm font-medium text-slate-700">איש קשר מול Healson</legend>
+              <p className="mb-3 text-xs leading-relaxed text-slate-500">
+                מי שצוות Healson יפנה אליו בענייני תיאום, מסמכים והתחשבנות — מזכיר/ה, מנהל/ת מרפאה או
+                אתם עצמכם. הפרטים כאן אינם מוצגים למטופלים.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Input
+                  label="שם איש הקשר"
+                  placeholder="לא חובה — אם לא מולא, נפנה אליכם ישירות"
+                  value={form.contact_name}
+                  onChange={(e) => setForm({ ...form, contact_name: e.target.value })}
+                />
+                <Input
+                  label="טלפון איש הקשר"
+                  value={form.contact_phone}
+                  onChange={(e) => setForm({ ...form, contact_phone: e.target.value })}
+                />
+                <div className="sm:col-span-2">
+                  <Input
+                    label="אימייל איש הקשר"
+                    type="email"
+                    value={form.contact_email}
+                    onChange={(e) => setForm({ ...form, contact_email: e.target.value })}
+                  />
+                </div>
+              </div>
+            </fieldset>
+
             <div className="sm:col-span-2">
               <p className="text-sm font-medium text-slate-700 mb-2">שפות</p>
               <div className="flex flex-wrap gap-2">
@@ -114,18 +144,23 @@ export function ProfileFieldsSection({
                 ))}
               </div>
             </div>
-            <Textarea
-              label="על אודות (bio) — יוצג למטופלים"
-              value={form.bio}
-              onChange={(e) => setForm({ ...form, bio: e.target.value })}
-              className="sm:col-span-2"
-            />
-            <Textarea
-              label="הנחיות תיאום לצוות Healson (לא גלוי למטופלים)"
-              value={form.coordination_notes}
-              onChange={(e) => setForm({ ...form, coordination_notes: e.target.value })}
-              className="sm:col-span-2"
-            />
+            {/* The span belongs on the grid cell — Input/Textarea/Select all
+                forward className to the inner control, so `sm:col-span-2` on
+                them silently did nothing. */}
+            <div className="sm:col-span-2">
+              <Textarea
+                label="על אודות (bio) — יוצג למטופלים"
+                value={form.bio}
+                onChange={(e) => setForm({ ...form, bio: e.target.value })}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <Textarea
+                label="הנחיות תיאום לצוות Healson (לא גלוי למטופלים)"
+                value={form.coordination_notes}
+                onChange={(e) => setForm({ ...form, coordination_notes: e.target.value })}
+              />
+            </div>
             <Button type="submit" className="sm:col-span-2 self-start mt-1">
               <Save className="h-4 w-4" /> שמור שינויים
             </Button>
