@@ -60,7 +60,7 @@ import {
   Appointment,
   AppointmentStatus,
   ConsultationType,
-  LOCATION_TYPE_LABELS,
+  BRANCH_TYPE_LABELS,
   Patient,
   ProviderProfile,
   isCancelledAppointment,
@@ -165,7 +165,7 @@ export function ProviderAppointmentCalendar({ provider }: { provider: ProviderPr
       const own: ApptLane[] = provider.clinic_locations.map((c) => ({
         id: c.id,
         name: c.name,
-        subtitle: LOCATION_TYPE_LABELS[c.location_type ?? "clinic"],
+        subtitle: BRANCH_TYPE_LABELS[c.location_type ?? "clinic"],
         kind: "self",
         isActive: true,
         serviceIds: provider.consultation_types

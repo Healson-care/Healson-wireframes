@@ -128,7 +128,7 @@ export function getProfileSections(setupConfig: ProviderTypeSetupConfig): Profil
       href: "/provider/profile/payments",
       label: "תשלומים",
       icon: CreditCard,
-      description: "הכנסות, עמלות, תשלום נטו ופרטי חשבון בנק",
+      description: "הכנסות, תשלום לספק ופרטי חשבון בנק",
     },
     {
       key: "reports",

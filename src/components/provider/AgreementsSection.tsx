@@ -9,10 +9,9 @@ import {
   LAYER_LABELS,
   InsuranceLayer,
   Kupah,
-  PRIVATE_INSURANCE_COMPANIES,
   ProviderAgreement,
 } from "@/types";
-import { KupahArrangementPicker, MultiSelectPills } from "@/components/provider/KupahArrangementPicker";
+import { KupahArrangementPicker, PrivateInsurerPicker } from "@/components/provider/KupahArrangementPicker";
 
 /** S/K/B/H agreement editor (§6.3, §8.3 PRV-07) — which insurance layers a
  * provider currently works with. Layer S (basic קופה coverage) is tracked at
@@ -102,9 +101,10 @@ export function AgreementsSection({
 
             {enabled && layer === "B" && (
               <div className="mt-3">
-                <MultiSelectPills
-                  label="חברות ביטוח פרטיות מוכרות"
-                  options={PRIVATE_INSURANCE_COMPANIES}
+                {/* Same picker as the application form — including "אחר", so a
+                    carrier the provider typed there survives an edit here. */}
+                <PrivateInsurerPicker
+                  label="חברות ביטוח פרטיות שאיתן יש הסדר"
                   value={privateInsuranceCompanies}
                   onChange={onPrivateInsuranceCompaniesChange}
                 />

@@ -73,13 +73,29 @@ function gradientForName(name: string): string {
 
 export function Avatar({ name, src, className }: { name: string; src?: string; className?: string }) {
   if (src) {
+    // The picture is painted as a BACKGROUND over the initials tile rather than
+    // as an <img>: if the file is missing (a seeded path whose asset wasn't
+    // added, a stale upload), the layer above simply doesn't paint and the
+    // initials show through — no broken-image icon, and no client-side onError
+    // handler, which this module can't have (it is imported by server
+    // components too).
     return (
-      // eslint-disable-next-line @next/next/no-img-element -- data-url uploads, not a static/remote asset
-      <img
-        src={src}
-        alt={name}
-        className={cn("h-9 w-9 shrink-0 rounded-full object-cover shadow-sm ring-2 ring-white", className)}
-      />
+      <div
+        role="img"
+        aria-label={name}
+        className={cn(
+          "relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br text-sm font-semibold text-white shadow-sm ring-2 ring-white",
+          gradientForName(name),
+          className
+        )}
+      >
+        <span aria-hidden>{initials(name)}</span>
+        <span
+          aria-hidden
+          style={{ backgroundImage: `url("${src}")` }}
+          className="absolute inset-0 bg-cover bg-center"
+        />
+      </div>
     );
   }
   return (

@@ -111,16 +111,42 @@ export function findException(clinic: ScheduleHolder | undefined, date: string):
   return (clinic?.schedule_exceptions ?? []).find((e) => e.date === date);
 }
 
+/** Whether a shift is in force on a concrete date. A permanent shift always is;
+ * a temporary one only inside its [valid_from, valid_until] window — that is
+ * the whole difference between the two (see ShiftRecurrence). */
+export function isShiftActiveOn(shift: ScheduleShift, date: string): boolean {
+  if (shift.recurrence !== "temporary") return true;
+  if (shift.valid_from && date < shift.valid_from) return false;
+  if (shift.valid_until && date > shift.valid_until) return false;
+  return true;
+}
+
+/** Two shifts can only clash if they overlap in TIME on a day both are in force
+ * on — a temporary January-only evening shift doesn't collide with a permanent
+ * one that runs the rest of the year. */
+function validityOverlaps(a: ScheduleShift, b: ScheduleShift): boolean {
+  // A permanent shift is in force on every date, so it overlaps everything.
+  if (a.recurrence !== "temporary" || b.recurrence !== "temporary") return true;
+  const aStart = a.valid_from ?? "0000-00-00";
+  const aEnd = a.valid_until ?? "9999-12-31";
+  const bStart = b.valid_from ?? "0000-00-00";
+  const bEnd = b.valid_until ?? "9999-12-31";
+  return aStart <= bEnd && bStart <= aEnd;
+}
+
 /** Shifts actually in effect on a concrete date: a date exception (closed, or
- * a replacement set of shifts) wins over the weekly schedule. Returns an
- * empty array when the location is closed that day. */
+ * a replacement set of shifts) wins over the weekly schedule, and a temporary
+ * shift only counts inside its own date window. Returns an empty array when
+ * the location is closed that day. */
 export function shiftsForDate(clinic: ScheduleHolder | undefined, date: string): ScheduleShift[] {
   if (!clinic) return [];
   const exception = findException(clinic, date);
-  if (exception) return exception.closed ? [] : exception.shifts ?? [];
+  if (exception) {
+    return exception.closed ? [] : (exception.shifts ?? []).filter((s) => isShiftActiveOn(s, date));
+  }
   const [y, m, d] = date.split("-").map(Number);
   const dayKey = dayKeyForDate(new Date(y, (m || 1) - 1, d || 1));
-  return getWeeklySchedule(clinic)[dayKey] ?? [];
+  return (getWeeklySchedule(clinic)[dayKey] ?? []).filter((s) => isShiftActiveOn(s, date));
 }
 
 function overlapsBreak(startMin: number, endMin: number, shift: ScheduleShift): boolean {
@@ -203,6 +229,14 @@ export function validateDayShifts(shifts: ScheduleShift[]): string | null {
     const start = timeToMinutes(shift.start);
     const end = timeToMinutes(shift.end);
     if (end <= start) return `שעת הסיום ${shift.end} חייבת להיות אחרי שעת ההתחלה ${shift.start}`;
+    if (shift.recurrence === "temporary") {
+      if (!shift.valid_from || !shift.valid_until) {
+        return `למשמרת זמנית ${formatShift(shift)} יש להגדיר תאריך התחלה ותאריך סיום`;
+      }
+      if (shift.valid_until < shift.valid_from) {
+        return `במשמרת הזמנית ${formatShift(shift)} תאריך הסיום מוקדם מתאריך ההתחלה`;
+      }
+    }
     for (const br of shift.breaks ?? []) {
       const bs = timeToMinutes(br.start);
       const be = timeToMinutes(br.end);
@@ -211,8 +245,10 @@ export function validateDayShifts(shifts: ScheduleShift[]): string | null {
     }
   }
   for (let i = 1; i < sorted.length; i++) {
-    if (timeToMinutes(sorted[i].start) < timeToMinutes(sorted[i - 1].end)) {
-      return `המשמרות ${formatShift(sorted[i - 1])} ו-${formatShift(sorted[i])} חופפות`;
+    const prev = sorted[i - 1];
+    const current = sorted[i];
+    if (timeToMinutes(current.start) < timeToMinutes(prev.end) && validityOverlaps(prev, current)) {
+      return `המשמרות ${formatShift(prev)} ו-${formatShift(current)} חופפות`;
     }
   }
   return null;

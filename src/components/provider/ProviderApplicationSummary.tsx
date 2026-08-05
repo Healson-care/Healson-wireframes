@@ -34,7 +34,11 @@ function DocRow({ label, file }: { label: string; file?: UploadedFile }) {
  * they can see everything Healson already has on file while they finish setup. */
 export function ProviderApplicationSummary({ provider }: { provider: ProviderProfile }) {
   const documents: { label: string; file?: UploadedFile }[] = [
+    { label: "צילום תעודת זהות", file: provider.id_document_photo },
     { label: "רישיון מקצועי", file: provider.license_file },
+    ...(provider.specialist_license_file || provider.specialist_license_number
+      ? [{ label: "תעודת מומחה", file: provider.specialist_license_file }]
+      : []),
     { label: "קורות חיים / תעודות", file: provider.medical_resume_file },
     ...(provider.doctor_subtype === "surgeon"
       ? [
@@ -65,9 +69,29 @@ export function ProviderApplicationSummary({ provider }: { provider: ProviderPro
           {(provider.sub_specialties?.length ?? 0) > 0 && (
             <Field label="תתי-התמחות">{provider.sub_specialties!.join(", ")}</Field>
           )}
+          {/* A free-text sub-specialty is not part of the profile until Healson
+              approves it — say so rather than showing it as a fact. */}
+          {(provider.sub_specialty_requests ?? []).some((r) => r.status === "pending") && (
+            <Field label='תת-התמחות "אחר" — ממתינה לאישור'>
+              {provider
+                .sub_specialty_requests!.filter((r) => r.status === "pending")
+                .map((r) => r.value)
+                .join(", ")}
+            </Field>
+          )}
           <Field label="מספר רישיון">
             {provider.license_number && <span className="font-mono">{provider.license_number}</span>}
           </Field>
+          {provider.specialist_license_number && (
+            <Field label="מספר רישיון מומחה">
+              <span className="font-mono">{provider.specialist_license_number}</span>
+            </Field>
+          )}
+          {provider.id_number && (
+            <Field label="תעודת זהות">
+              <span className="font-mono">{provider.id_number}</span>
+            </Field>
+          )}
           {provider.business_reg_number && (
             <Field label='ח"פ / עוסק'>
               <span className="font-mono">{provider.business_reg_number}</span>

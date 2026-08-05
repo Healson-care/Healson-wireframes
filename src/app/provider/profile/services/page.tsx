@@ -7,8 +7,10 @@ import {
   ServiceCatalogSection,
 } from "@/components/provider/ServiceCatalogSection";
 import { PriceListEntry, PriceListSection } from "@/components/provider/PriceListSection";
+import { SoloItemCatalogSection } from "@/components/provider/SoloItemCatalogSection";
 import { getProviderSetupConfig } from "@/lib/provider-setup";
 import { useStore } from "@/lib/store";
+import { isPractitionerProviderType } from "@/types";
 
 export default function ProviderServicesPage() {
   const allProviders = useStore((s) => s.providers);
@@ -45,6 +47,22 @@ export default function ProviderServicesPage() {
           kind: "doctor",
           hasSchedule: !!a.schedule || !!a.schedule_id,
         }));
+        // An individual provider (רופא/מטפל) writes their own items rather than
+        // picking them out of a reference catalog — a different editor entirely
+        // (see SoloItemCatalogSection). Units keep the code-based entry.
+        if (isPractitionerProviderType(provider.provider_type)) {
+          return (
+            <SoloItemCatalogSection
+              items={provider.consultation_types}
+              onChange={(items) => update({ consultation_types: items })}
+              itemLabel={setupConfig.catalogItemLabel}
+              subSpecialties={provider.sub_specialties ?? []}
+              kupahArrangements={provider.kupah_arrangements ?? []}
+              privateInsurers={provider.private_insurance_companies ?? []}
+              isSurgeon={provider.provider_type === "doctor" && provider.doctor_subtype === "surgeon"}
+            />
+          );
+        }
         return (
           <>
             <p className="mb-4 -mt-3 text-xs leading-relaxed text-slate-500">
