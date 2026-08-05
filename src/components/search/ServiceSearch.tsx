@@ -11,15 +11,16 @@ import {
   SearchQuery,
   Suggestion,
   activeFilterCount,
+  activeGateChips,
   buildOffers,
-  groupOffers,
   offersWithoutDoctor,
   searchOffers,
   offerPricing,
+  toggleMulti,
 } from "@/lib/search";
 import { SearchOmnibox } from "@/components/search/SearchOmnibox";
 import { FilterSheet } from "@/components/search/FilterSheet";
-import { GroupDetail, OfferItemList, OfferResults } from "@/components/search/OfferResults";
+import { OfferResults } from "@/components/search/OfferResults";
 import { InsuranceProfileStrip } from "@/components/search/InsuranceProfileStrip";
 import { PrimaryGates } from "@/components/search/PrimaryGates";
 
@@ -51,8 +52,6 @@ export function ServiceSearch({
   patient,
   query,
   onQueryChange,
-  openKey,
-  onOpenKeyChange,
   onSelectOffer,
 }: {
   providers: ProviderProfile[];
@@ -65,9 +64,6 @@ export function ServiceSearch({
   // wipe the search she built to get there.
   query: SearchQuery;
   onQueryChange: (next: SearchQuery) => void;
-  /** Which card's detail screen is open — an id, since groups are recomputed. */
-  openKey: string | null;
-  onOpenKeyChange: (key: string | null) => void;
   onSelectOffer: (offer: Offer) => void;
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -87,7 +83,6 @@ export function ServiceSearch({
   const ctx: SearchContext = useMemo(() => ({ patient, offers: scopedOffers }), [patient, scopedOffers]);
 
   const results = useMemo(() => searchOffers(query, ctx), [query, ctx]);
-  const groups = useMemo(() => groupOffers(results, query.groupBy, patient), [results, query.groupBy, patient]);
 
   // The concierge summary: how many of the current results the patient's own
   // insurance actually does something for. Computed on the same offers the
@@ -114,24 +109,15 @@ export function ServiceSearch({
     return [...names, ...(doctor ? [doctor] : [])];
   }, [offers]);
 
-  // Falls back to the results list if the opened card no longer matches — a
-  // filter changed while its screen was open.
-  const openGroup = openKey ? groups.find((g) => g.key === openKey) ?? null : null;
-
   const performer = query.performerId ? offers.find((o) => o.doctor?.id === query.performerId)?.doctor : undefined;
+  const organization = query.organizationId
+    ? offers.find((o) => o.organization?.id === query.organizationId)?.organization
+    : undefined;
   const filterCount = activeFilterCount(query);
-  // Containers are for browsing. Once anything is narrowed — a gate, a filter,
-  // an anchor, typed text — she has already said what she's after, and
-  // grouping would hide the very items she filtered down to.
-  const narrowed =
-    filterCount > 0 ||
-    !!query.performerId ||
-    !!query.organizationId ||
-    !!query.serviceName ||
-    query.text.trim().length > 0;
-  // Station-run imaging and lab work have no doctor, so this view can't hold
-  // them. Worth one line of explanation, since the totals differ between the
-  // two views — but no number, which would describe nothing on screen.
+  const gateChips = useMemo(() => activeGateChips(query, ctx), [query, ctx]);
+  // Station-run imaging and lab work have no doctor, so a search scoped to
+  // "רופאים" can't hold them. Worth one line of explanation, since the totals
+  // differ — but no number, which would describe nothing on screen.
   const hasDoctorlessOffers = query.groupBy === "provider" && offersWithoutDoctor(offers).length > 0;
 
   function pick(suggestion: Suggestion) {
@@ -151,46 +137,43 @@ export function ServiceSearch({
     setQuery((q) => ({ ...q, filters: {} }));
   }
 
-  // A card's own screen replaces the search entirely — results, filters and
-  // the box all step aside so the list of items owns the viewport.
-  if (openGroup) {
-    return (
-      <GroupDetail
-        group={openGroup}
-        patient={patient}
-        onBack={() => onOpenKeyChange(null)}
-        onSelectOffer={onSelectOffer}
-      />
-    );
-  }
-
   return (
     <div>
-      {patient && <InsuranceProfileStrip patient={patient} />}
+      {/* The controls stay on screen for the whole scroll. Filtering is not a
+          thing you do once at the top and then leave — she reads three cards,
+          decides she wants תל אביב only, and shouldn't have to scroll back up
+          to say so. top-14 clears the layout's own sticky header; the negative
+          margin lets the band span the page padding, so cards pass under it
+          rather than beside it. */}
+      <div className="sticky top-14 z-20 -mx-4 mb-3 border-b border-slate-200/70 bg-slate-50/90 px-4 pb-2 pt-2 backdrop-blur">
+        {/* The profile rides along: every price on screen is stated in terms
+            of these plans, so the legend for them can't scroll away from the
+            thing it explains. */}
+        {patient && <InsuranceProfileStrip patient={patient} />}
 
-      {/* 1 — the gates, in place of the old by-service/by-provider toggle:
-          what kind of item, from what kind of person, at what kind of unit.
-          Choosing a kind of PERSON is itself the statement that she's looking
-          for a person, so the view follows the gate instead of asking twice. */}
-      <PrimaryGates query={query} onChange={onQueryChange} ctx={ctx} />
+        {/* 1 — the gates, in place of the old by-service/by-provider toggle:
+            what kind of item, from what kind of person, at what kind of unit.
+            Choosing a kind of PERSON is itself the statement that she's looking
+            for a person, so the view follows the gate instead of asking twice. */}
+        <PrimaryGates query={query} onChange={onQueryChange} ctx={ctx} />
 
-      {/* 2 — the search bar, scoped by the choice above. */}
-      <div className="mb-3">
-        <SearchOmnibox
-          text={query.text}
-          onTextChange={(text) => setQuery((q) => ({ ...q, text }))}
-          offers={scopedOffers}
-          scope={query.groupBy}
-          recents={recents}
-          onPick={pick}
-          onPickRecent={(value) => setQuery((q) => ({ ...q, text: value }))}
-        />
-      </div>
+        {/* 2 — the search bar, scoped by the choice above. */}
+        <div className="mb-2">
+          <SearchOmnibox
+            text={query.text}
+            onTextChange={(text) => setQuery((q) => ({ ...q, text }))}
+            offers={scopedOffers}
+            scope={query.groupBy}
+            recents={recents}
+            onPick={pick}
+            onPickRecent={(value) => setQuery((q) => ({ ...q, text: value }))}
+          />
+        </div>
 
-      {/* 3 — filters: anchors and quick chips inline, the rest in the sheet.
-          Wraps rather than scrolling sideways — a chip the patient has to
-          discover by swiping may as well not be on screen. */}
-      <div className="mb-3 flex flex-wrap items-center gap-2">
+        {/* 3 — filters: anchors and quick chips inline, the rest in the sheet.
+            Wraps rather than scrolling sideways — a chip the patient has to
+            discover by swiping may as well not be on screen. */}
+        <div className="flex flex-wrap items-center gap-2">
         <button
           onClick={() => setSheetOpen(true)}
           className={cn(
@@ -208,7 +191,31 @@ export function ServiceSearch({
         {performer && (
           <AnchorChip
             label={`נותן שירות: ${performer.title ?? ""} ${performer.display_name}`.trim()}
-            onRemove={() => setQuery((q) => ({ ...q, performerId: null }))}
+            // Undo everything picking a person did, not just the id. Leaving
+            // groupBy on "provider" would keep the index scoped to services a
+            // doctor gives, so after the X she could no longer reach a מכון —
+            // or get back to the doctor she just removed.
+            onRemove={() =>
+              setQuery((q) => ({
+                ...q,
+                performerId: null,
+                groupBy: "service",
+                filters: { ...q.filters, unitType: undefined },
+              }))
+            }
+          />
+        )}
+        {organization && (
+          <AnchorChip
+            label={`מקום: ${organization.display_name}`}
+            onRemove={() =>
+              setQuery((q) => ({
+                ...q,
+                organizationId: null,
+                groupBy: "service",
+                filters: { ...q.filters, unitType: undefined },
+              }))
+            }
           />
         )}
         {query.serviceName && (
@@ -219,6 +226,23 @@ export function ServiceSearch({
             onRemove={() => setQuery((q) => ({ ...q, serviceName: null, referralCode: null }))}
           />
         )}
+
+        {/* Every gate value that's still narrowing, each with its own X. The
+            bar itself only has room for the first choice per axis — a city she
+            picked and then forgot about must not keep filtering from a place
+            she can't see it. */}
+        {gateChips.map((chip) => (
+          <AnchorChip
+            key={`${chip.key}:${chip.value}`}
+            label={`${chip.group}: ${chip.label}`}
+            onRemove={() =>
+              setQuery((q) => {
+                const next = toggleMulti(q.filters[chip.key], chip.value);
+                return { ...q, filters: { ...q.filters, [chip.key]: next.length ? next : undefined } };
+              })
+            }
+          />
+        ))}
 
         {QUICK_CHIPS.map((chip) => {
           const active = query.filters[chip.key] === chip.value;
@@ -242,6 +266,7 @@ export function ServiceSearch({
             </button>
           );
         })}
+        </div>
       </div>
 
       {patient && results.length > 0 ? (
@@ -253,25 +278,17 @@ export function ServiceSearch({
         </p>
       ) : (
         <p className="mb-2 text-xs text-slate-500">
-          {results.length === 0
-            ? "אין תוצאות"
-            : narrowed
-              ? `${results.length} פריטים`
-              : `${results.length} הצעות · ${groups.length} ${query.groupBy === "provider" ? "נותני שירות" : "שירותים"}`}
+          {results.length === 0 ? "אין תוצאות" : `${results.length} פריטים`}
         </p>
       )}
 
       {hasDoctorlessOffers && (
         <p className="mb-3 rounded-lg border border-info-border bg-info-bg px-3 py-2 text-[11px] text-info-text">
-          תצוגה זו מציגה שירותים שרופא נותן. בדיקות שמבוצעות במכשיר במכון מופיעות בתצוגת &quot;לפי שירות&quot;.
+          מוצגים רק פריטים שרופא נותן. בדיקות שמבוצעות במכשיר במכון יופיעו כשתסירו את הבחירה בנותן שירות.
         </p>
       )}
 
-      {narrowed ? (
-        <OfferItemList offers={results} patient={patient} onSelectOffer={onSelectOffer} />
-      ) : (
-        <OfferResults groups={groups} onOpenGroup={(group) => onOpenKeyChange(group.key)} onSelectOffer={onSelectOffer} />
-      )}
+      <OfferResults offers={results} patient={patient} onSelectOffer={onSelectOffer} />
 
       <FilterSheet
         open={sheetOpen}

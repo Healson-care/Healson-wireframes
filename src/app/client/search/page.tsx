@@ -63,7 +63,6 @@ export default function ClientSearchPage() {
   const [selectedDoctor, setSelectedDoctor] = useState<ProviderProfile | null>(null);
   // Search state lives here so stepping forward and back doesn't reset it.
   const [searchQuery, setSearchQuery] = useState<SearchQuery>(emptyQuery);
-  const [openGroupKey, setOpenGroupKey] = useState<string | null>(null);
 
   const [selectedSlot, setSelectedSlot] = useState<{ date: string; time: string; label: string } | null>(null);
   const [holdExpiresAt, setHoldExpiresAt] = useState<number | null>(null);
@@ -314,7 +313,6 @@ export default function ClientSearchPage() {
     setReferralFile(null);
     setCommitmentFile(null);
     setSearchQuery(emptyQuery());
-    setOpenGroupKey(null);
     setSelectedService(null);
     setSelectedProvider(null);
     setSelectedSlot(null);
@@ -497,8 +495,6 @@ export default function ClientSearchPage() {
                 patient={patient}
                 query={searchQuery}
                 onQueryChange={setSearchQuery}
-                openKey={openGroupKey}
-                onOpenKeyChange={setOpenGroupKey}
                 onSelectOffer={selectOffer}
               />
             </motion.div>

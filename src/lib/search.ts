@@ -23,7 +23,6 @@ import {
   OrganizationBranch,
   ConsultationType,
   InsuranceLayer,
-  LOCATION_TYPE_LABELS,
   LocationType,
   Patient,
   PROVIDER_SERVICE_TYPE_LABELS,
@@ -384,6 +383,9 @@ function offerHaystack(offer: Offer): string {
   const { doctor, organization, service } = offer;
   const person = attributeSource(offer);
   return [
+    // The code is searchable text like any other: a referral slip says 54021
+    // long before it says "MRI עמוד שדרה מותני".
+    service.moh_code,
     service.name,
     doctor?.display_name,
     doctor?.title,
@@ -563,10 +565,6 @@ export interface FilterDef {
 const AVAILABILITY_MAX_DAYS: Record<string, number> = { week: 7, twoWeeks: 14, month: 30 };
 const PRICE_CEILINGS: Record<string, number> = { p300: 300, p600: 600 };
 
-function offerClinicTypes(offer: Offer): LocationType[] {
-  return offer.clinics.map((c) => c.locationType ?? "clinic");
-}
-
 function uniqueSorted(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b, "he"));
 }
@@ -633,6 +631,21 @@ function byLabel(a: FilterOption, b: FilterOption): number {
   return a.label.localeCompare(b.label, "he");
 }
 
+/**
+ * The age band an item is offered for, in the words the catalogue uses —
+ * "18+", "עד 12", "6–18", or no limit at all. Read straight off the item's own
+ * min_age/max_age, so the filter can never claim an age rule the item doesn't
+ * carry.
+ */
+export function ageBandOf(service: ConsultationType): string {
+  const min = service.min_age;
+  const max = service.max_age;
+  if (!min && !max) return "כל הגילאים";
+  if (min && !max) return `${min}+`;
+  if (!min && max) return `עד ${max}`;
+  return `${min}–${max}`;
+}
+
 export const FILTER_REGISTRY: FilterDef[] = [
   // The four primary axes, first in the sheet because they answer "in what
   // field, what kind of thing, from what kind of person, at what kind of
@@ -678,6 +691,9 @@ export const FILTER_REGISTRY: FilterDef[] = [
     match: (offer, value) =>
       !Array.isArray(value) || value.length === 0 || value.includes(offer.service.service_type ?? "consultation"),
   },
+  // No control of its own any more: the performer gate writes this when she
+  // picks a KIND of unit without naming one ("כל המכונים"). Still a gate, so
+  // the sheet doesn't draw a second control for it.
   {
     key: "unitType",
     group: "סוג יחידה רפואית",
@@ -699,6 +715,9 @@ export const FILTER_REGISTRY: FilterDef[] = [
     key: "region",
     group: "מיקום",
     type: "multi",
+    // Where in the country is one of the questions asked before price or
+    // timing — it belongs on the bar, not three taps deep in the sheet.
+    primary: true,
     collapsible: true,
     options: (ctx) =>
       uniqueSorted(ctx.offers.flatMap((o) => o.clinics.map((c) => getRegionForCity(c.city)))).map((v) => ({
@@ -710,17 +729,37 @@ export const FILTER_REGISTRY: FilterDef[] = [
       value.length === 0 ||
       offer.clinics.some((c) => value.includes(getRegionForCity(c.city))),
   },
+  // Age is a property of the ITEM, not of whoever is searching: each item
+  // declares the range it's offered for (min_age / max_age), and this filter
+  // groups the items by the range they carry. Bands, never an exact age —
+  // "16+" is what the catalogue actually says, and asking her to type 34 would
+  // invent a precision the data doesn't have.
   {
-    key: "locationType",
-    group: "מיקום",
+    key: "ageBand",
+    group: "קבוצת גיל",
     type: "multi",
-    options: (ctx) =>
-      uniqueSorted(ctx.offers.flatMap((o) => offerClinicTypes(o))).map((v) => ({
-        value: v,
-        label: LOCATION_TYPE_LABELS[v as LocationType] ?? v,
-      })),
+    options: (ctx) => {
+      const bands = new Map<string, number>();
+      for (const offer of ctx.offers) bands.set(ageBandOf(offer.service), offer.service.min_age ?? 0);
+      return Array.from(bands.entries())
+        .sort((a, b) => a[1] - b[1])
+        .map(([label]) => ({ value: label, label }));
+    },
     match: (offer, value) =>
-      !Array.isArray(value) || value.length === 0 || offerClinicTypes(offer).some((t) => value.includes(t)),
+      !Array.isArray(value) || value.length === 0 || value.includes(ageBandOf(offer.service)),
+  },
+  // The second level of מיקום: the actual towns the branches sit in. Region is
+  // how you narrow when you don't know the map; a town is how you narrow when
+  // you do. Driven by the region gate, never drawn on its own.
+  {
+    key: "city",
+    group: "עיר",
+    type: "multi",
+    primary: true,
+    options: (ctx) =>
+      uniqueSorted(ctx.offers.flatMap((o) => o.clinics.map((c) => c.city))).map((v) => ({ value: v, label: v })),
+    match: (offer, value) =>
+      !Array.isArray(value) || value.length === 0 || offer.clinics.some((c) => value.includes(c.city)),
   },
   {
     key: "availability",
@@ -778,18 +817,13 @@ export const FILTER_REGISTRY: FilterDef[] = [
       return pricing.price <= ceiling;
     },
   },
-  {
-    key: "specialty",
-    group: "נותן השירות",
-    type: "multi",
-    collapsible: true,
-    options: (ctx) => uniqueSorted(ctx.offers.map((o) => attributeSource(o).specialty)).map((v) => ({ value: v, label: v })),
-    match: (offer, value) =>
-      !Array.isArray(value) || value.length === 0 || value.includes(attributeSource(offer).specialty),
-  },
+  // Location and "who gives it" left the sheet: both are gates on the bar now,
+  // and a second control writing the same axis would fight the first. What
+  // stays here is what the bar doesn't ask — the language they speak and how
+  // they're rated.
   {
     key: "language",
-    group: "נותן השירות",
+    group: "שפות",
     type: "multi",
     collapsible: true,
     options: (ctx) =>
@@ -799,12 +833,19 @@ export const FILTER_REGISTRY: FilterDef[] = [
       value.length === 0 ||
       value.every((lang) => (attributeSource(offer).languages ?? []).includes(lang)),
   },
+  // A floor, not a band: nobody looks for "exactly 4 stars". Single-select,
+  // because two floors at once is a contradiction.
   {
-    key: "rating4",
-    group: "נותן השירות",
-    type: "toggle",
-    label: "דירוג 4 ומעלה",
-    match: (offer, value) => value !== true || (attributeSource(offer).rating ?? 0) >= 4,
+    key: "rating",
+    group: "דירוגים",
+    type: "single",
+    options: [
+      { value: "4.5", label: "4.5 ומעלה" },
+      { value: "4", label: "4 ומעלה" },
+      { value: "3.5", label: "3.5 ומעלה" },
+    ],
+    match: (offer, value) =>
+      typeof value !== "string" || !value || (attributeSource(offer).rating ?? 0) >= Number(value),
   },
   {
     key: "noReferral",
@@ -877,21 +918,23 @@ export function primaryFilters(): FilterDef[] {
 }
 
 /**
- * A gate's options as the rest of the search leaves them: derived from the
- * offers that pass everything EXCEPT this gate itself. That is what ties the
- * gates to one another — picking "הדמיה" leaves only the domains that actually
- * have imaging in them, instead of listing every domain the catalogue knows.
+ * A gate's options, ordered by what the rest of the search leaves reachable:
+ * everything that passes the other gates first, everything else after it. The
+ * unreachable ones are NOT dropped — each still renders, greyed out by its own
+ * zero count, because a domain that silently disappears the moment she picks
+ * "הדמיה" reads as a bug, while a greyed one says "not with what you've
+ * chosen" and can be reasoned about.
  *
- * Its own value is excluded from the probe on purpose: a gate that erased its
- * own alternatives the moment it was used could only be cleared, never
- * changed. Anything already selected stays listed for the same reason.
+ * The gate's own value is excluded from the probe on purpose: a gate that
+ * erased its own alternatives the moment it was used could only be cleared,
+ * never changed.
  */
 export function gateOptions(def: FilterDef, query: SearchQuery, ctx: SearchContext): FilterOption[] {
   const probe: SearchQuery = { ...query, filters: { ...query.filters, [def.key]: undefined } };
   const scoped: SearchContext = { ...ctx, offers: ctx.offers.filter((o) => matchesQuery(o, probe, ctx)) };
   const available = new Set(filterOptions(def, scoped).map((o) => o.value));
-  const selected = Array.isArray(query.filters[def.key]) ? (query.filters[def.key] as string[]) : [];
-  return filterOptions(def, ctx).filter((o) => available.has(o.value) || selected.includes(o.value));
+  const all = filterOptions(def, ctx);
+  return [...all.filter((o) => available.has(o.value)), ...all.filter((o) => !available.has(o.value))];
 }
 
 /** Whether a stored filter value actually narrows anything. */
@@ -925,7 +968,25 @@ export function matchesQuery(offer: Offer, query: SearchQuery, ctx: SearchContex
 }
 
 export function searchOffers(query: SearchQuery, ctx: SearchContext): Offer[] {
-  return ctx.offers.filter((offer) => matchesQuery(offer, query, ctx));
+  return sortOffers(
+    ctx.offers.filter((offer) => matchesQuery(offer, query, ctx)),
+    ctx.patient
+  );
+}
+
+/**
+ * One item appears once per unit/provider that offers it — MRI ראש at five
+ * institutes is five results, each with its own arrangement and its own price.
+ * That's the whole point of the offer model, so the ordering has to make the
+ * repetition legible: identical items land next to each other, cheapest first
+ * within the group. Otherwise the five copies scatter through the list and the
+ * comparison she came to make is impossible to see.
+ */
+export function sortOffers(offers: Offer[], patient?: Patient | null): Offer[] {
+  const price = (offer: Offer) => offerPricing(offer, patient)?.price ?? Number.POSITIVE_INFINITY;
+  return [...offers].sort(
+    (a, b) => a.service.name.localeCompare(b.service.name, "he") || price(a) - price(b)
+  );
 }
 
 /**
@@ -936,6 +997,37 @@ export function searchOffers(query: SearchQuery, ctx: SearchContext): Offer[] {
 export function facetCount(query: SearchQuery, key: string, value: FilterValue, ctx: SearchContext): number {
   const probe: SearchQuery = { ...query, filters: { ...query.filters, [key]: value } };
   return ctx.offers.reduce((n, offer) => (matchesQuery(offer, probe, ctx) ? n + 1 : n), 0);
+}
+
+/** Which region a town belongs to — the parent link of the מיקום gate. */
+export function cityRegion(city: string): string {
+  return getRegionForCity(city);
+}
+
+export interface GateChip {
+  key: string;
+  value: string;
+  label: string;
+  group: string;
+}
+
+/**
+ * Everything the gates are currently narrowing by, one chip per value. The bar
+ * shows the first choice per axis and a "+2"; this is the full list, so nothing
+ * she picked can keep filtering from a place she can't see it — every chip
+ * carries its own X.
+ */
+export function activeGateChips(query: SearchQuery, ctx: SearchContext): GateChip[] {
+  const chips: GateChip[] = [];
+  for (const def of primaryFilters()) {
+    const value = query.filters[def.key];
+    if (!Array.isArray(value) || value.length === 0) continue;
+    const options = filterOptions(def, ctx);
+    for (const v of value) {
+      chips.push({ key: def.key, value: v, label: options.find((o) => o.value === v)?.label ?? v, group: def.group });
+    }
+  }
+  return chips;
 }
 
 /** Toggling one value of a multi-select, returning the next array. */
