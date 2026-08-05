@@ -653,6 +653,16 @@ export const BRANCH_TYPE_LABELS: Record<LocationType, string> = {
   virtual: "אונליין",
 };
 
+// How an online branch actually meets the patient. Picked, not typed, so the
+// same words reach the patient on every provider's card.
+export const VIRTUAL_PLATFORMS = [
+  "זום (Zoom)",
+  "גוגל מיט (Google Meet)",
+  "וידאו בוואטסאפ",
+  "שיחת טלפון",
+  "פלטפורמה אחרת",
+] as const;
+
 export interface Clinic {
   id: string;
   name: string;
@@ -668,6 +678,15 @@ export interface Clinic {
   schedule?: WeeklySchedule;
   schedule_exceptions?: ScheduleException[];
   location_type?: LocationType;
+  // Branch-type-specific details — a branch only ever carries the one that
+  // belongs to its location_type (see ClinicsSection's BRANCH_TYPE_FIELDS).
+  // A "מרפאה" has an address; a "ביקורי בית" has the areas it travels to
+  // (kept in `city`, so patient search keeps filtering it) plus optional travel
+  // terms; an "אונליין" branch has neither, only how the meeting happens.
+  /** ביקורי בית — free text: distance covered, travel fee, notice needed. */
+  travel_note?: string;
+  /** אונליין — one of VIRTUAL_PLATFORMS. */
+  virtual_platform?: string;
 }
 
 // A date the provider has closed (vacation/holiday/etc) on top of their

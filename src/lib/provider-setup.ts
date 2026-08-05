@@ -242,21 +242,32 @@ export function isSetupReadyToPublish(provider: ProviderProfile): boolean {
 }
 
 // Tab key of the first unfinished onboarding step, in the same order as the
-// checklist shown on /provider/onboarding — used to auto-select that tab.
+// checklist shown on the dashboard — used to auto-select that tab.
 // Kept provider-null-safe so callers can run it unconditionally (e.g. in a
 // hook that must fire on every render, before any early return).
-// Signing comes LAST, deliberately: the agreement is what a provider commits to
-// after their catalog, prices, locations and hours exist — not a form to sign
-// blind on day one.
+//
+// THE ORDER IS THE PRODUCT (wireframe review 04.08.2026):
+//
+//     סניפים → פריטים → זמינות → פרופיל → הסכם
+//
+// Branches come first because everything downstream hangs off them: an item is
+// offered AT a branch (ConsultationType.linked_clinic_ids, owned by the
+// branches screen) and a week is kept FOR a branch. Signing comes LAST — the
+// agreement is what a provider commits to once their items, prices, branches
+// and hours exist, not a form to sign blind on day one.
+//
+// "הסדרי ביטוח" is deliberately NOT a step here: it is no longer part of
+// הקמה at all. The קופות/ביטוח the provider works with are collected during
+// registration (kupah_arrangements), and the per-plan terms belong inside item
+// pricing. The הסדרים page itself stays reachable from the profile nav.
 export function getFirstIncompleteStepKey(provider: ProviderProfile): string | undefined {
   const config = getProviderSetupConfig(provider.provider_type);
   const steps: { done: boolean; key: string }[] = [
     ...(needsSurgicalPrivileges(provider)
       ? [{ done: isSurgicalPrivilegesComplete(provider), key: "surgical" }]
       : []),
-    ...(config.showAgreements ? [{ done: provider.agreements.length > 0, key: "agreements" }] : []),
-    { done: isCatalogComplete(provider), key: "catalog" },
     ...(config.locationTypes.length > 0 ? [{ done: isLocationsComplete(provider), key: "locations" }] : []),
+    { done: isCatalogComplete(provider), key: "catalog" },
     ...(config.showAvailability ? [{ done: isAvailabilityComplete(provider), key: "availability" }] : []),
     ...(config.showAffiliatedDoctors ? [{ done: isAffiliatedDoctorsComplete(provider), key: "doctors" }] : []),
     ...(requiresPlatformAgreement(provider)
@@ -270,14 +281,7 @@ export function getFirstIncompleteStepKey(provider: ProviderProfile): string | u
 // banner on both /provider/onboarding and the dashboard's overview tab, so a
 // provider always sees the same prioritized message regardless of which page
 // they're on. Returns null once there's nothing outstanding.
-export function getNextProviderAction(
-  provider: ProviderProfile,
-  // A provider who works only inside medical units doesn't declare insurance
-  // arrangements at all — the unit does, and they inherit them (payments
-  // meeting §5). Asking them for arrangements they cannot enter would be a
-  // dead end, so the caller (which can see the affiliations slice) waives it.
-  opts: { inheritsArrangements?: boolean } = {}
-): string | null {
+export function getNextProviderAction(provider: ProviderProfile): string | null {
   const config = getProviderSetupConfig(provider.provider_type);
 
   if (provider.status === "pending_review") {
@@ -290,20 +294,15 @@ export function getNextProviderAction(
     if (!isSurgicalPrivilegesComplete(provider)) {
       return "השלימו את הרשאות הניתוח — באיזה בית חולים או מרכז ניתוחים תבצעו את הניתוחים.";
     }
-    if (
-      config.showAgreements &&
-      !opts.inheritsArrangements &&
-      (provider.agreements?.length ?? 0) === 0
-    ) {
-      return "הגדירו הסדרי ביטוח (S/K/B/H) לפני שתוכלו לפרסם פריטים.";
-    }
-    if (!isCatalogComplete(provider)) {
-      return `נשאר לך להוסיף ${config.catalogItemLabel} ראשון כדי להתחיל לקבל הזמנות.`;
-    }
+    // Branches first — an item is offered at a branch and a week is kept for a
+    // branch, so asking for either before one exists has nothing to attach to.
     if (config.locationTypes.length > 0 && !isLocationsComplete(provider)) {
       return config.singleLocation
         ? "נשאר להשלים את כתובת היחידה ופרטי ההתקשרות שלה."
         : `נשאר לך להוסיף ${config.locationLabelSingular} ראשון/ה כדי להתחיל לקבל הזמנות.`;
+    }
+    if (!isCatalogComplete(provider)) {
+      return `נשאר לך להוסיף ${config.catalogItemLabel} ראשון כדי להתחיל לקבל הזמנות.`;
     }
     if (config.showFacilities && !isFacilitiesComplete(provider)) {
       return "הוסיפו עמדות למערכים של היחידה (MRI 1, CT 1, חדר פעולות…) — הזמינות והפריטים מוגדרים ברמת העמדה.";

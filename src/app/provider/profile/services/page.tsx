@@ -60,6 +60,9 @@ export default function ProviderServicesPage() {
               kupahArrangements={provider.kupah_arrangements ?? []}
               privateInsurers={provider.private_insurance_companies ?? []}
               isSurgeon={provider.provider_type === "doctor" && provider.doctor_subtype === "surgeon"}
+              clinics={provider.clinic_locations}
+              locationLabelSingular={setupConfig.locationLabelSingular}
+              locationLabelPlural={setupConfig.locationLabelPlural}
             />
           );
         }

@@ -12,10 +12,11 @@ import { useStore } from "@/lib/store";
 import { useCurrentProvider } from "@/lib/useCurrentPatient";
 import { Card, CardContent } from "@/components/ui/Card";
 import { ProviderStatusBadge, ProviderPublishedBadge } from "@/components/ui/Badge";
-import { Avatar, SectionHeading } from "@/components/ui/Misc";
+import { SectionHeading } from "@/components/ui/Misc";
 import { ProgressRing } from "@/components/ui/Progress";
 import { CardListSkeleton, Skeleton } from "@/components/ui/Skeleton";
 import { getProfileSections } from "@/components/provider/profile-sections";
+import { EditableProfileAvatar } from "@/components/provider/ProfilePhoto";
 import {
   getProviderSetupConfig,
   isCatalogComplete,
@@ -88,10 +89,13 @@ export default function ProviderProfileOverviewPage() {
       {/* Identity hero */}
       <div className="relative mb-6 overflow-hidden rounded-2xl border border-neutral-border bg-gradient-to-l from-white via-white to-accent-bg/40 p-5 sm:p-6 shadow-sm">
         <div className="flex flex-wrap items-center gap-5">
-          <Avatar
-            name={provider.display_name || currentUser.full_name}
-            src={provider.image_url}
-            className="h-16 w-16 text-xl ring-4 ring-white shadow-md"
+          {/* The big avatar is the picture's home: clicking it opens the upload,
+              the way every profile page does it. */}
+          <EditableProfileAvatar
+            provider={provider}
+            fallbackName={currentUser.full_name}
+            className="h-16 w-16 text-xl shadow-md"
+            badgeClassName="h-7 w-7"
           />
           <div className="flex-1 min-w-[220px]">
             <div className="flex items-center gap-2 flex-wrap">
