@@ -1201,12 +1201,16 @@ export const useStore = create<Store>()(
               updated.is_published = false;
             }
             // Onboarding readiness (FEAT-06) is derived, not set by any single
-            // screen — recompute it here so every write path (agreements,
+            // screen — recompute it here so every write path (branches,
             // catalog, calendars, linking, sign) stays in sync automatically.
-            // Requires calendars ("יומנים") to exist AND at least one service
-            // actually linked to one — a service defined before any calendar
-            // exists doesn't count (see ServiceCatalogSection/PriceListSection's
-            // "add a calendar first" flag).
+            // It mirrors the steps the setup meter shows (see
+            // getFirstIncompleteStepKey): branches → items → … → sign.
+            // `agreements.length > 0` was dropped in the 04.08.2026 wireframe
+            // review — הסדרי ביטוח is no longer a הקמה step, so requiring it
+            // would strand every provider. The branch link IS still required:
+            // an item is assigned to its branches when it is saved (all of them
+            // by default, see SoloItemCatalogSection), so an item with none is
+            // an item no patient can reach.
             const allServices = [...updated.consultation_types, ...updated.exam_types];
             // A medical unit signs nothing in the platform — its contract with
             // Healson is closed off-platform before Ops even opens the account
@@ -1216,9 +1220,8 @@ export const useStore = create<Store>()(
             if (
               updated.status === "onboarding" &&
               !updated.onboarding_ready_at &&
-              updated.agreements.length > 0 &&
-              allServices.length > 0 &&
               updated.clinic_locations.length > 0 &&
+              allServices.length > 0 &&
               allServices.some((sv) => (sv.linked_clinic_ids?.length ?? 0) > 0) &&
               (!signatureRequired || updated.agreement_signed_at)
             ) {

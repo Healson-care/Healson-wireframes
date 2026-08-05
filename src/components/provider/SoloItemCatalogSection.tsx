@@ -12,7 +12,9 @@ import {
   ANESTHESIA_TYPE_LABELS,
   ANESTHESIA_TYPES,
   AnesthesiaType,
+  BRANCH_TYPE_LABELS,
   CONSULTATION_SUBTYPES,
+  Clinic,
   ConsultationType,
   KupahArrangement,
   LAYER_LABELS,
@@ -64,6 +66,11 @@ function ageLabel(item: ConsultationType): string {
  *   • what kind of service it is (ייעוץ / טיפול / ניתוח — the last only for a
  *     surgeon), and for a ייעוץ which kind of consultation;
  *   • which of the provider's own sub-specialties it belongs to;
+ *   • WHICH BRANCHES it is given at — decided here, at save time, because only
+ *     here is the item's TYPE known (a ניתוח may only be assigned to an
+ *     operating room). Every branch is pre-selected, so the common case costs
+ *     no clicks while the decision still happens in the open, where it is made.
+ *     The branches screen shows the same link from the other side;
  *   • the age range it is offered for;
  *   • what the patient must bring/fill BEFORE the appointment;
  *   • the full price P, plus the terms per payer the provider works with —
@@ -82,6 +89,9 @@ export function SoloItemCatalogSection({
   kupahArrangements,
   privateInsurers,
   isSurgeon,
+  clinics,
+  locationLabelSingular = "סניף",
+  locationLabelPlural = "סניפים",
 }: {
   items: ConsultationType[];
   onChange: (items: ConsultationType[]) => void;
@@ -93,6 +103,11 @@ export function SoloItemCatalogSection({
   /** Private carriers the provider declared an arrangement with. */
   privateInsurers: string[];
   isSurgeon: boolean;
+  /** The provider's branches — an item is assigned to the ones it is given at.
+   * Configured before items in הקמה, so this is normally non-empty. */
+  clinics: Clinic[];
+  locationLabelSingular?: string;
+  locationLabelPlural?: string;
 }) {
   const serviceTypes = soloServiceTypes(isSurgeon);
 
@@ -106,6 +121,7 @@ export function SoloItemCatalogSection({
   const [serviceType, setServiceType] = useState<ProviderServiceType>("consultation");
   const [serviceSubtype, setServiceSubtype] = useState<string>(CONSULTATION_SUBTYPES[0]);
   const [subSpecialty, setSubSpecialty] = useState("");
+  const [linkedClinicIds, setLinkedClinicIds] = useState<string[]>([]);
   const [noAgeLimit, setNoAgeLimit] = useState(true);
   const [minAge, setMinAge] = useState("");
   const [maxAge, setMaxAge] = useState("");
@@ -137,6 +153,10 @@ export function SoloItemCatalogSection({
     setServiceType("consultation");
     setServiceSubtype(CONSULTATION_SUBTYPES[0]);
     setSubSpecialty(subSpecialties[0] ?? "");
+    // Every branch, pre-selected: offering a new item everywhere is the common
+    // case, so the default costs no clicks — but it is a real, visible value
+    // the provider can narrow, not an empty field that means "everywhere".
+    setLinkedClinicIds(clinics.map((c) => c.id));
     setNoAgeLimit(true);
     setMinAge("");
     setMaxAge("");
@@ -168,6 +188,12 @@ export function SoloItemCatalogSection({
     setServiceType(item.service_type ?? "consultation");
     setServiceSubtype(item.service_subtype ?? CONSULTATION_SUBTYPES[0]);
     setSubSpecialty(item.sub_specialty ?? subSpecialties[0] ?? "");
+    // Items created before this field existed carry no links, and used to mean
+    // "everywhere" by omission — open them on the equivalent explicit value so
+    // editing an old item doesn't silently un-offer it.
+    setLinkedClinicIds(
+      (item.linked_clinic_ids?.length ?? 0) > 0 ? item.linked_clinic_ids! : clinics.map((c) => c.id)
+    );
     setNoAgeLimit(item.min_age == null && item.max_age == null);
     setMinAge(item.min_age != null ? String(item.min_age) : "");
     setMaxAge(item.max_age != null ? String(item.max_age) : "");
@@ -258,8 +284,7 @@ export function SoloItemCatalogSection({
       anesthesia_type: serviceType === "surgery" ? anesthesiaType : undefined,
       recovery_days: serviceType === "surgery" && recoveryDays ? Number(recoveryDays) : undefined,
       requires_hospital: serviceType === "surgery" ? requiresHospital : undefined,
-      // Location linking is owned by the branches screen — never reset here.
-      linked_clinic_ids: existing?.linked_clinic_ids ?? [],
+      linked_clinic_ids: linkedClinicIds,
     };
     onChange(editingId ? items.map((i) => (i.id === editingId ? newItem : i)) : [...items, newItem]);
     setOpen(false);
@@ -269,6 +294,10 @@ export function SoloItemCatalogSection({
     name.trim().length > 1 &&
     priceFull !== "" &&
     (subSpecialties.length === 0 || !!subSpecialty) &&
+    // An item given at no branch is an item no patient can book — block the
+    // save rather than storing something unreachable. (A provider with no
+    // branches at all is a different case: nothing to pick, so nothing to fail.)
+    (clinics.length === 0 || linkedClinicIds.length > 0) &&
     (serviceType !== "consultation" || !!serviceSubtype);
 
   return (
@@ -332,11 +361,17 @@ export function SoloItemCatalogSection({
                     <div className="mt-1.5">
                       {(item.linked_clinic_ids?.length ?? 0) > 0 ? (
                         <span className="flex items-center gap-1 text-[11px] text-slate-500">
-                          <MapPin className="h-3 w-3" /> מוצע ב-{item.linked_clinic_ids!.length} סניפים
+                          <MapPin className="h-3 w-3" />
+                          {item.linked_clinic_ids!.length === clinics.length && clinics.length > 0
+                            ? `מוצע בכל ה${locationLabelPlural}`
+                            : `מוצע ב-${item.linked_clinic_ids!.length} ${locationLabelPlural}`}
                         </span>
                       ) : (
+                        // Only reachable for items saved before the branch field
+                        // existed, or while the provider has no branches at all.
                         <span className="flex items-center gap-1 text-[11px] text-warning-text">
-                          <MapPin className="h-3 w-3" /> שייכו לסניף בלשונית &quot;סניפים&quot;
+                          <MapPin className="h-3 w-3" /> לא משויך לאף {locationLabelSingular} — ערכו את ה
+                          {itemLabel} כדי לשייך
                         </span>
                       )}
                     </div>
@@ -523,7 +558,68 @@ export function SoloItemCatalogSection({
             )}
           </div>
 
-          {/* 4 — what the patient must bring or fill BEFORE the appointment.
+          {/* 4 — where it is given. Assigned here, not on the branches screen,
+              because this is the only place that knows the item's type: a
+              ניתוח belongs in an operating room, a ייעוץ in a clinic. */}
+          <div className="flex flex-col gap-2 rounded-lg border border-slate-200 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                <MapPin className="h-3.5 w-3.5 text-slate-400" /> {locationLabelPlural} שבהם ניתן ה{itemLabel}
+              </span>
+              {clinics.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setLinkedClinicIds(
+                      linkedClinicIds.length === clinics.length ? [] : clinics.map((c) => c.id)
+                    )
+                  }
+                  className="text-[11px] font-medium text-primary hover:underline"
+                >
+                  {linkedClinicIds.length === clinics.length ? "נקה הכל" : "בחר הכל"}
+                </button>
+              )}
+            </div>
+            {clinics.length === 0 ? (
+              <p className="text-[11px] leading-relaxed text-warning-text">
+                עדיין לא הוגדרו {locationLabelPlural}. אפשר לשמור את ה{itemLabel} ולשייך אותו בהמשך מתוך
+                לשונית ה{locationLabelPlural}.
+              </p>
+            ) : (
+              <>
+                <div className="flex flex-col gap-1.5">
+                  {clinics.map((c) => (
+                    <label
+                      key={c.id}
+                      className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={linkedClinicIds.includes(c.id)}
+                        onChange={() =>
+                          setLinkedClinicIds((prev) =>
+                            prev.includes(c.id) ? prev.filter((id) => id !== c.id) : [...prev, c.id]
+                          )
+                        }
+                        className="h-4 w-4 rounded border-slate-300 accent-primary"
+                      />
+                      <span className="flex-1">{c.name}</span>
+                      <span className="text-[11px] text-slate-400">
+                        {BRANCH_TYPE_LABELS[c.location_type ?? "clinic"]}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                {linkedClinicIds.length === 0 && (
+                  <p className="text-[11px] font-medium text-danger-text">
+                    יש לבחור {locationLabelSingular} אחד לפחות — אחרת ה{itemLabel} לא יופיע לאף מטופל.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* 5 — what the patient must bring or fill BEFORE the appointment.
               Each entry becomes a pending document on the booking, so the
               appointment never starts with something missing. */}
           <div className="flex flex-col gap-2.5 rounded-lg border border-slate-200 p-3">
@@ -608,7 +704,7 @@ export function SoloItemCatalogSection({
             </label>
           </div>
 
-          {/* 5 — prices. */}
+          {/* 6 — prices. */}
           <div className="flex flex-col gap-2.5 rounded-lg border border-slate-200 p-3">
             <p className="text-xs font-medium text-slate-600">מחירים</p>
             <Input
@@ -749,7 +845,7 @@ export function SoloItemCatalogSection({
             </div>
           )}
 
-          {/* 6 — timing, last: how long it takes and how much to keep free after. */}
+          {/* 7 — timing, last: how long it takes and how much to keep free after. */}
           <div className="flex flex-col gap-2.5 rounded-lg border border-slate-200 p-3">
             <p className="text-xs font-medium text-slate-600">משך ותזמון</p>
             <div className="grid gap-3 sm:grid-cols-2">
