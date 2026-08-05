@@ -8,6 +8,7 @@ import { Input, Select, Textarea } from "@/components/ui/Input";
 import { EmptyState } from "@/components/ui/Misc";
 import { Badge } from "@/components/ui/Badge";
 import { useStore } from "@/lib/store";
+import { REFERRAL_EXEMPT_TYPES } from "@/lib/referral";
 import { formatCurrency, generateId } from "@/lib/utils";
 import {
   ANESTHESIA_TYPE_LABELS,
@@ -464,9 +465,12 @@ export function ServiceCatalogSection({
     return names.length > 0 ? names.join(", ") : null;
   }
 
-  // §2 — everything except a consultation is referral-gated. A product/מוצר is
-  // not an appointment at all, so it is outside the rule.
-  const referralLocked = serviceType !== "consultation" && serviceType !== "product";
+  // §2 — everything except a consultation, a treatment or a מוצר is
+  // referral-gated. Derived from the patient gate's own list so the locked
+  // checkbox here and the block the patient hits can never say different
+  // things. For the unlocked types the box is a real choice, and ticking it
+  // adds the gate to that one item (see requiresReferral).
+  const referralLocked = !REFERRAL_EXEMPT_TYPES.includes(serviceType);
 
   const canSave =
     (editingId ? true : !!catalogItemId) &&
@@ -864,9 +868,11 @@ export function ServiceCatalogSection({
 
           <div className="flex flex-col gap-2 rounded-lg border border-slate-200 p-3">
             {/* Payments meeting §2: uploading a referral is a precondition for
-                booking ANY item except a consultation. That is a platform rule,
-                not a per-item preference, so the box is ticked and locked for
-                every clinical item and only a ייעוץ can opt out. */}
+                booking any item except a ייעוץ, a טיפול or a מוצר. That is a
+                platform rule, not a per-item preference, so the box is ticked
+                and locked for every other clinical item. Where it IS unlocked
+                the choice runs one way only — ticking it adds the gate to this
+                item, and the platform rule can never be switched off. */}
             <label
               className={`flex items-center gap-2 text-sm ${
                 referralLocked ? "cursor-default" : "cursor-pointer"
@@ -882,16 +888,15 @@ export function ServiceCatalogSection({
               נדרשת הפניה / אישור מראש מהקופה
               {referralLocked && (
                 <span className="flex items-center gap-1 text-[11px] text-slate-400">
-                  <Lock className="h-3 w-3" /> חובה לפריט שאינו ייעוץ
+                  <Lock className="h-3 w-3" /> חובה לסוג פריט זה
                 </span>
               )}
             </label>
-            {referralLocked && (
-              <p className="text-[11px] leading-relaxed text-slate-400">
-                המטופל יצטרך להעלות הפניה לפני קביעת התור, וההזמנה תמתין לאישורכם. ייעוץ הוא הפריט היחיד שניתן
-                להזמין ללא הפניה.
-              </p>
-            )}
+            <p className="text-[11px] leading-relaxed text-slate-400">
+              {referralLocked
+                ? "המטופל יעלה הפניה, וההזמנה תמתין לאישורכם — מועדים ייפתחו לו רק לאחר שתאשרו. ייעוץ, טיפול ומוצר הם הפריטים שניתן להזמין ללא הפניה."
+                : "לסוג פריט זה לא נדרשת הפניה כברירת מחדל. אם תסמנו, המטופל יעלה הפניה לפריט הזה בלבד וההזמנה תמתין לאישורכם לפני שייפתחו לו מועדים."}
+            </p>
 
             {serviceType === "test" && (
               <>

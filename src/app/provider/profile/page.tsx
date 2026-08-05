@@ -12,17 +12,18 @@ import { useStore } from "@/lib/store";
 import { useCurrentProvider } from "@/lib/useCurrentPatient";
 import { Card, CardContent } from "@/components/ui/Card";
 import { ProviderStatusBadge, ProviderPublishedBadge } from "@/components/ui/Badge";
-import { Avatar, SectionHeading } from "@/components/ui/Misc";
+import { SectionHeading } from "@/components/ui/Misc";
 import { ProgressRing } from "@/components/ui/Progress";
 import { CardListSkeleton, Skeleton } from "@/components/ui/Skeleton";
 import { getProfileSections } from "@/components/provider/profile-sections";
+import { EditableProfileAvatar } from "@/components/provider/ProfilePhoto";
 import {
   getProviderSetupConfig,
   isCatalogComplete,
   isLocationsComplete,
   isAvailabilityComplete,
 } from "@/lib/provider-setup";
-import { Star, CheckCircle2, ChevronLeft, MapPinned, Pencil } from "lucide-react";
+import { Star, CheckCircle2, ChevronLeft, MapPinned, Network, Pencil } from "lucide-react";
 
 const EMPTY_CLINIC_HOURS: Clinic["hours"] = {
   sunday: null,
@@ -38,6 +39,10 @@ export default function ProviderProfileOverviewPage() {
   const currentUser = useStore((s) => s.currentUser);
   const provider = useCurrentProvider();
   const affiliations = useStore((s) => s.affiliations);
+  const providers = useStore((s) => s.providers);
+  const parentOrganization = provider?.parent_organization_id
+    ? providers.find((p) => p.id === provider.parent_organization_id)
+    : undefined;
 
   if (!provider || !currentUser) {
     return (
@@ -84,10 +89,13 @@ export default function ProviderProfileOverviewPage() {
       {/* Identity hero */}
       <div className="relative mb-6 overflow-hidden rounded-2xl border border-neutral-border bg-gradient-to-l from-white via-white to-accent-bg/40 p-5 sm:p-6 shadow-sm">
         <div className="flex flex-wrap items-center gap-5">
-          <Avatar
-            name={provider.display_name || currentUser.full_name}
-            src={provider.image_url}
-            className="h-16 w-16 text-xl ring-4 ring-white shadow-md"
+          {/* The big avatar is the picture's home: clicking it opens the upload,
+              the way every profile page does it. */}
+          <EditableProfileAvatar
+            provider={provider}
+            fallbackName={currentUser.full_name}
+            className="h-16 w-16 text-xl shadow-md"
+            badgeClassName="h-7 w-7"
           />
           <div className="flex-1 min-w-[220px]">
             <div className="flex items-center gap-2 flex-wrap">
@@ -100,6 +108,16 @@ export default function ProviderProfileOverviewPage() {
               />
               {provider.is_published && <ProviderPublishedBadge />}
             </div>
+            {/* A medical unit is never a standalone business — it operates under
+                an organization, and that is identity, not a setting: name it
+                right under the unit's own name so it can't be missed. */}
+            {parentOrganization && (
+              <p className="mt-1 flex items-center gap-1.5 text-sm">
+                <Network className="h-3.5 w-3.5 text-primary" />
+                <span className="text-slate-500">יחידה רפואית תחת</span>
+                <span className="font-semibold text-slate-900">{parentOrganization.display_name}</span>
+              </p>
+            )}
             <p className="mt-0.5 text-sm font-medium text-amber-700">{provider.specialty || "—"}</p>
             <div className="mt-1 flex flex-wrap items-center gap-3">
               {provider.license_number && <p className="text-xs text-slate-400 font-mono">{provider.license_number}</p>}

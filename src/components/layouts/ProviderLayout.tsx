@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useEffect } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -12,6 +12,7 @@ import {
   LogOut,
   Home,
   ChevronDown,
+  Camera,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,7 @@ import { useRequireRole } from "@/lib/useRequireRole";
 import { useCurrentProvider } from "@/lib/useCurrentPatient";
 import { getProviderSetupConfig } from "@/lib/provider-setup";
 import { getProfileSections } from "@/components/provider/profile-sections";
+import { ProfilePhotoDialog, ProfilePhotoMenuLabel } from "@/components/provider/ProfilePhoto";
 
 // Operational (daily-work) destinations only — profile configuration lives
 // behind the "פרופיל" dropdown (getProfileSections), so there's exactly one
@@ -51,6 +53,7 @@ export function ProviderLayout({ children }: { children: ReactNode }) {
   const logout = useStore((s) => s.logout);
   const { ready, user } = useRequireRole("provider");
   const provider = useCurrentProvider();
+  const [photoDialogOpen, setPhotoDialogOpen] = useState(false);
   const appointments = useStore((s) => s.appointments);
   const notifications = buildProviderNotifications(provider, appointments);
   // Bookings waiting on this provider’s referral decision — surfaced as a
@@ -190,13 +193,41 @@ export function ProviderLayout({ children }: { children: ReactNode }) {
             </Link>
             <DropdownMenu
               trigger={
-                <span className="flex items-center gap-1.5 rounded-lg px-1.5 py-1 hover:bg-slate-100">
-                  <Avatar name={provider?.display_name || user?.full_name || ""} src={provider?.image_url} className="h-8 w-8 text-xs" />
+                <span className="relative flex items-center gap-1.5 rounded-lg px-1.5 py-1 hover:bg-slate-100">
+                  <span className="relative">
+                    <Avatar
+                      name={provider?.display_name || user?.full_name || ""}
+                      src={provider?.image_url}
+                      className={cn(
+                        "h-8 w-8 text-xs",
+                        // No photo yet — mark the avatar as an unfinished field,
+                        // right where the provider will look for it.
+                        provider && !provider.image_url && "ring-2 ring-accent ring-offset-1 ring-offset-white"
+                      )}
+                    />
+                    {provider && !provider.image_url && (
+                      <span
+                        aria-hidden
+                        className="absolute -bottom-0.5 -left-0.5 flex h-4 w-4 animate-pulse items-center justify-center rounded-full border-2 border-white bg-accent text-white shadow-sm"
+                      >
+                        <Camera className="h-2 w-2" />
+                      </span>
+                    )}
+                  </span>
                   <span className="hidden sm:inline text-sm font-medium text-slate-700">{provider?.display_name || user?.full_name}</span>
                   <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
                 </span>
               }
             >
+              {/* First row, always: the avatar is what a provider clicks when
+                  they want to change their picture, so the menu it opens has to
+                  offer that before anything else. The avatar can't be a button
+                  itself here — it already IS the menu trigger. */}
+              {provider && (
+                <DropdownMenuItem onClick={() => setPhotoDialogOpen(true)}>
+                  <ProfilePhotoMenuLabel hasPhoto={!!provider.image_url} />
+                </DropdownMenuItem>
+              )}
               {showProfileMenu && (
                 <DropdownMenuItem href="/provider/profile">
                   <UserRound className="h-4 w-4" /> הפרופיל שלי
@@ -214,6 +245,14 @@ export function ProviderLayout({ children }: { children: ReactNode }) {
           </div>
         </div>
       </header>
+
+      {provider && (
+        <ProfilePhotoDialog
+          provider={provider}
+          open={photoDialogOpen}
+          onClose={() => setPhotoDialogOpen(false)}
+        />
+      )}
 
       <main className="flex-1 mx-auto w-full max-w-7xl px-4 py-6 pb-24 md:pb-10">{children}</main>
 

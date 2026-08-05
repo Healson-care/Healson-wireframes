@@ -6,6 +6,7 @@ import { Sparkles, ArrowLeft } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
+import type { ProviderConsentType } from "@/types";
 
 /** Google's multi-color "G" mark, inlined so it works without a remote asset. */
 function GoogleGlyph() {
@@ -25,13 +26,33 @@ function GoogleGlyph() {
  * store, then shows a welcome modal that continues straight into the onboarding
  * wizard — the user is already authenticated, so there is no second login step.
  */
-export function ProviderGoogleSignIn({ label = "המשך עם Google" }: { label?: string }) {
+export function ProviderGoogleSignIn({
+  label = "המשך עם Google",
+  disabled,
+  disabledHint,
+  consents,
+}: {
+  label?: string;
+  /** Set while the privacy consent gate above hasn't been satisfied. */
+  disabled?: boolean;
+  disabledHint?: string;
+  /** Consent grants to record on the account this creates (see ProviderConsent). */
+  consents?: { type: ProviderConsentType; granted: boolean }[];
+}) {
   const router = useRouter();
   const loginWithGoogle = useStore((s) => s.loginWithGoogle);
+  const recordProviderConsents = useStore((s) => s.recordProviderConsents);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
 
   function handleClick() {
+    if (disabled) return;
     loginWithGoogle();
+    // loginWithGoogle creates/reuses the demo provider synchronously, so the
+    // profile to attach the consents to exists by the time this line runs.
+    const provider = useStore.getState().providers.find(
+      (p) => p.user_id === useStore.getState().currentUser?.id
+    );
+    if (provider && consents?.length) recordProviderConsents(provider.id, consents);
     setWelcomeOpen(true);
   }
 
@@ -46,11 +67,16 @@ export function ProviderGoogleSignIn({ label = "המשך עם Google" }: { label
       <button
         type="button"
         onClick={handleClick}
-        className="flex w-full items-center justify-center gap-2.5 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+        disabled={disabled}
+        title={disabled ? disabledHint : undefined}
+        className="flex w-full items-center justify-center gap-2.5 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <GoogleGlyph />
         {label}
       </button>
+      {disabled && disabledHint && (
+        <p className="mt-1.5 text-center text-[11px] text-slate-400">{disabledHint}</p>
+      )}
 
       {/* Not dismissible into limbo: closing (X / backdrop) still continues to
           the application, since the account already exists and is signed in. */}

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { CalendarClock, FileCheck2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { providerLabel } from "@/lib/search";
 import { ConsultationType, ProviderProfile } from "@/types";
 
 /**
@@ -43,7 +44,7 @@ export function UnitApprovalPending({
         <div className="mt-2 flex items-start justify-between gap-3 text-sm">
           <span className="text-slate-500">נותן שירות</span>
           <span className="text-left font-medium text-slate-900">
-            {provider.title} {provider.display_name}
+            {providerLabel(provider)}
           </span>
         </div>
         <div className="mt-2 flex items-start justify-between gap-3 text-sm">

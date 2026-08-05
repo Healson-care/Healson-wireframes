@@ -8,10 +8,79 @@ import { Input, Select } from "@/components/ui/Input";
 import { EmptyState } from "@/components/ui/Misc";
 import { Badge } from "@/components/ui/Badge";
 import { generateId } from "@/lib/utils";
-import { Clinic, ConsultationType, LocationType, LOCATION_TYPE_LABELS } from "@/types";
+import { Clinic, ConsultationType, LocationType, BRANCH_TYPE_LABELS, VIRTUAL_PLATFORMS } from "@/types";
 import { Plus, Pencil, Trash2, Star, MapPin, Stethoscope, MapPinned, TriangleAlert } from "lucide-react";
 
 const PHYSICAL_LOCATION_TYPES: LocationType[] = ["clinic", "store"];
+
+/**
+ * The three kinds of סניף are not the same form with fields greyed out — they
+ * are different questions. A מרפאה has an address the patient travels to; a
+ * ביקורי בית has no address of its own (the patient's home is the address), it
+ * has the areas the provider covers; an אונליין branch has neither, only how
+ * the meeting happens. Asking a home-visit branch for a street address, or an
+ * online one for a city, produced fields that were either left blank or filled
+ * with something meaningless.
+ *
+ * `city` carries the service areas for a home visit rather than a new field:
+ * patient search filters on it (see lib/search.ts), so reusing it keeps a
+ * home-visit branch findable by the cities it serves.
+ */
+interface BranchTypeFields {
+  nameLabel: string;
+  namePlaceholder: string;
+  showCity: boolean;
+  cityLabel: string;
+  cityPlaceholder: string;
+  showAddress: boolean;
+  phoneRequired: boolean;
+  showTravelNote: boolean;
+  showVirtualPlatform: boolean;
+  note: string;
+}
+
+function branchFields(type: LocationType, singular: string): BranchTypeFields {
+  const base = {
+    nameLabel: `שם ה${singular}`,
+    namePlaceholder: "",
+    showCity: true,
+    cityLabel: "עיר",
+    cityPlaceholder: "",
+    showAddress: true,
+    phoneRequired: true,
+    showTravelNote: false,
+    showVirtualPlatform: false,
+    note: "",
+  };
+  switch (type) {
+    case "home_visit":
+      return {
+        ...base,
+        nameLabel: "שם השירות",
+        namePlaceholder: "ביקורי בית — גוש דן",
+        cityLabel: "ערי שירות",
+        cityPlaceholder: "תל אביב, רמת גן, גבעתיים",
+        showAddress: false,
+        showTravelNote: true,
+        note: "בביקור בית הכתובת היא של המטופל — כאן מגדירים לאן אתם מגיעים. הערים שתזינו הן אלה שבהן תופיעו בחיפוש.",
+      };
+    case "virtual":
+      return {
+        ...base,
+        nameLabel: "שם השירות",
+        namePlaceholder: "ייעוץ מרחוק",
+        showCity: false,
+        showAddress: false,
+        phoneRequired: false,
+        showVirtualPlatform: true,
+        note: "לפגישה מרחוק אין כתובת. הקישור או פרטי החיבור נשלחים למטופל יחד עם אישור התור.",
+      };
+    case "store":
+      return { ...base, namePlaceholder: "סניף דיזנגוף סנטר" };
+    default:
+      return { ...base, namePlaceholder: "מרפאת רמת אביב" };
+  }
+}
 
 const EMPTY_HOURS: Clinic["hours"] = {
   sunday: null,
@@ -57,10 +126,18 @@ export function ClinicsSection({
   const [open, setOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: "", address: "", city: "", phone: "" });
+  const [form, setForm] = useState({
+    name: "",
+    address: "",
+    city: "",
+    phone: "",
+    travelNote: "",
+    virtualPlatform: VIRTUAL_PLATFORMS[0] as string,
+  });
   const [locationType, setLocationType] = useState<LocationType>(allowedLocationTypes[0] ?? "clinic");
   const [linkedServiceIds, setLinkedServiceIds] = useState<string[]>([]);
   const isPhysical = PHYSICAL_LOCATION_TYPES.includes(locationType);
+  const fields = branchFields(locationType, locationLabelSingular);
 
   function servicesAtClinic(clinicId: string) {
     return services.filter((s) => s.linked_clinic_ids?.includes(clinicId));
@@ -68,7 +145,14 @@ export function ClinicsSection({
 
   function openCreate() {
     setEditingId(null);
-    setForm({ name: "", address: "", city: "", phone: "" });
+    setForm({
+      name: "",
+      address: "",
+      city: "",
+      phone: "",
+      travelNote: "",
+      virtualPlatform: VIRTUAL_PLATFORMS[0],
+    });
     setLocationType(allowedLocationTypes[0] ?? "clinic");
     setLinkedServiceIds([]);
     setOpen(true);
@@ -76,7 +160,14 @@ export function ClinicsSection({
 
   function openEdit(clinic: Clinic) {
     setEditingId(clinic.id);
-    setForm({ name: clinic.name, address: clinic.address, city: clinic.city, phone: clinic.phone });
+    setForm({
+      name: clinic.name,
+      address: clinic.address,
+      city: clinic.city,
+      phone: clinic.phone,
+      travelNote: clinic.travel_note ?? "",
+      virtualPlatform: clinic.virtual_platform ?? VIRTUAL_PLATFORMS[0],
+    });
     setLocationType(clinic.location_type ?? allowedLocationTypes[0] ?? "clinic");
     setLinkedServiceIds(servicesAtClinic(clinic.id).map((s) => s.id));
     setOpen(true);
@@ -116,9 +207,13 @@ export function ClinicsSection({
       id,
       // A unit's site carries the unit's own name — never a second one.
       name: singleLocation ? unitName ?? form.name : form.name,
-      address: form.address,
-      city: form.city,
+      // Only the fields this branch type actually asked for are stored — a type
+      // switched mid-edit must not leave a stale address on an online branch.
+      address: fields.showAddress ? form.address : "",
+      city: fields.showCity ? form.city : "",
       phone: form.phone,
+      travel_note: fields.showTravelNote && form.travelNote.trim() ? form.travelNote.trim() : undefined,
+      virtual_platform: fields.showVirtualPlatform ? form.virtualPlatform : undefined,
       is_primary: existing?.is_primary ?? clinics.length === 0,
       hours: existing?.hours ?? EMPTY_HOURS,
       location_type: locationType,
@@ -194,13 +289,27 @@ export function ClinicsSection({
                         c.is_primary && <Badge tone="green">{locationLabelSingular} ראשית</Badge>
                       )}
                       {allowedLocationTypes.length > 1 && (
-                        <Badge tone="slate">{LOCATION_TYPE_LABELS[c.location_type ?? "clinic"]}</Badge>
+                        <Badge tone="slate">{BRANCH_TYPE_LABELS[c.location_type ?? "clinic"]}</Badge>
                       )}
                     </div>
-                    {(c.address || c.city) && (
-                      <p className="text-xs text-slate-500 mt-1">{c.address}{c.address && c.city ? ", " : ""}{c.city}</p>
+                    {/* Each type reads back what it was actually asked for —
+                        an address for a clinic, service areas for a home visit,
+                        the meeting channel for an online branch. */}
+                    {c.location_type === "virtual" ? (
+                      c.virtual_platform && (
+                        <p className="mt-1 text-xs text-slate-500">{c.virtual_platform}</p>
+                      )
+                    ) : c.location_type === "home_visit" ? (
+                      <>
+                        {c.city && <p className="mt-1 text-xs text-slate-500">מגיעים ל: {c.city}</p>}
+                        {c.travel_note && <p className="text-xs text-slate-400">{c.travel_note}</p>}
+                      </>
+                    ) : (
+                      (c.address || c.city) && (
+                        <p className="text-xs text-slate-500 mt-1">{c.address}{c.address && c.city ? ", " : ""}{c.city}</p>
+                      )
                     )}
-                    <p className="text-xs text-slate-400">{c.phone}</p>
+                    {c.phone && <p className="text-xs text-slate-400">{c.phone}</p>}
                     <div className={singleLocation ? "hidden" : "mt-1.5"}>
                       {linked.length > 0 ? (
                         <span className="flex items-center gap-1 text-[11px] text-slate-500">
@@ -257,53 +366,107 @@ export function ClinicsSection({
       >
         <div className="flex flex-col gap-3">
           <div className="grid sm:grid-cols-2 gap-3">
+            {/* Full-width fields need the span on the GRID CELL — Input/Select
+                forward className to the inner control, not to their wrapper. */}
             {allowedLocationTypes.length > 1 && (
-              <Select
-                label="סוג המיקום"
-                value={locationType}
-                onChange={(e) => setLocationType(e.target.value as LocationType)}
-                className="sm:col-span-2"
-              >
-                {allowedLocationTypes.map((t) => (
-                  <option key={t} value={t}>
-                    {LOCATION_TYPE_LABELS[t]}
-                  </option>
-                ))}
-              </Select>
+              <div className="sm:col-span-2">
+                <Select
+                  label={`סוג ה${locationLabelSingular}`}
+                  value={locationType}
+                  onChange={(e) => setLocationType(e.target.value as LocationType)}
+                >
+                  {allowedLocationTypes.map((t) => (
+                    <option key={t} value={t}>
+                      {BRANCH_TYPE_LABELS[t]}
+                    </option>
+                  ))}
+                </Select>
+              </div>
             )}
             {!singleLocation && (
               <Input
-                label={`שם ה${locationLabelSingular}`}
+                label={fields.nameLabel}
+                placeholder={fields.namePlaceholder}
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 required
               />
             )}
-            <Input label="עיר" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} required={isPhysical} />
-            <Input label="כתובת" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} required={isPhysical} />
-            <Input label="טלפון" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} required />
+            {fields.showCity && (
+              <div className={fields.showAddress ? undefined : "sm:col-span-2"}>
+                <Input
+                  label={fields.cityLabel}
+                  placeholder={fields.cityPlaceholder}
+                  value={form.city}
+                  onChange={(e) => setForm({ ...form, city: e.target.value })}
+                  required
+                />
+              </div>
+            )}
+            {fields.showAddress && (
+              <Input
+                label="כתובת"
+                value={form.address}
+                onChange={(e) => setForm({ ...form, address: e.target.value })}
+                required
+              />
+            )}
+            {fields.showVirtualPlatform && (
+              <div className="sm:col-span-2">
+                <Select
+                  label="איך מתקיימת הפגישה"
+                  value={form.virtualPlatform}
+                  onChange={(e) => setForm({ ...form, virtualPlatform: e.target.value })}
+                >
+                  {VIRTUAL_PLATFORMS.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            )}
+            <div className={fields.showVirtualPlatform ? "sm:col-span-2" : undefined}>
+              <Input
+                label={fields.phoneRequired ? "טלפון" : "טלפון (לא חובה)"}
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                required={fields.phoneRequired}
+              />
+            </div>
+            {fields.showTravelNote && (
+              <div className="sm:col-span-2">
+                <Input
+                  label="תנאי הגעה (לא חובה)"
+                  placeholder="עד 20 ק״מ מתל אביב · תוספת נסיעה 50 ₪"
+                  value={form.travelNote}
+                  onChange={(e) => setForm({ ...form, travelNote: e.target.value })}
+                />
+              </div>
+            )}
           </div>
-          {isPhysical && (
+          {isPhysical ? (
             <p className="flex items-start gap-1.5 rounded-lg bg-info-bg border border-info-border px-3 py-2 text-xs text-info-text">
               <MapPinned className="h-3.5 w-3.5 shrink-0 mt-0.5" />
               במערכת המלאה הכתובת תתחבר לכתובות אמיתיות ותוצג על מפה אינטראקטיבית (כאן בהדגמה מזינים את הכתובת כטקסט חופשי).
             </p>
-          )}
-          {!isPhysical && (
-            <p className="text-xs text-slate-500">
-              עבור {LOCATION_TYPE_LABELS[locationType].toLowerCase()} אין צורך בכתובת פיזית.
+          ) : (
+            <p className="flex items-start gap-1.5 rounded-lg border border-info-border bg-info-bg px-3 py-2 text-xs leading-relaxed text-info-text">
+              <MapPinned className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              {fields.note}
             </p>
           )}
 
-          {/* Service↔location linking lives here: the location picks which
-              services it offers (a service may be offered at several locations).
+          {/* Service↔location linking is DECIDED in the item form (an item picks
+              its branches when it is saved, all of them by default — see
+              SoloItemCatalogSection). This checklist is the same link seen from
+              the other side: convenient for "this one branch, against my 20
+              items", and the only place to fix a branch added after the items.
               A single-site unit skips it — every service is delivered at the
               unit, and the resource that delivers it is picked elsewhere. */}
           <div className={singleLocation ? "hidden" : undefined}>
-            <p className="text-sm font-medium text-slate-700 mb-2">פריטים המוצעים במיקום זה</p>
             {services.length === 0 ? (
-              <p className="flex items-center gap-1.5 rounded-lg bg-warning-bg border border-warning-border px-3 py-2 text-xs text-warning-text">
-                <TriangleAlert className="h-3.5 w-3.5 shrink-0" /> יש להוסיף פריטים תחילה בלשונית &quot;פריטים&quot;, ואז ניתן לשייך אותם למיקום זה.
+              <p >
               </p>
             ) : (
               <div className="flex flex-col gap-1.5">

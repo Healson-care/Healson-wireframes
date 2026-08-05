@@ -15,10 +15,14 @@ export function MonthlyReportSection({
   orders,
   providerName,
   months = 6,
+  showCommission = true,
 }: {
   orders: Order[];
   providerName?: string;
   months?: number;
+  /** Healson's cut is an internal figure — the provider's own report shows what
+   * reaches them, not what the platform kept. Only the admin view sets this. */
+  showCommission?: boolean;
 }) {
   const completed = orders.filter((o) => o.status === "הושלם");
   const monthly = groupByMonth(completed, (o) => o.created_date, months).map((m) => {
@@ -38,8 +42,20 @@ export function MonthlyReportSection({
   function handleExport() {
     downloadCsv(
       `דוח-חודשי${providerName ? `-${providerName}` : ""}.csv`,
-      ["חודש", "מס' עסקאות", "הכנסה ברוטו", "עמלת Healson", "תשלום נטו לספק"],
-      monthly.map((m) => [m.label, m.orderCount, m.revenue, m.commission, m.payout])
+      [
+        "חודש",
+        "מס' עסקאות",
+        "הכנסה ברוטו",
+        ...(showCommission ? ["עמלת Healson"] : []),
+        "תשלום לספק",
+      ],
+      monthly.map((m) => [
+        m.label,
+        m.orderCount,
+        m.revenue,
+        ...(showCommission ? [m.commission] : []),
+        m.payout,
+      ])
     );
   }
 
@@ -48,7 +64,10 @@ export function MonthlyReportSection({
       <CardHeader className="flex flex-row items-center justify-between gap-3">
         <div>
           <CardTitle>דוח סוף חודש</CardTitle>
-          <p className="text-sm text-slate-500">הכנסות, עמלות ותשלומים לפי חודש — {months} חודשים אחרונים</p>
+          <p className="text-sm text-slate-500">
+            {showCommission ? "הכנסות, עמלות ותשלומים" : "הכנסות ותשלומים"} לפי חודש — {months} חודשים
+            אחרונים
+          </p>
         </div>
         <Button variant="outline" size="sm" onClick={handleExport} disabled={!hasData}>
           <Download className="h-3.5 w-3.5" /> ייצוא CSV
@@ -67,8 +86,8 @@ export function MonthlyReportSection({
                     <th className="py-2 font-medium">חודש</th>
                     <th className="py-2 font-medium">עסקאות</th>
                     <th className="py-2 font-medium">הכנסה ברוטו</th>
-                    <th className="py-2 font-medium">עמלת Healson</th>
-                    <th className="py-2 font-medium">נטו לספק</th>
+                    {showCommission && <th className="py-2 font-medium">עמלת Healson</th>}
+                    <th className="py-2 font-medium">תשלום לספק</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -77,7 +96,7 @@ export function MonthlyReportSection({
                       <td className="py-2 font-medium text-slate-800">{m.label}</td>
                       <td className="py-2 text-slate-600">{m.orderCount}</td>
                       <td className="py-2 text-slate-900">{formatCurrency(m.revenue)}</td>
-                      <td className="py-2 text-danger">{formatCurrency(m.commission)}</td>
+                      {showCommission && <td className="py-2 text-danger">{formatCurrency(m.commission)}</td>}
                       <td className="py-2 font-semibold text-success">{formatCurrency(m.payout)}</td>
                     </tr>
                   ))}
