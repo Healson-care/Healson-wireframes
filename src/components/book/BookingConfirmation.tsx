@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { ServiceItemCard } from "@/components/book/ServiceItemCard";
 import { PreparationRequirements } from "@/components/book/PreparationRequirements";
 import { useStore } from "@/lib/store";
+import { providerLabel } from "@/lib/search";
 import { ConsultationType, PROVIDER_SERVICE_TYPE_LABELS, ProviderProfile } from "@/types";
 
 // Deterministic (not Math.random) so it stays pure during render — the
@@ -97,13 +98,13 @@ export function BookingConfirmation({
       </motion.div>
       <h2 className="text-2xl font-bold text-slate-900">התור נקבע בהצלחה! 🎉</h2>
       <p className="text-slate-500 mt-2">
-        {provider.title} {provider.display_name} · {selectedSlot.label} בשעה {selectedSlot.time}
+        {providerLabel(provider)} · {selectedSlot.label} בשעה {selectedSlot.time}
       </p>
       <p className="text-xs text-slate-400 mt-1">מספר תיק לקוח #{confirmation.fileNumber}</p>
 
       <div className="mt-4 flex flex-col gap-1 rounded-lg border border-slate-200 bg-white p-4 text-right text-sm">
         <p className="font-bold text-slate-900">
-          {provider.title} {provider.display_name}
+          {providerLabel(provider)}
         </p>
         <p className="text-slate-500">{provider.specialty}</p>
         {clinic && (

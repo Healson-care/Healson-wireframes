@@ -5,6 +5,7 @@ import { BellRing, Calendar, Clock, Users } from "lucide-react";
 import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
 import { useStore } from "@/lib/store";
+import { providerLabel } from "@/lib/search";
 import { ProviderProfile } from "@/types";
 
 export function WaitlistJoinDialog({
@@ -51,7 +52,7 @@ export function WaitlistJoinDialog({
             </div>
             <div>
               <p className="font-semibold text-slate-900">
-                {provider.title} {provider.display_name}
+                {providerLabel(provider)}
               </p>
               {isGeneral ? (
                 <p className="text-sm text-slate-500 mt-1">כל מועד פנוי — נציע לכם את התור הראשון שיתפנה</p>

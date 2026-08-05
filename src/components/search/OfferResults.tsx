@@ -78,6 +78,7 @@ function ServiceGroupCard({
           </p>
 
           <div className="mt-2 flex flex-wrap gap-1.5">
+            <MabarCode code={sharedMohCode(group.offers)} />
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
               {PROVIDER_SERVICE_TYPE_LABELS[group.serviceType]}
             </span>
@@ -105,6 +106,29 @@ function ServiceGroupCard({
       <CoverageBadges coverage={group.coverage} title="מסלולי מימון לשירות הזה בפרופיל שלך" />
     </div>
   );
+}
+
+/**
+ * קוד מב"ר — the Ministry of Health item code. Only coded items carry one
+ * (בדיקות, הדמיה, פרוצדורות, ניתוחים); a consultation has none, so this
+ * renders nothing rather than an empty field. It's what the patient quotes to
+ * the kupah when asking for a referral or a commitment, which is why it's on
+ * the item and not buried in a details screen.
+ */
+function MabarCode({ code }: { code?: string }) {
+  if (!code) return null;
+  return (
+    <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-500">
+      {'מב"ר'} <span className="tabular-nums text-slate-700">{code}</span>
+    </span>
+  );
+}
+
+/** The code of a container, only when every item in it shares one. */
+function sharedMohCode(offers: Offer[]): string | undefined {
+  const first = offers[0]?.service.moh_code;
+  if (!first) return undefined;
+  return offers.every((o) => o.service.moh_code === first) ? first : undefined;
 }
 
 /**
@@ -245,6 +269,73 @@ function ProviderGroupCard({
 }
 
 /**
+ * The flat list of ITEMS — one row per bookable offer, not per container.
+ *
+ * Containers are how you browse; the moment anything is filtered, the patient
+ * has already said what she's after, and grouping would hide the very things
+ * she narrowed down to. So any active gate, filter, anchor or query switches
+ * the results to this, and each row books directly.
+ */
+export function OfferItemList({
+  offers,
+  patient,
+  onSelectOffer,
+}: {
+  offers: Offer[];
+  patient?: Patient | null;
+  onSelectOffer: (offer: Offer) => void;
+}) {
+  if (offers.length === 0) {
+    return (
+      <EmptyState
+        icon={<Stethoscope className="h-10 w-10" />}
+        title="לא נמצאו פריטים מתאימים"
+        description="נסו להסיר מסנן או לשנות את החיפוש"
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {offers.map((offer) => {
+        const pricing = offerPricing(offer, patient);
+        return (
+          <button
+            key={offer.id}
+            onClick={() => onSelectOffer(offer)}
+            className="focus-ring flex w-full flex-col gap-2 rounded-2xl border border-white/70 bg-white/85 p-4 text-right shadow-[0_18px_40px_-30px_rgba(20,42,79,0.4)] backdrop-blur-sm transition-colors hover:border-[var(--brand-navy)]/25 sm:flex-row sm:items-start sm:justify-between sm:gap-3"
+          >
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-semibold text-slate-900">{offer.service.name}</p>
+              <p className="truncate text-xs text-slate-500">
+                {offer.doctor ? providerLabel(offer.doctor) : providerLabel(offer.provider)}
+                {offer.doctor?.specialty && <span className="text-slate-400"> · {offer.doctor.specialty}</span>}
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                <MabarCode code={offer.service.moh_code} />
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                  {PROVIDER_SERVICE_TYPE_LABELS[offer.service.service_type ?? "consultation"]}
+                </span>
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                  {offer.service.duration_minutes} דק׳
+                </span>
+                {requiresReferral(offer.service) && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-warning-bg px-2 py-0.5 text-[11px] font-medium text-warning-text">
+                    <FileText className="h-3 w-3 shrink-0" /> נדרשת הפניה
+                  </span>
+                )}
+              </div>
+              <ClinicLine offer={offer} />
+            </div>
+            <PriceCell pricing={pricing} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
  * The screen behind a result card: a provider's own services, or a service's
  * providers. Its own view rather than an expander, so a long list gets the
  * whole viewport instead of pushing the rest of the results out of reach.
@@ -357,6 +448,7 @@ function ServiceDetailHeader({ group }: { group: Extract<ResultGroup, { kind: "s
         <span>{group.clinicNames.join(" · ")}</span>
       </p>
       <div className="mt-2 flex flex-wrap gap-1.5">
+        <MabarCode code={sharedMohCode(group.offers)} />
         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
           {PROVIDER_SERVICE_TYPE_LABELS[group.serviceType]}
         </span>
@@ -391,7 +483,10 @@ function ServiceRow({
       className="focus-ring flex w-full flex-col gap-2 rounded-lg border border-slate-200 bg-white p-3 text-right hover:border-primary sm:flex-row sm:items-start sm:justify-between sm:gap-3"
     >
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-slate-800">{offer.service.name}</p>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <p className="min-w-0 truncate text-sm font-medium text-slate-800">{offer.service.name}</p>
+          <MabarCode code={offer.service.moh_code} />
+        </div>
         <p className="text-xs text-slate-500">
           {offer.service.duration_minutes} דק׳
           {offer.service.service_type && ` · ${PROVIDER_SERVICE_TYPE_LABELS[offer.service.service_type]}`}

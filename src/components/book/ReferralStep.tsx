@@ -3,6 +3,7 @@
 import { ArrowRight, FileText } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { FileDropzone } from "@/components/ui/FileDropzone";
+import { providerLabel } from "@/lib/search";
 import { ConsultationType, ProviderProfile } from "@/types";
 
 /**
@@ -34,7 +35,7 @@ export function ReferralStep({
       <div className="mb-4 text-center">
         <h2 className="text-xl font-bold text-slate-900">העלאת הפניה</h2>
         <p className="mt-1 text-sm text-slate-500">
-          {consultation?.name} אצל {provider.title} {provider.display_name}
+          {consultation?.name} אצל {providerLabel(provider)}
         </p>
       </div>
 
