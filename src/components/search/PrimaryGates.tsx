@@ -72,12 +72,18 @@ export function PrimaryGates({
     // `block`: Popover's root is inline-block, and only a grid/flex parent
     // stretches it to full width.
     <div className="mb-2 overflow-hidden rounded-2xl bg-gradient-to-l from-[var(--brand-navy)]/[0.07] via-white/70 to-[var(--brand-gold)]/[0.16]">
-      {/* All four axes on one row at every width. */}
+      {/* All four axes on one row at every width.
+          `min-w-0` on every cell is load-bearing, not tidying: a grid item
+          defaults to `min-width: auto`, so a cell holding a long value grows
+          past its 1fr track and squeezes its neighbours out of the row — which
+          is exactly what "מרפאות חוץ הדסה" did to the gate beside it. With it,
+          the track's width wins and the value truncates inside its own quarter.
+          The full text is never lost: it reads in the chip below the bar. */}
       <div className="grid grid-cols-4">
-        <div className="grid border-e border-[var(--brand-navy)]/10">
+        <div className="grid min-w-0 border-e border-[var(--brand-navy)]/10">
           {itemGate && <GateControl def={itemGate} query={query} ctx={ctx} onSetValue={setValue} />}
         </div>
-        <div className="grid">
+        <div className="grid min-w-0">
           {domainGate && (
             <TwoLevelGate
               parentDef={domainGate}
@@ -92,10 +98,10 @@ export function PrimaryGates({
             />
           )}
         </div>
-        <div className="grid border-s border-[var(--brand-navy)]/10">
+        <div className="grid min-w-0 border-s border-[var(--brand-navy)]/10">
           <PerformerGate query={query} onChange={onChange} offers={ctx.offers} scope={performerScope} />
         </div>
-        <div className="grid border-s border-[var(--brand-navy)]/10">
+        <div className="grid min-w-0 border-s border-[var(--brand-navy)]/10">
           {regionGate && (
             <TwoLevelGate
               parentDef={regionGate}
@@ -145,8 +151,11 @@ function GateControl({
 
   return (
     <Popover
+      block
       trigger={
-        <button type="button" className="focus-ring block w-full">
+        // A span, not a button: Popover already wraps the trigger in one, and
+        // a button inside a button is invalid HTML that swallows the click.
+        <span className="block w-full min-w-0">
           <GateTrigger
             axis={def.group}
             value={active ? summary : constrained ? choosable[0]?.label ?? "אין אפשרויות" : "הכל"}
@@ -154,7 +163,7 @@ function GateControl({
             muted={constrained}
             extra={selected.length - 1}
           />
-        </button>
+        </span>
       }
     >
       {() => (

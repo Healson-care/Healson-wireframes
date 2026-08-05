@@ -185,17 +185,17 @@ function TaxonomyPath({ offer }: { offer: Offer }) {
 }
 
 /**
- * The unit and the branches this specific item can be booked at — per offer,
- * not per provider: an item may run at only some of a unit's branches, and a
- * station-run one runs exactly where its עמדה stands.
+ * The ONE branch this card is about. An offer is now per branch, so this line
+ * names a single place outright instead of summarising several — a card that
+ * said "ועוד 2 סניפים" was asking her to book somewhere it hadn't priced.
+ * The station is named too where there is one: an MRI is performed by a
+ * specific עמדה, and that's the thing she'll be sent to at the counter.
  */
 function BranchLine({ offer }: { offer: Offer }) {
-  // The town leads. It's the coarse answer she's after — the branch name and
-  // the unit are the detail behind it, kept on the same line but lighter.
-  const cities = Array.from(new Set(offer.clinics.map((c) => c.city).filter(Boolean)));
-  const shownCities = cities.slice(0, 2).join(" · ");
-  const moreCities = cities.length - Math.min(cities.length, 2);
-  const detail = [offer.organization?.display_name, offer.clinics[0]?.name].filter(Boolean).join(" · ");
+  // The town leads. It's the coarse answer she's after — the branch name, the
+  // unit and the station are the detail behind it, lighter on the same line.
+  const { city, name, facilityName } = offer.clinic;
+  const detail = [offer.organization?.display_name, name, facilityName].filter(Boolean).join(" · ");
 
   return (
     // Wraps rather than truncates: a branch name cut to "סניף רא…" is worse
@@ -203,12 +203,8 @@ function BranchLine({ offer }: { offer: Offer }) {
     <p className="mt-1 flex items-start gap-1.5 text-xs">
       <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--brand-navy)]/60" />
       <span className="min-w-0">
-        <span className="font-semibold text-slate-800">
-          {shownCities || "מיקום לא צוין"}
-          {moreCities > 0 && ` +${moreCities}`}
-        </span>
+        <span className="font-semibold text-slate-800">{city || "מיקום לא צוין"}</span>
         {detail && <span className="text-slate-400"> · {detail}</span>}
-        {offer.clinics.length > 1 && <span className="text-slate-400"> ועוד {offer.clinics.length - 1} סניפים</span>}
       </span>
     </p>
   );

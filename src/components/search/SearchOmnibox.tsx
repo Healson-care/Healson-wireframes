@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Clock, FileText, Search, Stethoscope, X } from "lucide-react";
+import { Building2, Clock, FileText, MapPin, Search, Stethoscope, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Offer, SearchScope, Suggestion, listEntities, suggest } from "@/lib/search";
 
@@ -20,6 +20,7 @@ export function SearchOmnibox({
   recents,
   onPick,
   onPickRecent,
+  focusSignal,
 }: {
   text: string;
   onTextChange: (next: string) => void;
@@ -28,9 +29,16 @@ export function SearchOmnibox({
   recents: string[];
   onPick: (suggestion: Suggestion) => void;
   onPickRecent: (value: string) => void;
+  /**
+   * Bump this to put the cursor in the box. Used by the collapsed search bar,
+   * which reopens the band and then has to land the patient inside the field —
+   * otherwise tapping the magnifier would only unfold furniture at her.
+   */
+  focusSignal?: number;
 }) {
   const [focused, setFocused] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const suggestions = useMemo(() => suggest(text, offers, scope), [text, offers, scope]);
   const fullList = useMemo(() => listEntities(offers, scope), [offers, scope]);
@@ -38,6 +46,17 @@ export function SearchOmnibox({
   const showSuggestions = focused && !empty && suggestions.length > 0;
   const showBrowse = focused && empty;
   const showRecents = showBrowse && recents.length > 0;
+
+  // Skips the first render: the box must not steal focus (and open the phone
+  // keyboard) just because the page loaded.
+  const firstFocusSignal = useRef(true);
+  useEffect(() => {
+    if (firstFocusSignal.current) {
+      firstFocusSignal.current = false;
+      return;
+    }
+    inputRef.current?.focus();
+  }, [focusSignal]);
 
   useEffect(() => {
     if (!focused) return;
@@ -60,6 +79,7 @@ export function SearchOmnibox({
       <div className="flex items-center gap-2 rounded-2xl border border-white/70 bg-white/85 px-3 shadow-[0_18px_40px_-30px_rgba(20,42,79,0.4)] backdrop-blur-sm focus-within:border-[var(--brand-navy)]/35">
         <Search className="h-4 w-4 shrink-0 text-slate-400" />
         <input
+          ref={inputRef}
           value={text}
           onChange={(e) => onTextChange(e.target.value)}
           onFocus={() => setFocused(true)}
@@ -70,8 +90,10 @@ export function SearchOmnibox({
               setFocused(false);
             }
           }}
-          placeholder={scope === "provider" ? "שם נותן שירות או התמחות" : "שם שירות או קוד הפניה"}
-          aria-label={scope === "provider" ? "חיפוש נותן שירות" : "חיפוש שירות"}
+          // One field, every entry point — naming them is what tells her she
+          // may type a town here, which no amount of trying would reveal.
+          placeholder="שירות, רופא, מכון, עיר או קוד הפניה"
+          aria-label="חיפוש בקטלוג"
           className="h-11 flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400"
         />
         {text && (
@@ -112,7 +134,9 @@ export function SearchOmnibox({
               never depends on already knowing a name. */}
           {showBrowse && (
             <>
-              <SectionLabel>{scope === "provider" ? "כל נותני השירות" : "כל השירותים"}</SectionLabel>
+              <SectionLabel>
+                {scope === "provider" ? "עיון — נותני שירות, מכונים ושירותים" : "עיון בקטלוג"}
+              </SectionLabel>
               {fullList.map((s) => (
                 <SuggestionRow
                   key={`${s.kind}:${s.value}`}
@@ -173,9 +197,14 @@ function SuggestionRow({
   );
 }
 
+/** The icon is what makes a blended list readable — it says which KIND of
+ *  thing a row is before the label is read, so people, places, towns and
+ *  services don't arrive as one undifferentiated column of text. */
 function SuggestionIcon({ kind }: { kind: Suggestion["kind"] }) {
   const className = "h-4 w-4 shrink-0 mt-0.5";
   if (kind === "provider") return <Stethoscope className={cn(className, "text-primary")} />;
+  if (kind === "organization") return <Building2 className={cn(className, "text-[var(--brand-navy)]/60")} />;
+  if (kind === "city") return <MapPin className={cn(className, "text-teal-600")} />;
   if (kind === "referral") return <FileText className={cn(className, "text-amber-500")} />;
   return <Search className={cn(className, "text-slate-400")} />;
 }

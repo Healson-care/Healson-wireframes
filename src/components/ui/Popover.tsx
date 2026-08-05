@@ -15,11 +15,22 @@ export function Popover({
   children,
   align = "start",
   className,
+  block,
 }: {
   trigger: ReactNode;
   children: (close: () => void) => ReactNode;
   align?: "start" | "end";
   className?: string;
+  /**
+   * Let the trigger fill its parent instead of sizing to its own content.
+   *
+   * The default `inline-block` shrink-wraps, which silently defeats any
+   * `truncate` inside the trigger: nothing ever overflows a box that grows to
+   * fit. A trigger sitting in a grid track (the search gates) must instead be
+   * `block w-full min-w-0`, so the track's width wins and long values are cut
+   * rather than pushing their neighbours out of the row.
+   */
+  block?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
@@ -81,8 +92,12 @@ export function Popover({
   }, [open]);
 
   return (
-    <div ref={anchorRef} className="relative inline-block">
-      <button type="button" onClick={() => setOpen((o) => !o)}>
+    <div ref={anchorRef} className={cn("relative", block ? "block w-full min-w-0" : "inline-block")}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={cn(block && "focus-ring block w-full min-w-0")}
+      >
         {trigger}
       </button>
       {mounted &&

@@ -163,15 +163,18 @@ export function PerformerGate({
 
   return (
     <Popover
+      block
       trigger={
-        <button type="button" className="focus-ring block w-full">
+        // A span, not a button: Popover already wraps the trigger in one, and
+        // a button inside a button is invalid HTML that swallows the click.
+        <span className="block w-full min-w-0">
           <GateTrigger
             axis="נותן שירות"
             value={active ? summary : constrained ? reachable[0]?.name ?? "אין אפשרויות" : "הכל"}
             active={active}
             muted={constrained}
           />
-        </button>
+        </span>
       }
     >
       {(close) => {

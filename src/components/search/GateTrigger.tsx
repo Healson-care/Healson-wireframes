@@ -35,11 +35,14 @@ export function GateTrigger({
   return (
     <span
       className={cn(
-        "flex h-14 w-full items-center justify-between gap-1 px-2 text-right transition-colors sm:gap-1.5 sm:px-3",
+        // Shorter and tighter on a phone: four gates share ~90px each there,
+        // and every pixel of padding comes straight out of the value's own
+        // width. h-12 also buys back height for the sticky band above.
+        "flex h-12 w-full items-center justify-between gap-1 px-1.5 text-right transition-colors sm:h-14 sm:gap-1.5 sm:px-3",
         active ? "bg-[var(--brand-navy)]/10" : muted ? "bg-slate-100/70" : "hover:bg-white/60"
       )}
     >
-      <span className="flex min-w-0 flex-col gap-0.5">
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span
           className={cn(
             "truncate text-[10px] font-medium tracking-wide",
@@ -58,7 +61,10 @@ export function GateTrigger({
           {!!extra && extra > 0 && <span className="font-normal text-slate-400"> +{extra}</span>}
         </span>
       </span>
-      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--brand-navy)]/40" />
+      {/* Hidden on a phone. It's decoration — the segment already reads as
+          openable — and it costs ~20px of the value's width, which at this
+          size is the difference between "מרפאות חוץ" and "מרפ…". */}
+      <ChevronDown className="hidden h-3.5 w-3.5 shrink-0 text-[var(--brand-navy)]/40 sm:block" />
     </span>
   );
 }

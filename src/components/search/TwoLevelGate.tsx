@@ -114,8 +114,11 @@ export function TwoLevelGate({
 
   return (
     <Popover
+      block
       trigger={
-        <button type="button" className="focus-ring block w-full">
+        // A span, not a button: Popover already wraps the trigger in one, and
+        // a button inside a button is invalid HTML that swallows the click.
+        <span className="block w-full min-w-0">
           <GateTrigger
             axis={parentDef.group}
             value={active ? summary : constrained ? only?.label ?? "אין אפשרויות" : "הכל"}
@@ -123,7 +126,7 @@ export function TwoLevelGate({
             muted={constrained}
             extra={extra}
           />
-        </button>
+        </span>
       }
     >
       {() => (

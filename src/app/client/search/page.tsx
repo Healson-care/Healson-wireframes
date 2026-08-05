@@ -335,8 +335,10 @@ export default function ClientSearchPage() {
     setSelectedService(offer.service);
     setSelectedProvider(offer.provider);
     setSelectedDoctor(offer.doctor ?? null);
-    // Clear the location and referral picked for a *previous* offer.
-    setDiscoveryClinicId(null);
+    // A result IS a branch, so the branch she tapped carries straight through
+    // — the price on the card and the price at payment are then the same
+    // number by construction. SlotPicker still lets her change it from here.
+    setDiscoveryClinicId(offer.clinic.id);
     setReferralFile(null);
     setHasAdvanced(true);
     // Non-consultations must produce a referral before a slot is even shown.

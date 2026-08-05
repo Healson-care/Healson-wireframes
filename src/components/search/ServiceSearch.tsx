@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { SlidersHorizontal, X } from "lucide-react";
+import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Search, SlidersHorizontal, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { OrganizationBranch, Patient, ProviderProfile } from "@/types";
 import {
@@ -68,6 +69,43 @@ export function ServiceSearch({
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
 
+  /**
+   * The sticky band carries four things — the insurance strip, the gates, the
+   * omnibox and the chips — which together eat most of a phone screen. Nothing
+   * is dropped to fix that: scrolling DOWN folds away the two that only need
+   * to be read once (the strip, the box), while the gates and the chips stay,
+   * because those are the controls she reaches for mid-list. Scrolling up even
+   * slightly brings everything back, and a magnifier in the chip row reopens
+   * the box directly — so no capability is ever more than one gesture away.
+   */
+  const [collapsed, setCollapsed] = useState(false);
+  const [focusSignal, setFocusSignal] = useState(0);
+  const lastY = useRef(0);
+
+  useEffect(() => {
+    function onScroll() {
+      const y = window.scrollY;
+      const previous = lastY.current;
+      lastY.current = y;
+      // Near the top there's nothing to reclaim, and folding there would make
+      // the band twitch while she's still reading the first result.
+      if (y < 160) {
+        setCollapsed(false);
+        return;
+      }
+      // A dead zone, so momentum scrolling's tiny reversals don't flap it.
+      if (y > previous + 6) setCollapsed(true);
+      else if (y < previous - 6) setCollapsed(false);
+    }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  function reopenSearch() {
+    setCollapsed(false);
+    setFocusSignal((n) => n + 1);
+  }
+
   const setQuery = (update: SearchQuery | ((prev: SearchQuery) => SearchQuery)) =>
     onQueryChange(typeof update === "function" ? update(query) : update);
 
@@ -120,9 +158,28 @@ export function ServiceSearch({
   // differ — but no number, which would describe nothing on screen.
   const hasDoctorlessOffers = query.groupBy === "provider" && offersWithoutDoctor(offers).length > 0;
 
+  /**
+   * Every kind the box can return resolves to the query field that actually
+   * means it — a person anchors the performer, a place anchors the
+   * organization, a town writes the city filter. None of them is left as loose
+   * text: an anchored value gets a chip she can see and remove, where free
+   * text would keep narrowing invisibly.
+   */
   function pick(suggestion: Suggestion) {
     if (suggestion.kind === "provider") {
       setQuery((q) => ({ ...q, text: "", performerId: suggestion.value }));
+      return;
+    }
+    if (suggestion.kind === "organization") {
+      setQuery((q) => ({ ...q, text: "", organizationId: suggestion.value }));
+      return;
+    }
+    if (suggestion.kind === "city") {
+      setQuery((q) => ({
+        ...q,
+        text: "",
+        filters: { ...q.filters, city: toggleMulti(q.filters.city, suggestion.value) },
+      }));
       return;
     }
     setQuery((q) => ({
@@ -145,11 +202,14 @@ export function ServiceSearch({
           to say so. top-14 clears the layout's own sticky header; the negative
           margin lets the band span the page padding, so cards pass under it
           rather than beside it. */}
-      <div className="sticky top-14 z-20 -mx-4 mb-3 border-b border-slate-200/70 bg-slate-50/90 px-4 pb-2 pt-2 backdrop-blur">
+      <div className="sticky top-14 z-20 -mx-4 mb-3 border-b border-slate-200/70 bg-slate-50/90 px-4 pb-1.5 pt-1.5 backdrop-blur">
         {/* The profile rides along: every price on screen is stated in terms
             of these plans, so the legend for them can't scroll away from the
-            thing it explains. */}
-        {patient && <InsuranceProfileStrip patient={patient} />}
+            thing it explains. It folds while she scrolls down — it's a legend,
+            read once — and unfolds the moment she scrolls back up. */}
+        <Collapsible show={!collapsed}>
+          {patient && <InsuranceProfileStrip patient={patient} />}
+        </Collapsible>
 
         {/* 1 — the gates, in place of the old by-service/by-provider toggle:
             what kind of item, from what kind of person, at what kind of unit.
@@ -157,23 +217,40 @@ export function ServiceSearch({
             for a person, so the view follows the gate instead of asking twice. */}
         <PrimaryGates query={query} onChange={onQueryChange} ctx={ctx} />
 
-        {/* 2 — the search bar, scoped by the choice above. */}
-        <div className="mb-2">
-          <SearchOmnibox
-            text={query.text}
-            onTextChange={(text) => setQuery((q) => ({ ...q, text }))}
-            offers={scopedOffers}
-            scope={query.groupBy}
-            recents={recents}
-            onPick={pick}
-            onPickRecent={(value) => setQuery((q) => ({ ...q, text: value }))}
-          />
-        </div>
+        {/* 2 — the search bar, scoped by the choice above. Folds with the
+            strip; the magnifier in the chip row below brings it straight back
+            with the cursor already in it. */}
+        <Collapsible show={!collapsed}>
+          <div className="mb-2">
+            <SearchOmnibox
+              text={query.text}
+              onTextChange={(text) => setQuery((q) => ({ ...q, text }))}
+              offers={scopedOffers}
+              scope={query.groupBy}
+              recents={recents}
+              onPick={pick}
+              onPickRecent={(value) => setQuery((q) => ({ ...q, text: value }))}
+              focusSignal={focusSignal}
+            />
+          </div>
+        </Collapsible>
 
         {/* 3 — filters: anchors and quick chips inline, the rest in the sheet.
             Wraps rather than scrolling sideways — a chip the patient has to
             discover by swiping may as well not be on screen. */}
         <div className="flex flex-wrap items-center gap-2">
+        {/* Only while the box is folded away — this IS the box, in one tap. */}
+        {collapsed && (
+          <button
+            onClick={reopenSearch}
+            aria-label="פתיחת תיבת החיפוש"
+            className="focus-ring inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-white/85 px-3.5 text-sm font-medium text-[var(--brand-ink-soft)] sm:h-8 sm:px-3 sm:text-xs"
+          >
+            <Search className="h-3.5 w-3.5" />
+            {query.text ? <span className="max-w-[32vw] truncate">{query.text}</span> : "חיפוש"}
+          </button>
+        )}
+
         <button
           onClick={() => setSheetOpen(true)}
           className={cn(
@@ -269,6 +346,9 @@ export function ServiceSearch({
         </div>
       </div>
 
+      {/* "הצעות" throughout, never "פריטים": a row is now one item at one
+          branch, so the same MRI at two branches is two of these — and calling
+          that "2 פריטים" would read as two different tests. */}
       {patient && results.length > 0 ? (
         <p className="mb-2 text-xs text-slate-600">
           <span className="font-semibold text-teal-700">✓</span> בדקנו {results.length} הצעות מול הפרופיל שלך
@@ -278,7 +358,7 @@ export function ServiceSearch({
         </p>
       ) : (
         <p className="mb-2 text-xs text-slate-500">
-          {results.length === 0 ? "אין תוצאות" : `${results.length} פריטים`}
+          {results.length === 0 ? "אין תוצאות" : `${results.length} הצעות`}
         </p>
       )}
 
@@ -300,6 +380,38 @@ export function ServiceSearch({
         onClearAll={clearFilters}
       />
     </div>
+  );
+}
+
+/**
+ * Folds its content away without unmounting the meaning of the page. Height is
+ * animated rather than toggled with `hidden`, so the results below slide up
+ * instead of jumping — a sticky band that snaps between two heights reads as a
+ * glitch, and she loses her place in the list.
+ *
+ * `overflow-hidden` is what makes a height animation look like a fold rather
+ * than a squash — but it also clips anything hanging out of the box, and the
+ * omnibox hangs a suggestion list well past its own bottom edge. So it's worn
+ * only while the fold is actually moving, and dropped once it settles open.
+ */
+function Collapsible({ show, children }: { show: boolean; children: ReactNode }) {
+  const [animating, setAnimating] = useState(false);
+  return (
+    <AnimatePresence initial={false}>
+      {show && (
+        <motion.div
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: "auto", opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={{ duration: 0.18, ease: "easeOut" }}
+          onAnimationStart={() => setAnimating(true)}
+          onAnimationComplete={() => setAnimating(false)}
+          className={cn(animating && "overflow-hidden")}
+        >
+          {children}
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
