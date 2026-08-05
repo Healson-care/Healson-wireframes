@@ -2684,7 +2684,6 @@ export const SEED_PATIENTS: Patient[] = PATIENT_NAMES.map((name, i) => {
       ? [
           {
             company: B_INSURANCE_COMPANIES[i % B_INSURANCE_COMPANIES.length],
-            policy_number: `POL-${100000 + i * 91}`,
             // Must come from the carrier's own roster — the agent picker
             // matches against it, so an off-list name would render as "אחר".
             agent_name: INSURANCE_AGENTS_BY_COMPANY[B_INSURANCE_COMPANIES[i % B_INSURANCE_COMPANIES.length]][i % 4],
@@ -2713,8 +2712,18 @@ SEED_PATIENTS[0].k_level = "מכבי שלי";
 // The company MUST be a canonical B_INSURANCE_COMPANIES string — the B price
 // is matched against it, so the short form "מגדל" would silently never match
 // a provider's "מגדל ביטוח" agreement.
+// The demo patient is the one profile that has the (optional) policy document
+// filed, so the collapsed disclosure has something to show a filename for.
 SEED_PATIENTS[0].b_insurances = [
-  { company: "מגדל ביטוח", policy_number: "POL-100000", agent_name: "יעל אדרי סוכנות ביטוח" },
+  {
+    company: "מגדל ביטוח",
+    agent_name: "יעל אדרי סוכנות ביטוח",
+    policy_document: {
+      file_name: "פוליסה_מגדל_בריאות.pdf",
+      uploaded_at: isoDateDaysFromNow(-40),
+      data_url: "data:application/pdf;base64,",
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -3159,9 +3168,10 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
     created_by_id: SEED_PATIENTS[1].id,
   },
 
-  // §9 + §2 — an MRI at a מכון on route S: a referral was uploaded and the
-  // unit has not decided yet, so the slot is only HELD. This is the row the
-  // "בקשות ממתינות" queue opens on.
+  // §9 + §2 — an MRI at a מכון on route S: the referral was uploaded and the
+  // unit has not decided yet, so there is no date on it at all — a time is only
+  // offered once the answer comes back. This is the row the "בקשות ממתינות"
+  // queue opens on.
   {
     id: generateId("appt"),
     client_name: SEED_PATIENTS[6].full_name,
@@ -3171,8 +3181,8 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
     service_name: "MRI ראש ללא חומר ניגוד",
     resource_id: "fac_inst_mri_1",
     owner_context_id: "fac_inst_mri_1",
-    date: isoDateDaysFromNow(5),
-    time: "11:00",
+    date: "",
+    time: "",
     duration_minutes: 40,
     status: "ממתין לאישור הפניה",
     funding_layer: "S",
@@ -3182,7 +3192,6 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
       uploaded_at: isoTimestampHoursFromNow(-6),
       data_url: "data:application/pdf;base64,",
     },
-    slot_hold_expires_at: isoTimestampHoursFromNow(18),
     kupah: SEED_PATIENTS[6].kupah,
     notes: "",
     created_by_id: SEED_PATIENTS[6].id,
@@ -3315,22 +3324,22 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
     service_name: "אולטרסאונד בטן שלמה",
     resource_id: "fac_inst_us_1",
     owner_context_id: "fac_inst_us_1",
-    date: isoDateDaysFromNow(4),
-    time: "09:30",
+    date: "",
+    time: "",
     duration_minutes: 30,
     status: "ממתין לאישור הפניה",
     funding_layer: "K",
     price: 260,
     deposit_amount: 52,
     balance_amount: 208,
-    balance_due_at: balanceDueAt(isoDateDaysFromNow(4)),
+    // No balance_due_at: it is "the day before the appointment", and there is
+    // no appointment date to count back from yet.
     balance_collector: "healson",
     referral_document: {
       file_name: "הפניה_US_בטן.pdf",
       uploaded_at: isoTimestampHoursFromNow(-3),
       data_url: "data:application/pdf;base64,",
     },
-    slot_hold_expires_at: isoTimestampHoursFromNow(21),
     kupah: SEED_PATIENTS[11].kupah,
     notes: "",
     created_by_id: SEED_PATIENTS[11].id,
@@ -3374,8 +3383,8 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
     provider_id: providerOutpatient.id,
     provider_name: providerOutpatient.display_name,
     service_name: "מבחן מאמץ לבבי (ארגומטריה)",
-    date: isoDateDaysFromNow(5),
-    time: "08:00",
+    date: "",
+    time: "",
     duration_minutes: 45,
     status: "ממתין לאישור הפניה",
     funding_layer: "K",
@@ -3388,7 +3397,6 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
       uploaded_at: isoTimestampHoursFromNow(-9),
       data_url: "data:application/pdf;base64,",
     },
-    slot_hold_expires_at: isoTimestampHoursFromNow(15),
     kupah: SEED_PATIENTS[5].kupah,
     notes: "",
     created_by_id: SEED_PATIENTS[5].id,
@@ -3427,8 +3435,8 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
     clinic_id: provider1ClinicId,
     practitioner_id: provider1.id,
     owner_context_id: provider1.id,
-    date: isoDateDaysFromNow(7),
-    time: "08:00",
+    date: "",
+    time: "",
     duration_minutes: 90,
     status: "ממתין לאישור הפניה",
     funding_layer: "B",
@@ -3438,10 +3446,45 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
       uploaded_at: isoTimestampHoursFromNow(-11),
       data_url: "data:application/pdf;base64,",
     },
-    slot_hold_expires_at: isoTimestampHoursFromNow(13),
     kupah: SEED_PATIENTS[7].kupah,
     notes: "",
     created_by_id: SEED_PATIENTS[7].id,
+  },
+
+  // The state the referral gate exists to produce, on the demo patient's own
+  // account (SEED_PATIENTS[0]) so "קבע מועד" is visible in "התורים שלי" without
+  // having to walk the whole booking flow first: ד"ר לוי approved the injection
+  // referral, and the diary is now open to her. She saw him for the knee
+  // consultation above, so the item follows from her own history.
+  {
+    id: generateId("appt"),
+    client_name: SEED_PATIENTS[0].full_name,
+    client_phone: SEED_PATIENTS[0].phone,
+    provider_id: provider1.id,
+    provider_name: provider1.display_name,
+    service_name: "הזרקה תוך-מפרקית מונחית אולטרסאונד",
+    clinic_id: provider1ClinicId,
+    practitioner_id: provider1.id,
+    owner_context_id: provider1.id,
+    date: "",
+    time: "",
+    duration_minutes: 20,
+    status: "ממתין לקביעת מועד",
+    funding_layer: "K",
+    price: 180,
+    deposit_amount: 36,
+    balance_amount: 144,
+    balance_collector: "healson",
+    referral_document: {
+      file_name: "הפניה_הזרקה_ברך.pdf",
+      uploaded_at: isoTimestampHoursFromNow(-30),
+      data_url: "data:application/pdf;base64,",
+    },
+    referral_decision: "approved",
+    referral_decided_at: isoTimestampHoursFromNow(-4),
+    kupah: SEED_PATIENTS[0].kupah,
+    notes: "",
+    created_by_id: SEED_PATIENTS[0].id,
   },
   // ד"ר יערה — a follow-up already settled in full, so her diary shows the
   // whole arc: waiting for a deposit, waiting for a balance, and closed.

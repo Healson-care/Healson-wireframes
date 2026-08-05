@@ -84,7 +84,16 @@ const REFUND_FEE_CAP = 100;
 type CancellationInfo = { canCancel: boolean; refundAmount: number | null };
 
 function getCancellationInfo(appointment: Appointment): CancellationInfo {
-  if (appointment.status === "ממתין לתשלום מקדמה") {
+  // Nothing has been charged in any of these states, so walking away is free.
+  // The two referral states are here for a second reason too: a request with no
+  // date has no slot to give back, so the 48h window below — which is measured
+  // against a payment that never happened — would otherwise leave it
+  // permanently uncancellable.
+  if (
+    appointment.status === "ממתין לתשלום מקדמה" ||
+    appointment.status === "ממתין לאישור הפניה" ||
+    appointment.status === "ממתין לקביעת מועד"
+  ) {
     return { canCancel: true, refundAmount: null };
   }
   if (appointment.status !== "מאושר" && appointment.status !== "שולם במלואו") {
@@ -105,7 +114,9 @@ function getCancellationInfo(appointment: Appointment): CancellationInfo {
 // as a hover tooltip on each item's badge.
 const APPOINTMENT_STATUS_DESCRIPTIONS: Record<AppointmentStatus, string> = {
   "ממתין לאישור הפניה":
-    "ההפניה נשלחה לבדיקת היחידה הרפואית. המועד שמור עבורכם עד יממה, ולא ייגבה תשלום עד שתתקבל תשובה",
+    "ההפניה נשלחה לבדיקת היחידה הרפואית. בשלב זה עוד לא נקבע מועד ולא ייגבה תשלום — נעדכן אתכם ברגע שתתקבל תשובה",
+  "ממתין לקביעת מועד":
+    "היחידה אישרה את ההפניה. אפשר לבחור עכשיו מועד מבין התורים הפנויים, ורק לאחר מכן תתבצע המקדמה",
   "ממתין להתחייבות": "צריך להעלות טופס התחייבות (טופס 17 / כתב התחייבות מהמבטח) כדי לאשר את התור",
   "ממתין לתשלום מקדמה": "בחרתם מועד — המקום שמור זמנית עד שתשלימו את תשלום המקדמה",
   "מאושר": "תשלום המקדמה התקבל, התור נקבע סופית",
@@ -365,6 +376,10 @@ function RescheduleDialog({
   const [waitlistSlot, setWaitlistSlot] = useState<{ date?: string; time?: string; label?: string } | null>(null);
 
   const provider = appointment ? providers.find((p) => p.id === appointment.provider_id) : undefined;
+  // The same picker serves two errands: moving an existing appointment, and
+  // giving an approved referral request its first time. Only the wording
+  // differs, so it keys off whether there is a date at all.
+  const firstTime = !!appointment && !appointment.date;
   // Exclude the appointment being rescheduled from the occupancy check —
   // otherwise its own current slot would show up as "taken" by itself.
   const otherAppointments = useMemo(
@@ -377,8 +392,14 @@ function RescheduleDialog({
       <Dialog
         open={!!appointment && !!provider}
         onClose={onClose}
-        title="עדכון מועד התור"
-        description={appointment ? `${appointment.service_name} · ${appointment.provider_name}` : undefined}
+        title={firstTime ? "בחירת מועד" : "עדכון מועד התור"}
+        description={
+          appointment
+            ? `${appointment.service_name} · ${appointment.provider_name}${
+                firstTime ? " · ההפניה אושרה, אפשר לבחור מועד" : ""
+              }`
+            : undefined
+        }
       >
         {appointment && provider && (
           <SlotPicker
@@ -425,6 +446,7 @@ type ItemBucket = "upcoming" | "pending" | "history";
 // upcoming appointments.
 const PENDING_APPOINTMENT_STATUSES: AppointmentStatus[] = [
   "ממתין לאישור הפניה",
+  "ממתין לקביעת מועד",
   "ממתין להתחייבות",
   "ממתין לתשלום מקדמה",
   "ממתין לתשלום יתרה",
@@ -541,6 +563,12 @@ function AppointmentListCard({
                     </span>
                   )}
                 </>
+              ) : item.kind === "appointment" ? (
+                // A referral request has no date until the unit answers — it is
+                // not a waitlist entry and must not read like one.
+                <>
+                  <CalendarClock className="h-4 w-4 shrink-0 text-primary" /> טרם נקבע מועד
+                </>
               ) : (
                 <>
                   <BellRing className="h-4 w-4 shrink-0 text-primary" /> כל מועד פנוי
@@ -563,6 +591,19 @@ function AppointmentListCard({
                   <CreditCard className="h-3 w-3" />
                   {item.data.status}
                   <span className="opacity-75">· לתשלום</span>
+                </button>
+              ) : item.data.status === "ממתין לקביעת מועד" ? (
+                // Same affordance as the deposit badge above: the status IS the
+                // next action, so it's a button rather than a label plus a
+                // button somewhere else on the card.
+                <button
+                  onClick={() => onReschedule(item.data)}
+                  title={`${APPOINTMENT_STATUS_DESCRIPTIONS[item.data.status]} — לחצו לבחירת מועד`}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-teal-200 bg-teal-50 px-2.5 py-1 text-xs font-medium text-teal-700 underline decoration-dotted underline-offset-2 transition hover:bg-teal-700 hover:text-white hover:no-underline hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-700/40"
+                >
+                  <CalendarClock className="h-3 w-3" />
+                  {item.data.status}
+                  <span className="opacity-75">· לבחירת מועד</span>
                 </button>
               ) : (
                 <Popover
@@ -808,17 +849,27 @@ function AppointmentListCard({
                         appointment whose date arrives with the balance still
                         unpaid — see the note on AppointmentStatus in types/index.ts
                         and README.md. */}
+                    {/* The unit has answered and the diary is open — this is the
+                        one thing the patient is here to do, so it leads. */}
+                    {item.data.status === "ממתין לקביעת מועד" && (
+                      <Button size="sm" onClick={() => onReschedule(item.data)}>
+                        <CalendarClock className="h-3.5 w-3.5" /> קבע מועד
+                      </Button>
+                    )}
                     {(item.data.status === "מאושר" || item.data.status === "ממתין לתשלום יתרה") && (
                       <Button size="sm" onClick={() => onPayBalance(item.data)}>
                         שלם יתרה
                       </Button>
                     )}
-                    <Button variant="outline" size="sm" onClick={() => onReschedule(item.data)}>
-                      <CalendarClock className="h-3.5 w-3.5" /> עדכון תור
-                    </Button>
+                    {/* Nothing to update until there is a time to update. */}
+                    {item.data.date && (
+                      <Button variant="outline" size="sm" onClick={() => onReschedule(item.data)}>
+                        <CalendarClock className="h-3.5 w-3.5" /> עדכון תור
+                      </Button>
+                    )}
                     {getCancellationInfo(item.data).canCancel ? (
                       <Button variant="outline" size="sm" onClick={() => onCancel(item.data)}>
-                        בטל תור
+                        {item.data.date ? "בטל תור" : "בטל בקשה"}
                       </Button>
                     ) : (
                       <span className="text-xs text-slate-400">חלף המועד לביטול תור זה</span>
@@ -1303,14 +1354,16 @@ function ClientAppointmentsPageContent() {
       <ConfirmDialog
         open={!!cancelAppointment}
         onClose={() => setCancelAppointment(null)}
-        title="ביטול תור"
+        title={cancelAppointment && !cancelAppointment.date ? "ביטול הבקשה" : "ביטול תור"}
         description={
           cancelAppointment && getCancellationInfo(cancelAppointment).refundAmount !== null
             ? `יוחזרו לכם ${formatCurrency(getCancellationInfo(cancelAppointment).refundAmount ?? 0)} מתוך המקדמה ששולמה, בניכוי דמי טיפול (5% מסך העסקה או ₪100 — הנמוך מביניהם).`
+            : cancelAppointment && !cancelAppointment.date
+            ? "טרם נקבע מועד ולא שולמה מקדמה, כך שהביטול הוא ללא עלות."
             : "טרם שולמה מקדמה עבור תור זה, כך שהביטול הוא ללא עלות."
         }
         destructive
-        confirmLabel="בטל תור"
+        confirmLabel={cancelAppointment && !cancelAppointment.date ? "בטל בקשה" : "בטל תור"}
         onConfirm={() => {
           if (!cancelAppointment) return;
           const { refundAmount } = getCancellationInfo(cancelAppointment);
@@ -1375,8 +1428,19 @@ function ClientAppointmentsPageContent() {
         appointment={rescheduleAppointment}
         onClose={() => setRescheduleAppointment(null)}
         onRescheduled={(id, date, time, clinicId) => {
-          updateAppointment(id, { date, time, clinic_id: clinicId });
-          showToast("מועד התור עודכן", { variant: "success" });
+          // Giving an approved referral request its first time is also what
+          // hands it to the funding gate — until now there was nothing to
+          // charge a deposit against.
+          const isFirstTime = !rescheduleAppointment?.date;
+          updateAppointment(id, {
+            date,
+            time,
+            clinic_id: clinicId,
+            ...(isFirstTime ? { status: "ממתין לתשלום מקדמה" as const } : {}),
+          });
+          showToast(isFirstTime ? "המועד נקבע — נותר להשלים את תשלום המקדמה" : "מועד התור עודכן", {
+            variant: "success",
+          });
           setRescheduleAppointment(null);
         }}
       />

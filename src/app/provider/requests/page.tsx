@@ -139,16 +139,21 @@ function RequestCard({ appointment: a, tab }: { appointment: Appointment; tab: T
         <div>
           <CardTitle className="text-base">{a.client_name}</CardTitle>
           <p className="text-sm text-slate-600">{a.service_name}</p>
-          <p dir="ltr" className="mt-1 flex items-center gap-1.5 text-xs font-medium tabular-nums text-slate-500">
+          {/* A referral awaiting a decision has no time on it yet, so the date
+              line has to say that rather than render an empty "·". */}
+          <p
+            dir={a.date ? "ltr" : "rtl"}
+            className="mt-1 flex items-center gap-1.5 text-xs font-medium tabular-nums text-slate-500"
+          >
             <CalendarDays className="h-3.5 w-3.5" />
-            {a.date} · {a.time}
+            {a.date ? `${a.date} · ${a.time}` : "טרם נקבע מועד"}
             {typeof a.price === "number" && <span> · {formatCurrency(a.price)}</span>}
           </p>
         </div>
         <div className="flex flex-col items-end gap-1">
           <StatusBadge status={a.status} kind="appointment" />
           <PaymentStateBadge appointment={a} />
-          {a.slot_hold_expires_at && a.status === "ממתין לאישור הפניה" && (
+          {a.date && a.slot_hold_expires_at && a.status === "ממתין לאישור הפניה" && (
             <Badge tone="amber">משוריין עד {formatBalanceDue(a.slot_hold_expires_at)}</Badge>
           )}
         </div>

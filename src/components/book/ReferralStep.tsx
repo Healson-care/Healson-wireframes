@@ -8,7 +8,9 @@ import { ConsultationType, ProviderProfile } from "@/types";
 /**
  * The referral is a precondition, so it gets its own stage before any slot is
  * chosen — asking for it after the patient has already invested in picking a
- * time would be a trap. Only consultations skip this screen entirely.
+ * time would be a trap. It is also the stage that opens the request: sending
+ * the referral is what the unit answers, and only its answer opens the diary.
+ * Consultations and treatments skip this screen entirely.
  */
 export function ReferralStep({
   provider,
@@ -17,13 +19,16 @@ export function ReferralStep({
   onFileChange,
   onBack,
   onContinue,
+  submitting = false,
 }: {
   provider: ProviderProfile;
   consultation?: ConsultationType;
   file: File | null;
   onFileChange: (file: File | null) => void;
   onBack: () => void;
+  /** Sends the referral to the unit — this is what opens the request. */
   onContinue: () => void;
+  submitting?: boolean;
 }) {
   return (
     <div className="mx-auto max-w-md">
@@ -43,12 +48,13 @@ export function ReferralStep({
           <FileText className="h-4 w-4 shrink-0" /> הפניה תקפה מקופת החולים
         </p>
         <p className="mt-1 mb-3 text-xs text-slate-500">
-          לשירות הזה נדרשת הפניה. לאחר בחירת המועד היא תישלח לאישור היחידה הרפואית, ורק לאחר האישור ייגבה תשלום.
+          לשירות הזה נדרשת הפניה. ההפניה נשלחת תחילה לאישור היחידה הרפואית — רק לאחר האישור ייפתחו המועדים
+          לבחירה, ותשלום ייגבה רק לאחר שתבחרו מועד.
         </p>
         <FileDropzone file={file} onFileChange={onFileChange} />
 
-        <Button size="lg" className="mt-4 w-full" disabled={!file} onClick={onContinue}>
-          {file ? "המשך לבחירת מועד" : "צרפו הפניה כדי להמשיך"}
+        <Button size="lg" className="mt-4 w-full" disabled={!file || submitting} onClick={onContinue}>
+          {submitting ? "שולח…" : file ? "שליחת ההפניה לאישור היחידה" : "צרפו הפניה כדי להמשיך"}
         </Button>
       </div>
 
