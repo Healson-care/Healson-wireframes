@@ -19,8 +19,9 @@ import {
 } from "@/lib/search";
 import { SearchOmnibox } from "@/components/search/SearchOmnibox";
 import { FilterSheet } from "@/components/search/FilterSheet";
-import { GroupDetail, OfferResults } from "@/components/search/OfferResults";
+import { GroupDetail, OfferItemList, OfferResults } from "@/components/search/OfferResults";
 import { InsuranceProfileStrip } from "@/components/search/InsuranceProfileStrip";
+import { PrimaryGates } from "@/components/search/PrimaryGates";
 
 /**
  * The always-visible layer of the filter system: the few choices worth a tap
@@ -119,6 +120,15 @@ export function ServiceSearch({
 
   const performer = query.performerId ? offers.find((o) => o.doctor?.id === query.performerId)?.doctor : undefined;
   const filterCount = activeFilterCount(query);
+  // Containers are for browsing. Once anything is narrowed — a gate, a filter,
+  // an anchor, typed text — she has already said what she's after, and
+  // grouping would hide the very items she filtered down to.
+  const narrowed =
+    filterCount > 0 ||
+    !!query.performerId ||
+    !!query.organizationId ||
+    !!query.serviceName ||
+    query.text.trim().length > 0;
   // Station-run imaging and lab work have no doctor, so this view can't hold
   // them. Worth one line of explanation, since the totals differ between the
   // two views — but no number, which would describe nothing on screen.
@@ -135,12 +145,6 @@ export function ServiceSearch({
       serviceName: suggestion.value,
       referralCode: suggestion.referralCode ?? null,
     }));
-  }
-
-  // Switching scope drops whatever was typed but not yet resolved — that text
-  // was aimed at the other kind of entity and would return nothing here.
-  function setGroupBy(groupBy: SearchQuery["groupBy"]) {
-    setQuery((q) => ({ ...q, groupBy, text: "" }));
   }
 
   function clearFilters() {
@@ -164,19 +168,11 @@ export function ServiceSearch({
     <div>
       {patient && <InsuranceProfileStrip patient={patient} />}
 
-      {/* 1 — what she's looking for. This isn't only a display choice: it
-          also scopes the search box below, so "לפי שירות" searches services
-          and "לפי נותן שירות" searches providers. Full-width on mobile. */}
-      {/* Same segmented-control shape as the portal's ViewSwitch: a bordered
-          white rail, the active choice filled in primary. */}
-      <div className="mb-3 grid grid-cols-2 gap-0.5 rounded-xl border border-white/70 bg-white/85 p-0.5 shadow-[0_18px_40px_-32px_rgba(20,42,79,0.4)] backdrop-blur-sm sm:inline-grid">
-        <GroupToggle active={query.groupBy === "service"} onClick={() => setGroupBy("service")} label="לפי שירות" />
-        <GroupToggle
-          active={query.groupBy === "provider"}
-          onClick={() => setGroupBy("provider")}
-          label="לפי נותן שירות"
-        />
-      </div>
+      {/* 1 — the gates, in place of the old by-service/by-provider toggle:
+          what kind of item, from what kind of person, at what kind of unit.
+          Choosing a kind of PERSON is itself the statement that she's looking
+          for a person, so the view follows the gate instead of asking twice. */}
+      <PrimaryGates query={query} onChange={onQueryChange} ctx={ctx} />
 
       {/* 2 — the search bar, scoped by the choice above. */}
       <div className="mb-3">
@@ -259,7 +255,9 @@ export function ServiceSearch({
         <p className="mb-2 text-xs text-slate-500">
           {results.length === 0
             ? "אין תוצאות"
-            : `${results.length} הצעות · ${groups.length} ${query.groupBy === "provider" ? "נותני שירות" : "שירותים"}`}
+            : narrowed
+              ? `${results.length} פריטים`
+              : `${results.length} הצעות · ${groups.length} ${query.groupBy === "provider" ? "נותני שירות" : "שירותים"}`}
         </p>
       )}
 
@@ -269,7 +267,11 @@ export function ServiceSearch({
         </p>
       )}
 
-      <OfferResults groups={groups} onOpenGroup={(group) => onOpenKeyChange(group.key)} onSelectOffer={onSelectOffer} />
+      {narrowed ? (
+        <OfferItemList offers={results} patient={patient} onSelectOffer={onSelectOffer} />
+      ) : (
+        <OfferResults groups={groups} onOpenGroup={(group) => onOpenKeyChange(group.key)} onSelectOffer={onSelectOffer} />
+      )}
 
       <FilterSheet
         open={sheetOpen}
@@ -281,25 +283,6 @@ export function ServiceSearch({
         onClearAll={clearFilters}
       />
     </div>
-  );
-}
-
-function GroupToggle({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
-  return (
-    <button
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        // 40px tall on a phone — this is the first control on the screen and
-        // the one that reframes everything under it.
-        "focus-ring w-full rounded-lg px-3 py-2.5 text-xs font-semibold transition-colors sm:px-5 sm:py-1.5",
-        active
-          ? "bg-gradient-to-b from-[var(--brand-navy-700)] to-[var(--brand-navy)] text-white shadow-sm"
-          : "text-[var(--brand-ink-soft)] hover:bg-[var(--brand-navy)]/6"
-      )}
-    >
-      {label}
-    </button>
   );
 }
 

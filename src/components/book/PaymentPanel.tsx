@@ -8,6 +8,7 @@ import { HoldTimer } from "@/components/book/HoldTimer";
 import { PreparationRequirements } from "@/components/book/PreparationRequirements";
 import { resolveBalanceAmount, resolveDepositAmount } from "@/lib/deposit";
 import { requiresReferral } from "@/lib/referral";
+import { providerLabel } from "@/lib/search";
 import { formatCurrency } from "@/lib/utils";
 import { ConsultationType, InsuranceLayer, Kupah, LAYER_LABELS, ProviderProfile } from "@/types";
 
@@ -87,7 +88,7 @@ export function PaymentPanel({
         <div className="flex items-center justify-between text-sm mt-2">
           <span className="text-slate-500">רופא</span>
           <span className="font-medium text-slate-900">
-            {provider.title} {provider.display_name}
+            {providerLabel(provider)}
           </span>
         </div>
         {clinic && (

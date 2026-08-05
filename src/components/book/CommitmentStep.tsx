@@ -8,6 +8,7 @@ import { HoldTimer } from "@/components/book/HoldTimer";
 import { PreparationRequirements } from "@/components/book/PreparationRequirements";
 import { resolveDepositAmount } from "@/lib/deposit";
 import { CommitmentRequirement } from "@/lib/pricing";
+import { providerLabel } from "@/lib/search";
 import { formatCurrency } from "@/lib/utils";
 import { ConsultationType, ProviderProfile } from "@/types";
 
@@ -76,7 +77,7 @@ export function CommitmentStep({
         <div className="mt-2 flex items-start justify-between gap-3 text-sm">
           <span className="text-slate-500">נותן שירות</span>
           <span className="text-left font-medium text-slate-900">
-            {provider.title} {provider.display_name}
+            {providerLabel(provider)}
           </span>
         </div>
         {clinicName && (

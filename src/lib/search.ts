@@ -27,11 +27,14 @@ import {
   LocationType,
   Patient,
   PROVIDER_SERVICE_TYPE_LABELS,
+  PROVIDER_TYPE_LABELS,
   ProviderProfile,
   ProviderServiceType,
   ProviderType,
 } from "@/types";
 import { FundingKind, PriceBreakdown, resolvePriceBreakdown } from "@/lib/pricing";
+import { SEED_SKILL_DOMAINS, SEED_SKILL_SUBDOMAINS } from "@/lib/medical-tree";
+import { findMohCode } from "@/lib/moh-codes";
 import { getRegionForCity } from "@/lib/constants";
 import { resolveDepositAmount } from "@/lib/deposit";
 import { requiresReferral } from "@/lib/referral";
@@ -206,9 +209,16 @@ export function buildOffers(providers: ProviderProfile[], branches: Organization
   return offers;
 }
 
-/** Display name for a person or a place. */
+/**
+ * Display name for a person or a place. Several seeded records already carry
+ * the title inside `display_name` ("ד״ר אבי לוי"), so prefixing unconditionally
+ * produced "ד״ר ד״ר אבי לוי" — the title is added only when it isn't there.
+ */
 export function providerLabel(provider: ProviderProfile): string {
-  return `${provider.title ?? ""} ${provider.display_name}`.trim();
+  const name = (provider.display_name ?? "").trim();
+  const title = (provider.title ?? "").trim();
+  if (!title || name.startsWith(title)) return name;
+  return `${title} ${name}`;
 }
 
 /**
@@ -295,8 +305,10 @@ export type FilterValue = string | string[] | boolean | undefined;
 export interface SearchQuery {
   /** Free text still in the box (not yet resolved to an entity). */
   text: string;
-  /** Anchored to one provider — set by picking a doctor from the omnibox. */
+  /** Anchored to one doctor — from the omnibox or the performer gate. */
   performerId: string | null;
+  /** Anchored to one institute/unit — the other half of the performer gate. */
+  organizationId: string | null;
   /** Anchored to one service name — set by picking a service, or a referral. */
   serviceName: string | null;
   /** Recognised referral code, kept so the UI can show why serviceName is set. */
@@ -308,7 +320,7 @@ export interface SearchQuery {
 }
 
 export function emptyQuery(): SearchQuery {
-  return { text: "", performerId: null, serviceName: null, referralCode: null, filters: {}, groupBy: "service" };
+  return { text: "", performerId: null, organizationId: null, serviceName: null, referralCode: null, filters: {}, groupBy: "service" };
 }
 
 /** Everything the predicates need beyond the offer itself. */
@@ -533,6 +545,13 @@ export interface FilterDef {
   /** Long lists render collapsed behind "הצג עוד". */
   collapsible?: boolean;
   /**
+   * A gate: shown as its own control at the top of the search rather than
+   * inside the sheet. These are the axes a patient narrows by before caring
+   * about price or timing — what kind of item, from what kind of person, at
+   * what kind of unit.
+   */
+  primary?: boolean;
+  /**
    * Contextual filters (the second visibility layer): only shown when the
    * current results actually contain one of these service types. This is how
    * "ללא צום" stays out of the way of someone booking a consultation.
@@ -552,11 +571,105 @@ function uniqueSorted(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b, "he"));
 }
 
+const SUBDOMAIN_BY_ID = new Map(SEED_SKILL_SUBDOMAINS.map((s) => [s.id, s]));
+
+/** Taxonomy ids are what the filters store — names are only ever labels. */
+export function domainLabel(id: string): string {
+  return SEED_SKILL_DOMAINS.find((d) => d.id === id)?.name_he ?? id;
+}
+
+export function subdomainLabel(id: string): string {
+  return SUBDOMAIN_BY_ID.get(id)?.name_he ?? id;
+}
+
+export function subdomainParent(id: string): string | undefined {
+  return SUBDOMAIN_BY_ID.get(id)?.domain_id;
+}
+
+/**
+ * The medical domain an item belongs to — the axis a patient thinks in
+ * ("אורתופדיה") before she knows any item's name. Two sources, in this order:
+ *
+ *  1. the MoH code, which carries the domain on the PROCEDURE itself. An MRI
+ *     ברך is orthopaedic whether a doctor or a station performs it, and this
+ *     is the only source a machine-run item has.
+ *  2. the performing doctor's specialty — kept in the taxonomy's own words on
+ *     purpose (see medical-tree.ts), so no mapping table is needed.
+ *
+ * An item with neither has no domain and simply drops out of this gate,
+ * rather than being filed under a domain nobody chose for it.
+ */
+export function offerDomainId(offer: Offer): string | undefined {
+  const coded = findMohCode(offer.service.moh_code)?.skill_domain_id;
+  if (coded) return coded;
+  return domainFromSpecialty(offer.doctor?.specialty);
+}
+
+/**
+ * The sub-domain, one level down. Same order of sources: the code carries it,
+ * and failing that a doctor's own declared sub-specialty — which is worded to
+ * match the taxonomy on purpose (see medical-tree.ts), and is only trusted
+ * inside the domain we already resolved.
+ */
+export function offerSubdomainId(offer: Offer): string | undefined {
+  const coded = findMohCode(offer.service.moh_code)?.skill_subdomain_id;
+  if (coded) return coded;
+  const domainId = offerDomainId(offer);
+  if (!domainId) return undefined;
+  const declared = offer.doctor?.sub_specialties ?? [];
+  return SEED_SKILL_SUBDOMAINS.find((s) => s.domain_id === domainId && declared.includes(s.name_he))?.id;
+}
+
+function domainFromSpecialty(specialty?: string): string | undefined {
+  if (!specialty) return undefined;
+  const exact = SEED_SKILL_DOMAINS.find((d) => d.name_he === specialty);
+  if (exact) return exact.id;
+  // The register's specialty list and the taxonomy agree on the words, not
+  // always on the whole string — "רפואת עור" vs "דרמטולוגיה (רפואת עור)".
+  return SEED_SKILL_DOMAINS.find((d) => d.name_he.includes(specialty) || specialty.includes(d.name_he))?.id;
+}
+
+function byLabel(a: FilterOption, b: FilterOption): number {
+  return a.label.localeCompare(b.label, "he");
+}
+
 export const FILTER_REGISTRY: FilterDef[] = [
+  // The four primary axes, first in the sheet because they answer "in what
+  // field, what kind of thing, from what kind of person, at what kind of
+  // place" — the questions that come before any preference about price or
+  // timing.
+  {
+    key: "domain",
+    group: "תחום",
+    type: "multi",
+    primary: true,
+    options: (ctx) =>
+      Array.from(new Set(ctx.offers.map((o) => offerDomainId(o)).filter(Boolean) as string[]))
+        .map((id) => ({ value: id, label: domainLabel(id) }))
+        .sort(byLabel),
+    match: (offer, value) =>
+      !Array.isArray(value) || value.length === 0 || value.includes(offerDomainId(offer) ?? ""),
+  },
+  // Second level of the same axis. It is a gate (so the sheet won't draw it
+  // twice) but has no control of its own — the domain gate opens it inline,
+  // under whichever domain was chosen.
+  {
+    key: "subdomain",
+    group: "תת-תחום",
+    type: "multi",
+    primary: true,
+    options: (ctx) =>
+      Array.from(new Set(ctx.offers.map((o) => offerSubdomainId(o)).filter(Boolean) as string[]))
+        .map((id) => ({ value: id, label: subdomainLabel(id) }))
+        .sort(byLabel),
+    match: (offer, value) =>
+      !Array.isArray(value) || value.length === 0 || value.includes(offerSubdomainId(offer) ?? ""),
+  },
   {
     key: "serviceType",
-    group: "סוג השירות",
+    group: "סוג פריט",
     type: "multi",
+    primary: true,
     options: (ctx) =>
       uniqueSorted(ctx.offers.map((o) => o.service.service_type ?? "consultation")).map((v) => ({
         value: v,
@@ -564,6 +677,23 @@ export const FILTER_REGISTRY: FilterDef[] = [
       })),
     match: (offer, value) =>
       !Array.isArray(value) || value.length === 0 || value.includes(offer.service.service_type ?? "consultation"),
+  },
+  {
+    key: "unitType",
+    group: "סוג יחידה רפואית",
+    type: "multi",
+    primary: true,
+    options: (ctx) =>
+      uniqueSorted(ctx.offers.map((o) => o.organization?.provider_type ?? "").filter(Boolean)).map((v) => ({
+        value: v,
+        label: PROVIDER_TYPE_LABELS[v as ProviderType] ?? v,
+      })),
+    // A solo doctor's own clinic belongs to no unit, so asking for a unit type
+    // is asking to see only what happens inside one.
+    match: (offer, value) =>
+      !Array.isArray(value) ||
+      value.length === 0 ||
+      (!!offer.organization?.provider_type && value.includes(offer.organization.provider_type)),
   },
   {
     key: "region",
@@ -734,7 +864,34 @@ export function filterOptions(def: FilterDef, ctx: SearchContext): FilterOption[
  */
 export function visibleFilters(offers: Offer[]): FilterDef[] {
   const presentTypes = new Set(offers.map((o) => o.service.service_type ?? "consultation"));
-  return FILTER_REGISTRY.filter((f) => !f.appliesTo || f.appliesTo.some((t) => presentTypes.has(t)));
+  // Gates are rendered at the top of the search, so the sheet must not repeat
+  // them — two controls writing one filter key would fight each other.
+  return FILTER_REGISTRY.filter((f) => !f.primary).filter(
+    (f) => !f.appliesTo || f.appliesTo.some((t) => presentTypes.has(t))
+  );
+}
+
+/** The gates — the axes shown above the search rather than inside the sheet. */
+export function primaryFilters(): FilterDef[] {
+  return FILTER_REGISTRY.filter((f) => f.primary);
+}
+
+/**
+ * A gate's options as the rest of the search leaves them: derived from the
+ * offers that pass everything EXCEPT this gate itself. That is what ties the
+ * gates to one another — picking "הדמיה" leaves only the domains that actually
+ * have imaging in them, instead of listing every domain the catalogue knows.
+ *
+ * Its own value is excluded from the probe on purpose: a gate that erased its
+ * own alternatives the moment it was used could only be cleared, never
+ * changed. Anything already selected stays listed for the same reason.
+ */
+export function gateOptions(def: FilterDef, query: SearchQuery, ctx: SearchContext): FilterOption[] {
+  const probe: SearchQuery = { ...query, filters: { ...query.filters, [def.key]: undefined } };
+  const scoped: SearchContext = { ...ctx, offers: ctx.offers.filter((o) => matchesQuery(o, probe, ctx)) };
+  const available = new Set(filterOptions(def, scoped).map((o) => o.value));
+  const selected = Array.isArray(query.filters[def.key]) ? (query.filters[def.key] as string[]) : [];
+  return filterOptions(def, ctx).filter((o) => available.has(o.value) || selected.includes(o.value));
 }
 
 /** Whether a stored filter value actually narrows anything. */
@@ -754,6 +911,7 @@ export function activeFilterCount(query: SearchQuery): number {
 
 export function matchesQuery(offer: Offer, query: SearchQuery, ctx: SearchContext): boolean {
   if (query.performerId && offer.doctor?.id !== query.performerId) return false;
+  if (query.organizationId && offer.organization?.id !== query.organizationId) return false;
   if (query.serviceName && offer.service.name !== query.serviceName) return false;
   if (query.text && !matchesText(offer, query.text)) return false;
 
