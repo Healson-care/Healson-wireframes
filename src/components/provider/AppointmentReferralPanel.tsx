@@ -159,17 +159,38 @@ export function ReferralReviewPanel({
 
 /** The money picture of one appointment (payments meeting §7): which funding
  * route it runs on, what was already collected, and what is still owed — plus
- * the commitment document on the routes that use one instead of a deposit. */
-export function AppointmentPaymentPanel({ appointment: a }: { appointment: Appointment }) {
+ * the commitment document on the routes that use one instead of a deposit.
+ *
+ * `showMoney` is false for an individual provider (see showsPatientPaymentStatus):
+ * the funding route and its התחייבות are still theirs to read, the collection
+ * state is not. With no commitment on the route there is nothing money-free
+ * left to show, so the panel renders nothing at all. */
+export function AppointmentPaymentPanel({
+  appointment: a,
+  showMoney = true,
+}: {
+  appointment: Appointment;
+  showMoney?: boolean;
+}) {
   const state = getAppointmentPaymentState(a);
   const commitment = usesCommitment(a);
   const balance = balanceLine(a);
+
+  if (!showMoney && !commitment) return null;
 
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-slate-200 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
-          <Wallet className="h-3.5 w-3.5" /> תשלום
+          {showMoney ? (
+            <>
+              <Wallet className="h-3.5 w-3.5" /> תשלום
+            </>
+          ) : (
+            <>
+              <FileText className="h-3.5 w-3.5" /> התחייבות משלם
+            </>
+          )}
         </p>
         <div className="flex items-center gap-1.5">
           {a.funding_layer && (
@@ -177,14 +198,16 @@ export function AppointmentPaymentPanel({ appointment: a }: { appointment: Appoi
               {LAYER_LABELS[a.funding_layer]} ({a.funding_layer})
             </Badge>
           )}
-          <Badge tone={paymentStateTone(state)}>{state}</Badge>
+          {showMoney && <Badge tone={paymentStateTone(state)}>{state}</Badge>}
         </div>
       </div>
 
       {commitment ? (
         <>
           <p className="text-xs text-slate-500">
-            במסלול זה לא נגבית מקדמה — התור מאושר על סמך התחייבות המשלם.
+            {showMoney
+              ? "במסלול זה לא נגבית מקדמה — התור מאושר על סמך התחייבות המשלם."
+              : "התור מאושר על סמך התחייבות המשלם."}
           </p>
           {a.commitment_document ? (
             <a

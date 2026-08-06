@@ -8,7 +8,7 @@ import { Input, Select, Textarea } from "@/components/ui/Input";
 import { EmptyState } from "@/components/ui/Misc";
 import { Badge } from "@/components/ui/Badge";
 import { useStore } from "@/lib/store";
-import { REFERRAL_EXEMPT_TYPES } from "@/lib/referral";
+import { defaultRequiresReferral, requiresReferral as requiresReferralOf } from "@/lib/referral";
 import { formatCurrency, generateId } from "@/lib/utils";
 import {
   ANESTHESIA_TYPE_LABELS,
@@ -306,7 +306,7 @@ export function ServiceCatalogSection({
     setPriceFull("");
     setServiceType(defaultServiceType);
     setServiceCategory(serviceCategories?.[0] ?? "");
-    setRequiresReferral(false);
+    setRequiresReferral(defaultRequiresReferral(defaultServiceType));
     setRequiresFasting(false);
     setSampleType("");
     setAnesthesiaType("local");
@@ -336,7 +336,9 @@ export function ServiceCatalogSection({
     setPriceFull(item.price_full != null ? String(item.price_full) : "");
     setServiceType(item.service_type ?? defaultServiceType);
     setServiceCategory(item.service_category ?? serviceCategories?.[0] ?? "");
-    setRequiresReferral(item.requires_referral ?? false);
+    // Items saved before the flag was editable carry the old type rule — open
+    // them on exactly what patients experience today, then let it change.
+    setRequiresReferral(requiresReferralOf(item));
     setRequiresFasting(item.requires_fasting ?? false);
     setSampleType(item.sample_type ?? "");
     setAnesthesiaType(item.anesthesia_type ?? "local");
@@ -408,9 +410,7 @@ export function ServiceCatalogSection({
       service_array_ids: isUnit ? selectedArrayIds : editingExisting?.service_array_ids,
       // Only meaningful when the item runs on a subset of its מערך's עמדות.
       limited_to_stations: isUnit ? limitToStations || undefined : editingExisting?.limited_to_stations,
-      // Locked-on for every non-consultation item (§2) regardless of what the
-      // checkbox last held for a different item type.
-      requires_referral: referralLocked || requiresReferral,
+      requires_referral: requiresReferral,
       requires_fasting: serviceType === "test" ? requiresFasting : undefined,
       sample_type: serviceType === "test" && sampleType ? sampleType : undefined,
       anesthesia_type: serviceType === "surgery" ? anesthesiaType : undefined,
@@ -464,13 +464,6 @@ export function ServiceCatalogSection({
     ];
     return names.length > 0 ? names.join(", ") : null;
   }
-
-  // §2 — everything except a consultation, a treatment or a מוצר is
-  // referral-gated. Derived from the patient gate's own list so the locked
-  // checkbox here and the block the patient hits can never say different
-  // things. For the unlocked types the box is a real choice, and ticking it
-  // adds the gate to that one item (see requiresReferral).
-  const referralLocked = !REFERRAL_EXEMPT_TYPES.includes(serviceType);
 
   const canSave =
     (editingId ? true : !!catalogItemId) &&
@@ -540,7 +533,7 @@ export function ServiceCatalogSection({
                       <span className="text-xs text-slate-500">{item.duration_minutes} דק׳</span>
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                      {item.requires_referral && <Badge tone="amber">דורש הפניה</Badge>}
+                      {requiresReferralOf(item) && <Badge tone="amber">דורש הפניה</Badge>}
                       {item.requires_fasting && <Badge tone="amber">דורש צום</Badge>}
                       {item.anesthesia_type && <Badge tone="purple">הרדמה {ANESTHESIA_TYPE_LABELS[item.anesthesia_type]}</Badge>}
                       {item.requires_hospital && <Badge tone="purple">מצריך אשפוז</Badge>}
@@ -867,35 +860,23 @@ export function ServiceCatalogSection({
           )}
 
           <div className="flex flex-col gap-2 rounded-lg border border-slate-200 p-3">
-            {/* Payments meeting §2: uploading a referral is a precondition for
-                booking any item except a ייעוץ, a טיפול or a מוצר. That is a
-                platform rule, not a per-item preference, so the box is ticked
-                and locked for every other clinical item. Where it IS unlocked
-                the choice runs one way only — ticking it adds the gate to this
-                item, and the platform rule can never be switched off. */}
-            <label
-              className={`flex items-center gap-2 text-sm ${
-                referralLocked ? "cursor-default" : "cursor-pointer"
-              }`}
-            >
+            {/* Whether a referral gates this item is the unit's call, not a
+                platform rule: the box opens on the item type's default (and on
+                what the reference catalog says, when the item came from one),
+                and stays editable either way. */}
+            <label className="flex cursor-pointer items-center gap-2 text-sm">
               <input
                 type="checkbox"
-                checked={referralLocked ? true : requiresReferral}
-                disabled={referralLocked}
+                checked={requiresReferral}
                 onChange={(e) => setRequiresReferral(e.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 accent-primary disabled:opacity-70"
+                className="h-4 w-4 rounded border-slate-300 accent-primary"
               />
               נדרשת הפניה / אישור מראש מהקופה
-              {referralLocked && (
-                <span className="flex items-center gap-1 text-[11px] text-slate-400">
-                  <Lock className="h-3 w-3" /> חובה לסוג פריט זה
-                </span>
-              )}
             </label>
             <p className="text-[11px] leading-relaxed text-slate-400">
-              {referralLocked
-                ? "המטופל יעלה הפניה, וההזמנה תמתין לאישורכם — מועדים ייפתחו לו רק לאחר שתאשרו. ייעוץ, טיפול ומוצר הם הפריטים שניתן להזמין ללא הפניה."
-                : "לסוג פריט זה לא נדרשת הפניה כברירת מחדל. אם תסמנו, המטופל יעלה הפניה לפריט הזה בלבד וההזמנה תמתין לאישורכם לפני שייפתחו לו מועדים."}
+              {requiresReferral
+                ? "המטופל יצטרך להעלות הפניה לפני קביעת התור, וההזמנה תמתין לאישורכם."
+                : `אין צורך בהפניה — המטופל קובע את ה${itemLabel} ישירות.`}
             </p>
 
             {serviceType === "test" && (

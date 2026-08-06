@@ -16,7 +16,12 @@ import {
   ReferralReviewPanel,
 } from "@/components/provider/AppointmentReferralPanel";
 import { formatCurrency } from "@/lib/utils";
-import { formatBalanceDue, usesCommitment } from "@/lib/appointment-payments";
+import {
+  appointmentStatusLabel,
+  formatBalanceDue,
+  showsPatientPaymentStatus,
+  usesCommitment,
+} from "@/lib/appointment-payments";
 import { Appointment, isCancelledAppointment } from "@/types";
 import { CalendarDays, FolderOpen, Hourglass, Inbox, Wallet } from "lucide-react";
 
@@ -31,14 +36,17 @@ import { CalendarDays, FolderOpen, Hourglass, Inbox, Wallet } from "lucide-react
  * Three tabs, in the order they demand attention:
  *   הפניות לאישור  — the unit must approve or reject; a slot is held meanwhile.
  *   ממתין להתחייבות — waiting on the patient's commitment document.
- *   גבייה פתוחה     — deposit or balance still uncollected. */
-const TABS = [
+ *   גבייה פתוחה     — deposit or balance still uncollected. Units only: an
+ *                     individual provider never collects from the patient, so
+ *                     the tab is not part of their portal at all (see
+ *                     showsPatientPaymentStatus). */
+const ALL_TABS = [
   { key: "referrals", label: "הפניות לאישור", icon: Inbox },
   { key: "commitments", label: "ממתין להתחייבות", icon: Hourglass },
   { key: "collection", label: "גבייה פתוחה", icon: Wallet },
 ] as const;
 
-type TabKey = (typeof TABS)[number]["key"];
+type TabKey = (typeof ALL_TABS)[number]["key"];
 
 export default function ProviderRequestsPage() {
   const provider = useCurrentProvider();
@@ -50,14 +58,19 @@ export default function ProviderRequestsPage() {
     [appointments, provider?.id]
   );
 
+  const seesPayments = showsPatientPaymentStatus(provider);
+  const tabs = ALL_TABS.filter((t) => t.key !== "collection" || seesPayments);
+
   const referrals = mine.filter((a) => a.status === "ממתין לאישור הפניה");
   const commitments = mine.filter((a) => a.status === "ממתין להתחייבות");
-  const collection = mine.filter(
-    (a) =>
-      !isCancelledAppointment(a.status) &&
-      !usesCommitment(a) &&
-      (a.status === "ממתין לתשלום מקדמה" || a.status === "ממתין לתשלום יתרה")
-  );
+  const collection = seesPayments
+    ? mine.filter(
+        (a) =>
+          !isCancelledAppointment(a.status) &&
+          !usesCommitment(a) &&
+          (a.status === "ממתין לתשלום מקדמה" || a.status === "ממתין לתשלום יתרה")
+      )
+    : [];
 
   const byTab: Record<TabKey, Appointment[]> = {
     referrals,
@@ -77,17 +90,21 @@ export default function ProviderRequestsPage() {
         <>
           <PageHeader
             title="בקשות ממתינות"
-            description="כל מה שממתין לפעולה לפני שהתור נסגר סופית — אישור הפניות, טפסי התחייבות וגבייה פתוחה. מועד שממתין לאישור משוריין למטופל ומשתחרר אוטומטית אם לא מטפלים בו."
+            description={
+              seesPayments
+                ? "כל מה שממתין לפעולה לפני שהתור נסגר סופית — אישור הפניות, טפסי התחייבות וגבייה פתוחה. מועד שממתין לאישור משוריין למטופל ומשתחרר אוטומטית אם לא מטפלים בו."
+                : "כל מה שממתין לפעולה לפני שהתור נסגר סופית — אישור הפניות וטפסי התחייבות. מועד שממתין לאישור משוריין למטופל ומשתחרר אוטומטית אם לא מטפלים בו."
+            }
           />
 
-          <div className="mb-4 grid gap-3 sm:grid-cols-3">
+          <div className={`mb-4 grid gap-3 ${seesPayments ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
             <StatCard label="הפניות לאישור" value={counts.referrals} tone="purple" />
             <StatCard label="ממתין להתחייבות" value={counts.commitments} tone="amber" />
-            <StatCard label="גבייה פתוחה" value={counts.collection} tone="blue" />
+            {seesPayments && <StatCard label="גבייה פתוחה" value={counts.collection} tone="blue" />}
           </div>
 
           <div className="mb-4 flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white p-1">
-            {TABS.map((t) => (
+            {tabs.map((t) => (
               <button
                 key={t.key}
                 type="button"
@@ -115,12 +132,16 @@ export default function ProviderRequestsPage() {
             <EmptyState
               icon={<Inbox className="h-10 w-10" />}
               title="אין בקשות ממתינות"
-              description="כשמטופל יזמין תור שמצריך הפניה, התחייבות או גבייה — הוא יופיע כאן."
+              description={
+                seesPayments
+                  ? "כשמטופל יזמין תור שמצריך הפניה, התחייבות או גבייה — הוא יופיע כאן."
+                  : "כשמטופל יזמין תור שמצריך הפניה או טופס התחייבות — הוא יופיע כאן."
+              }
             />
           ) : (
             <div className="flex flex-col gap-3">
               {rows.map((a) => (
-                <RequestCard key={a.id} appointment={a} tab={tab} />
+                <RequestCard key={a.id} appointment={a} tab={tab} showMoney={seesPayments} />
               ))}
             </div>
           )}
@@ -132,7 +153,15 @@ export default function ProviderRequestsPage() {
   );
 }
 
-function RequestCard({ appointment: a, tab }: { appointment: Appointment; tab: TabKey }) {
+function RequestCard({
+  appointment: a,
+  tab,
+  showMoney,
+}: {
+  appointment: Appointment;
+  tab: TabKey;
+  showMoney: boolean;
+}) {
   return (
     <Card>
       <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2">
@@ -151,9 +180,13 @@ function RequestCard({ appointment: a, tab }: { appointment: Appointment; tab: T
           </p>
         </div>
         <div className="flex flex-col items-end gap-1">
-          <StatusBadge status={a.status} kind="appointment" />
-          <PaymentStateBadge appointment={a} />
-          {a.date && a.slot_hold_expires_at && a.status === "ממתין לאישור הפניה" && (
+          <StatusBadge
+            status={a.status}
+            kind="appointment"
+            label={appointmentStatusLabel(a.status, showMoney)}
+          />
+          {showMoney && <PaymentStateBadge appointment={a} />}
+          {a.slot_hold_expires_at && a.status === "ממתין לאישור הפניה" && (
             <Badge tone="amber">משוריין עד {formatBalanceDue(a.slot_hold_expires_at)}</Badge>
           )}
         </div>
@@ -162,7 +195,7 @@ function RequestCard({ appointment: a, tab }: { appointment: Appointment; tab: T
         {tab === "referrals" ? (
           <ReferralReviewPanel appointment={a} />
         ) : (
-          <AppointmentPaymentPanel appointment={a} />
+          <AppointmentPaymentPanel appointment={a} showMoney={showMoney} />
         )}
         <div className="flex flex-wrap justify-end gap-2">
           {a.created_by_id && (

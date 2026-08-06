@@ -1,10 +1,12 @@
 import {
+  AffiliatedDoctor,
   Appointment,
   B_INSURANCE_COMPANIES,
   Branch,
   CatalogItem,
   CatalogRequest,
   Clinic,
+  ConsultationType,
   ScheduleShift,
   WeeklySchedule,
   ConsentRecord,
@@ -13,6 +15,8 @@ import {
   DsrRequest,
   INSURANCE_AGENTS_BY_COMPANY,
   Kupah,
+  KLevel,
+  depositForPrice,
   K_LEVELS_BY_KUPAH,
   Lead,
   LabReferral,
@@ -29,7 +33,6 @@ import {
   ProviderType,
   User,
   VisitRecord,
-  depositForPrice,
   emptyWeeklySchedule,
   isUnitProviderType,
 } from "@/types";
@@ -110,9 +113,9 @@ export const DEMO_INSTITUTE_USER: User = {
 export const DEMO_OUTPATIENT_USER: User = {
   id: "user_provider_outpatient",
   email: "clinic@demo.co.il",
-  full_name: "מרפאות חוץ הדסה קהילה",
+  full_name: "מרפאות חוץ שערי צדק",
   role: "provider",
-  phone: "02-5558080",
+  phone: "02-6555222",
   created_date: isoDateDaysFromNow(-210),
 };
 
@@ -192,9 +195,6 @@ const provider2: ProviderProfile = {
   review_count: 212,
   license_number: "MD-44521",
   license_issuer: "משרד הבריאות",
-  // Also practises under the מרפאות חוץ demo organization (see
-  // providerOutpatient.affiliated_doctors) — one doctor record, two contexts.
-  organization_provider_ids: ["prov_outpatient"],
   license_issue_date: isoDateDaysFromNow(-1500),
   license_expiry_date: isoDateDaysFromNow(900),
   is_published: true,
@@ -501,10 +501,9 @@ const provider1: ProviderProfile = {
       price_full: 150,
       prices: [{ layer: "H", price: 150 }],
       linked_clinic_ids: [provider1ClinicId, provider1ClinicId2],
-      // A טיפול is not referral-gated by type, so this — and the three
-      // injections below — are gated by his own explicit choice on the item.
-      // That is the per-item flag doing exactly what it is for.
-      requires_referral: true,
+      // A private in-clinic injection: the patient books and pays directly,
+      // no kupah referral in the way.
+      requires_referral: false,
     },
     {
       id: provider1LidoNerveId,
@@ -518,7 +517,7 @@ const provider1: ProviderProfile = {
       price_full: 300,
       prices: [{ layer: "H", price: 300 }],
       linked_clinic_ids: [provider1ClinicId, provider1ClinicId2],
-      requires_referral: true,
+      requires_referral: false,
     },
     {
       id: provider1Botox50Id,
@@ -532,7 +531,9 @@ const provider1: ProviderProfile = {
       price_full: 2000,
       prices: [{ layer: "H", price: 2000 }],
       linked_clinic_ids: [provider1ClinicId, provider1ClinicId2],
-      requires_referral: true,
+      // Bookable directly — what he needs is the previous visit summary, not a
+      // kupah referral, and that is asked for as a required document.
+      requires_referral: false,
       required_documents: [{ id: "reqdoc_p1_botox50", label: "סיכום ביקור קודם / מרשם מפנה" }],
     },
     {
@@ -547,6 +548,8 @@ const provider1: ProviderProfile = {
       price_full: 4000,
       prices: [{ layer: "H", price: 4000 }],
       linked_clinic_ids: [provider1ClinicId, provider1ClinicId2],
+      // The one treatment of his that IS gated: chronic-migraine Botox runs on
+      // kupah pre-approval, so the booking waits for him to approve it.
       requires_referral: true,
       required_documents: [
         { id: "reqdoc_p1_botox100", label: "אבחנה של מיגרנה כרונית מנוירולוג" },
@@ -564,7 +567,7 @@ const provider1: ProviderProfile = {
   clinic_locations: [
     clinicWithSchedule({
       id: provider1ClinicId,
-      name: "מרפאת מוחים הילסון",
+      name: "מרפאת מומחים הילסון",
       address: "הרצל 9",
       city: "בית שמש",
       phone: "02-9991234",
@@ -640,79 +643,8 @@ const provider1: ProviderProfile = {
   ],
 };
 
-const provider3: ProviderProfile = {
-  id: "prov_3",
-  display_name: "ד\"ר רונית שני",
-  title: "ד\"ר",
-  specialty: "נוירולוגיה",
-  license_number: "MD-93221",
-  license_file: {
-    file_name: "license-ronit-shani.pdf",
-    uploaded_at: isoDateDaysFromNow(-40),
-    data_url: "data:application/pdf;base64,",
-  },
-  is_published: false,
-  status: "pending_review",
-  application_submitted_at: isoDateDaysFromNow(-40),
-  created_date: isoDateDaysFromNow(-40),
-  agreements: [],
-  consultation_types: [],
-  exam_types: [],
-  clinic_locations: [],
-  referral_forms: [],
-};
-
 // Mid-onboarding demo record (§PROV-ONBOARDING) — license already verified,
 // all 3 steps complete, waiting on Admin's Go-Live decision.
-const provider4: ProviderProfile = {
-  id: "prov_4",
-  display_name: "ד\"ר יעל אשכנזי",
-  title: "ד\"ר",
-  specialty: "רפואת עור",
-  license_number: "MD-77410",
-  license_file: {
-    file_name: "license-yael-eshkenazi.pdf",
-    uploaded_at: isoDateDaysFromNow(-10),
-    data_url: "data:application/pdf;base64,",
-  },
-  is_published: false,
-  status: "onboarding",
-  application_submitted_at: isoDateDaysFromNow(-10),
-  license_verified_at: isoDateDaysFromNow(-9),
-  agreement_signed_at: isoDateDaysFromNow(-1),
-  // Deliberately NOT onboarding_ready_at: this provider has signed the
-  // agreement and added a service, but has no clinic_locations yet — a ready
-  // seed to demo the "add a calendar before you can link a service" flag
-  // without needing any extra hand-authored data.
-  created_date: isoDateDaysFromNow(-10),
-  agreements: [{ id: generateId("agr"), provider_id: "prov_4", layer: "H" }],
-  consultation_types: [
-    {
-      id: generateId("ct"),
-      name: "ייעוץ עור כללי",
-      duration_minutes: 20,
-      prices: [{ layer: "H", price: 400 }],
-      price_full: 350,
-      service_type: "consultation",
-    },
-    // Mole mapping is the one item every dermatology clinic sells alongside the
-    // consultation — enough to make the mid-onboarding record read as real
-    // without giving it the full catalogue of a live provider.
-    {
-      id: generateId("ct"),
-      name: "מיפוי שומות דיגיטלי (דרמוסקופיה)",
-      duration_minutes: 30,
-      prices: [{ layer: "H", price: 630 }],
-      price_full: 550,
-      service_type: "test",
-      moh_code: "21070",
-    },
-  ],
-  exam_types: [],
-  clinic_locations: [],
-  referral_forms: [],
-};
-
 // Published gastro provider whose K/B agreements are gated to kupot/insurers
 // other than the demo patient's own (§7.1) — no arrangement price here, but
 // since the provider still declares those layers, the patient can claim the
@@ -1547,29 +1479,712 @@ const providerInstitute: ProviderProfile = {
   ],
 };
 
+// ---------------------------------------------------------------------------
+// נותני שירות יחידים — the real solo-provider price list, row for row.
+//
+// Each row is (doctor, קטגוריה, מחלקה, item, private price, and the מאוחדת
+// co-pay where there is one). Every one of these doctors sees patients at
+// מרכז הילסון בית שמש (הרצל 9); a "ביקור בית" / "ייעוץ עד הבית" item is given
+// at their ביקורי-בית branch and "ייעוץ בזום" at their online one, so the item
+// a patient books already says where it happens.
+//
+// The מקדמה is NOT stored per item — it is the platform formula (see
+// lib/deposit.ts), so a price change can never leave a stale deposit behind.
+// ---------------------------------------------------------------------------
+type SoloVenue = "clinic" | "home" | "online";
+
+interface SoloItemRow {
+  /** שם פריט, exactly as the list writes it. */
+  name: string;
+  /** One of CONSULTATION_SUBTYPES — what kind of consultation this is. */
+  subtype: string;
+  venue: SoloVenue;
+  /** מחיר פרטי. */
+  price: number;
+  durationMinutes?: number;
+  /** The מאוחדת co-pay, when the list gives one (applies to עדיף ושיא). */
+  unitedCopay?: number;
+}
+
+interface SoloDoctorRow {
+  key: string;
+  /** Exactly as the list writes it, title included. */
+  name: string;
+  /** קטגוריה. */
+  specialty: string;
+  /** מחלקה. */
+  subSpecialty: string;
+  items: SoloItemRow[];
+}
+
+const SOLO_STAFF: SoloDoctorRow[] = [
+  {
+    key: "danziger",
+    name: "ד\"ר אהרן דנציגר",
+    specialty: "אורתופדיה",
+    subSpecialty: "כירורגיה אורתופדית",
+    items: [{ name: "ביקור בית", subtype: "ייעוץ וחוות דעת", venue: "home", price: 1000, durationMinutes: 45 }],
+  },
+  {
+    key: "heiman",
+    name: "ד\"ר אליהו היימן",
+    specialty: "נוירולוגיה",
+    subSpecialty: "נוירולוגיה ילדים",
+    items: [
+      { name: "ביקור חוזר", subtype: "ייעוץ חוזר", venue: "clinic", price: 1200, durationMinutes: 20 },
+      { name: "ייעוץ קשב וריכוז", subtype: "ייעוץ וחוות דעת", venue: "clinic", price: 2000, durationMinutes: 45 },
+    ],
+  },
+  {
+    key: "bushi",
+    name: "ד\"ר אלכסנדר בושי",
+    specialty: "אורתופדיה",
+    subSpecialty: "אורתופדית כתף",
+    items: [{ name: "ייעוץ", subtype: "ייעוץ וחוות דעת", venue: "clinic", price: 1300, unitedCopay: 200 }],
+  },
+  {
+    key: "rubinstein",
+    name: "ד\"ר חן רובינשטיין",
+    specialty: "כירורגיה",
+    subSpecialty: "כירורגיה כלי דם",
+    items: [{ name: "ייעוץ", subtype: "ייעוץ וחוות דעת", venue: "clinic", price: 1200, unitedCopay: 200 }],
+  },
+  {
+    key: "rosenberg",
+    name: "ד\"ר יואל רוזנברג",
+    specialty: "גריאטריה",
+    subSpecialty: "פסיכוגריאטריה ופנימאי",
+    items: [{ name: "ייעוץ עד הבית", subtype: "ייעוץ וחוות דעת", venue: "home", price: 1800, durationMinutes: 60 }],
+  },
+  {
+    key: "nazarian",
+    name: "ד\"ר יורם נזריאן",
+    specialty: "אף אוזן גרון",
+    subSpecialty: "ניתוחי אוזן ושמיעה",
+    items: [
+      { name: "ביקור בית", subtype: "ייעוץ וחוות דעת", venue: "home", price: 1400, durationMinutes: 45 },
+      { name: "ייעוץ וחוות דעת נוספת", subtype: "חוות דעת נוספת", venue: "clinic", price: 1300 },
+    ],
+  },
+  {
+    key: "ilani",
+    name: "ד\"ר יעקב אילני",
+    specialty: "אנדוקרינולוגיה",
+    subSpecialty: "אנדוקרינולוגיה מבוגרים",
+    items: [{ name: "ייעוץ", subtype: "ייעוץ וחוות דעת", venue: "clinic", price: 1300, unitedCopay: 200 }],
+  },
+  {
+    key: "cohenwei",
+    name: "ד\"ר מאוריסיו כהן ויי",
+    specialty: "אף אוזן גרון",
+    subSpecialty: "ניתוחי אוזן ושמיעה",
+    items: [{ name: "ייעוץ", subtype: "ייעוץ וחוות דעת", venue: "clinic", price: 1200 }],
+  },
+  {
+    key: "astman",
+    name: "ד\"ר נדב אסטמן",
+    specialty: "דרמטולוגיה",
+    subSpecialty: "עור ומין",
+    items: [{ name: "ייעוץ", subtype: "ייעוץ וחוות דעת", venue: "clinic", price: 1200, unitedCopay: 250 }],
+  },
+  {
+    key: "gur",
+    name: "ד\"ר נדב גור",
+    specialty: "פסיכיאטריה",
+    subSpecialty: "פסיכיאטר מבוגרים",
+    items: [
+      { name: "ייעוץ", subtype: "ייעוץ וחוות דעת", venue: "clinic", price: 2000, durationMinutes: 45 },
+      { name: "ייעוץ בזום", subtype: "ייעוץ מרחוק (טלרפואה)", venue: "online", price: 2000, durationMinutes: 45 },
+    ],
+  },
+  {
+    key: "daraushe",
+    name: "ד\"ר עבד דראושה",
+    specialty: "אורולוגיה",
+    subSpecialty: "אורולוגיה אנדוסקופית",
+    items: [{ name: "ייעוץ וחוות דעת נוספת", subtype: "חוות דעת נוספת", venue: "clinic", price: 1300 }],
+  },
+  {
+    key: "harmov",
+    name: "ד\"ר קונסטנטין חרמוב",
+    specialty: "אורתופדיה",
+    subSpecialty: "אורתופדית כף רגל",
+    items: [{ name: "ייעוץ וחוות דעת נוספת", subtype: "חוות דעת נוספת", venue: "clinic", price: 1300 }],
+  },
+  {
+    key: "kamplinsky",
+    name: "ד\"ר קמפלינסקי",
+    specialty: "קרדיולוגיה",
+    subSpecialty: "דימות קרדיאלי",
+    items: [
+      { name: "ביקור חוזר", subtype: "ייעוץ חוזר", venue: "clinic", price: 500, durationMinutes: 20 },
+      { name: "ייעוץ", subtype: "ייעוץ וחוות דעת", venue: "clinic", price: 900 },
+      { name: "ביקור בית + אקו לב", subtype: "ייעוץ וחוות דעת", venue: "home", price: 1800, durationMinutes: 60 },
+    ],
+  },
+  {
+    key: "tzur",
+    name: "ד\"ר תמר צור",
+    specialty: "גינקולוגיה",
+    subSpecialty: "גינקולוגיה כירורגית",
+    items: [{ name: "ייעוץ", subtype: "ייעוץ וחוות דעת", venue: "clinic", price: 1300, unitedCopay: 200 }],
+  },
+  {
+    key: "tzangen",
+    name: "דוד צנגן",
+    specialty: "אנדוקרינולוגיה",
+    subSpecialty: "אנדוקרינולוגיה ילדים",
+    items: [{ name: "ייעוץ וחוות דעת נוספת", subtype: "חוות דעת נוספת", venue: "clinic", price: 1400 }],
+  },
+  {
+    key: "hasidim",
+    name: "ד\"ר אייל חסידים",
+    specialty: "כירורגיה",
+    subSpecialty: "כירורגיה פלסטית",
+    items: [{ name: "ייעוץ", subtype: "ייעוץ וחוות דעת", venue: "clinic", price: 1500 }],
+  },
+  {
+    key: "danino",
+    name: "ד\"ר ברי דנינו",
+    specialty: "אורתופדיה",
+    // The list leaves מחלקה empty for him — the קטגוריה is all it says.
+    subSpecialty: "אורתופדיה",
+    items: [{ name: "ייעוץ וחוות דעת נוספת", subtype: "חוות דעת נוספת", venue: "clinic", price: 1000 }],
+  },
+  {
+    key: "peret",
+    name: "ד\"ר דן פרט",
+    specialty: "אורתופדיה",
+    subSpecialty: "אורתופדיה כף רגל",
+    items: [{ name: "ייעוץ וחוות דעת נוספת", subtype: "חוות דעת נוספת", venue: "clinic", price: 1400 }],
+  },
+];
+
+// Where they all practise. One address, one branch record per doctor — a
+// Clinic belongs to a provider, so the shared centre is the same details on
+// each of them, not a shared row.
+const SOLO_CENTRE = { name: "מרכז הילסון בית שמש", address: "הרצל 9", city: "בית שמש", phone: "02-9990100" };
+
+const soloItemId = (key: string, index: number) => `ct_solo_${key}_${index + 1}`;
+const soloClinicId = (key: string, venue: SoloVenue) => `clinic_solo_${key}_${venue}`;
+
+const SOLO_DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday"] as const;
+
+function soloProviderProfile(doctor: SoloDoctorRow, index: number): ProviderProfile {
+  const venues = new Set(doctor.items.map((item) => item.venue));
+  const clinicDay = SOLO_DAYS[index % SOLO_DAYS.length];
+  const secondDay = SOLO_DAYS[(index + 2) % SOLO_DAYS.length];
+  const morning = index % 2 === 0;
+
+  const clinics: Clinic[] = [];
+  if (venues.has("clinic")) {
+    clinics.push(
+      clinicWithSchedule({
+        id: soloClinicId(doctor.key, "clinic"),
+        ...SOLO_CENTRE,
+        is_primary: true,
+        location_type: "clinic",
+        schedule: weekly({
+          [clinicDay]: [
+            shift(`sh_solo_${doctor.key}_a`, morning ? "08:30" : "15:00", morning ? "13:30" : "20:00", {
+              label: morning ? "מרפאת בוקר" : "מרפאת אחר הצהריים",
+              slot_minutes: 30,
+            }),
+          ],
+        }),
+      })
+    );
+  }
+  if (venues.has("home")) {
+    clinics.push(
+      clinicWithSchedule({
+        id: soloClinicId(doctor.key, "home"),
+        name: "ביקורי בית",
+        address: "ביקור בבית המטופל",
+        city: "בית שמש",
+        phone: SOLO_CENTRE.phone,
+        is_primary: clinics.length === 0,
+        location_type: "home_visit",
+        travel_note: "ביקורי בית באזור בית שמש והסביבה, בתיאום מראש.",
+        schedule: weekly({
+          [secondDay]: [
+            shift(`sh_solo_${doctor.key}_home`, "09:00", "14:00", { label: "ביקורי בית", slot_minutes: 60 }),
+          ],
+        }),
+      })
+    );
+  }
+  if (venues.has("online")) {
+    clinics.push(
+      clinicWithSchedule({
+        id: soloClinicId(doctor.key, "online"),
+        name: "אונליין",
+        address: "",
+        city: "",
+        phone: SOLO_CENTRE.phone,
+        is_primary: clinics.length === 0,
+        location_type: "virtual",
+        virtual_platform: "זום (Zoom)",
+        schedule: weekly({
+          [secondDay]: [
+            shift(`sh_solo_${doctor.key}_online`, "18:00", "21:00", { label: "מפגשים מרחוק", slot_minutes: 45 }),
+          ],
+        }),
+      })
+    );
+  }
+
+  const hasUnited = doctor.items.some((item) => item.unitedCopay !== undefined);
+
+  return {
+    id: `prov_solo_${doctor.key}`,
+    provider_type: "doctor",
+    display_name: doctor.name,
+    title: "ד\"ר",
+    specialty: doctor.specialty,
+    sub_specialties: [doctor.subSpecialty],
+    doctor_subtype: "physician",
+    is_published: true,
+    status: "approved",
+    commission_rate: 15,
+    location_count: clinics.length,
+    created_date: isoDateDaysFromNow(-150),
+    agreements: [
+      ...(hasUnited
+        ? [{ id: generateId("agr"), provider_id: `prov_solo_${doctor.key}`, layer: "K" as const, kupah_list: ["מאוחדת" as Kupah] }]
+        : []),
+      { id: generateId("agr"), provider_id: `prov_solo_${doctor.key}`, layer: "H" as const },
+    ],
+    kupah_arrangements: hasUnited
+      ? [
+          { kupah: "מאוחדת", level: "מאוחדת עדיף" },
+          { kupah: "מאוחדת", level: "מאוחדת שיא" },
+        ]
+      : [],
+    consultation_types: doctor.items.map((item, itemIndex) => ({
+      id: soloItemId(doctor.key, itemIndex),
+      name: item.name,
+      duration_minutes: item.durationMinutes ?? 30,
+      prices: [{ layer: "H" as const, price: item.price }],
+      price_full: item.price,
+      // The list gives one co-pay column for מאוחדת, covering both plans.
+      payer_prices:
+        item.unitedCopay === undefined
+          ? []
+          : [
+              { layer: "K" as const, kupah: "מאוחדת" as Kupah, level: "מאוחדת עדיף" as KLevel, mode: "הסדר" as const, price: item.unitedCopay },
+              { layer: "K" as const, kupah: "מאוחדת" as Kupah, level: "מאוחדת שיא" as KLevel, mode: "הסדר" as const, price: item.unitedCopay },
+            ],
+      is_custom: true,
+      service_type: "consultation" as const,
+      service_subtype: item.subtype,
+      sub_specialty: doctor.subSpecialty,
+      linked_clinic_ids: [soloClinicId(doctor.key, item.venue)],
+    })),
+    exam_types: [],
+    clinic_locations: clinics,
+    referral_forms: [],
+  };
+}
+
+const soloProviders: ProviderProfile[] = SOLO_STAFF.map(soloProviderProfile);
+
 const outpatientClinicId = "clinic_outpatient_1";
 const outpatientServiceIds = {
-  consult: "ct_out_consult",
-  followUp: "ct_out_followup",
-  secondOpinion: "ct_out_second_opinion",
-  // Specialist clinics are what a מרפאת חוץ IS — each one delivered by the
-  // matching specialist below, never by whoever happens to be affiliated.
-  cardioConsult: "ct_out_cardio_consult",
-  diagnostics: "ct_out_diagnostics",
-  tests: "ct_out_tests",
-  treatments: "ct_out_treatments",
+  // מרפאת כאבי ראש — the clinic ד"ר אברהם אשכנזי (prov_1, the provider@ demo
+  // login) runs inside the unit. Same person as the private practice, third
+  // context: here the UNIT owns the item, the price and the hours. Every other
+  // item of this unit comes from its real price list (SZC_STAFF below).
+  neuroConsult: "ct_out_neuro_consult",
+  neuroFollowUp: "ct_out_neuro_followup",
 };
 
-const outpatientDoctor1: ProviderProfile = {
-  id: "prov_out_doc_1",
+// ---------------------------------------------------------------------------
+// מרפאות חוץ שערי צדק — the real price list of the unit, row for row.
+//
+// Every row of the list is (doctor, התמחות, תת-התמחות, item, private price,
+// and what each שב"ן plan settles it at). The two מקדמה columns are NOT stored
+// per item: they are the platform rule in lib/deposit.ts — 10% of the private
+// price, ₪30 flat when the patient pays a plan co-pay — which is exactly what
+// the list says on every row, so a price change can never leave a stale
+// deposit behind.
+//
+// A plan value is either the patient's co-pay under an הסדר, or "החזר" — the
+// plan reimburses her afterwards, so she pays the private price here. A plan
+// the row does not name has no arrangement for that item at all.
+// ---------------------------------------------------------------------------
+type SzcPlanTerms = Partial<Record<KLevel, number | "החזר">>;
+
+/** The list's columns, expanded to the plans each one covers. */
+function szcPlans(terms: {
+  /** "K מאוחדת עדיף ושיא" — one column, both plans. */
+  united?: number | "החזר";
+  /** "כללית מושלם ופלטיניום" — one column, both plans. */
+  clalit?: number | "החזר";
+  leumit?: number | "החזר";
+  maccabiSheli?: number | "החזר";
+  maccabiKesef?: number | "החזר";
+  maccabiZahav?: number | "החזר";
+}): SzcPlanTerms {
+  const out: SzcPlanTerms = {};
+  if (terms.united !== undefined) {
+    out["מאוחדת עדיף"] = terms.united;
+    out["מאוחדת שיא"] = terms.united;
+  }
+  if (terms.clalit !== undefined) {
+    out["כללית מושלם"] = terms.clalit;
+    out["כללית פלטינום"] = terms.clalit;
+  }
+  if (terms.leumit !== undefined) out["לאומית זהב"] = terms.leumit;
+  if (terms.maccabiSheli !== undefined) out["מכבי שלי"] = terms.maccabiSheli;
+  if (terms.maccabiKesef !== undefined) out["מכבי כסף"] = terms.maccabiKesef;
+  if (terms.maccabiZahav !== undefined) out["מכבי זהב"] = terms.maccabiZahav;
+  return out;
+}
+
+// The four plan sets that repeat across the list, named once instead of
+// re-typed on every row.
+const SZC_PLANS_A = szcPlans({ united: 300, clalit: 150, maccabiSheli: 350, maccabiKesef: 500, maccabiZahav: 350 });
+const SZC_PLANS_B = szcPlans({ united: 250, clalit: 150, maccabiSheli: 200, maccabiKesef: 300, maccabiZahav: 200 });
+const SZC_PLANS_C = szcPlans({ united: 200, clalit: 150 });
+const SZC_PLANS_D = szcPlans({ united: 250, clalit: 150 });
+const SZC_CLALIT_ONLY = szcPlans({ clalit: 150 });
+const SZC_MACCABI_ONLY = szcPlans({ maccabiSheli: 350, maccabiKesef: 500, maccabiZahav: 350 });
+
+interface SzcItemRow {
+  /** "ייעוץ וחוות דעת" / "ייעוץ חוזר" — the list's two item names. */
+  kind: "consult" | "followUp";
+  /** מחיר (פרטי) — the price a patient with no arrangement pays. */
+  price: number;
+  plans?: SzcPlanTerms;
+}
+
+interface SzcDoctorRow {
+  key: string;
+  /** Exactly as the list writes it (surname first). */
+  name: string;
+  specialty: string;
+  subSpecialty: string;
+  items: SzcItemRow[];
+}
+
+const SZC_STAFF: SzcDoctorRow[] = [
+  // ---- אונקולוגיה ----
+  {
+    key: "abramovich",
+    name: "אמיר אברמוביץ",
+    specialty: "אונקולוגיה",
+    subSpecialty: "גידולי מערכת השתן והמין",
+    items: [
+      { kind: "consult", price: 2000 },
+      { kind: "followUp", price: 600, plans: szcPlans({ united: "החזר" }) },
+    ],
+  },
+  {
+    key: "breuer",
+    name: "שני ברויאר",
+    specialty: "אונקולוגיה",
+    subSpecialty: "אונקולוגיה של השד",
+    items: [
+      { kind: "consult", price: 2000 },
+      { kind: "followUp", price: 1200 },
+    ],
+  },
+  {
+    key: "gavizon",
+    name: "אברהם גביזון",
+    specialty: "אונקולוגיה",
+    subSpecialty: "כימותרפיה",
+    items: [
+      { kind: "consult", price: 2000, plans: szcPlans({ united: "החזר" }) },
+      { kind: "followUp", price: 1000, plans: szcPlans({ united: "החזר" }) },
+    ],
+  },
+  {
+    key: "greenshpun",
+    name: "אלברט גרינשפון",
+    specialty: "אונקולוגיה",
+    subSpecialty: "ממאירויות גינקולוגיות",
+    items: [
+      { kind: "consult", price: 1800 },
+      { kind: "followUp", price: 1000 },
+    ],
+  },
+  {
+    key: "dresler",
+    name: "הדס דרסלר",
+    specialty: "אונקולוגיה",
+    subSpecialty: "אורולוגיה אונקולוגית",
+    items: [
+      { kind: "consult", price: 1200, plans: szcPlans({ united: 200 }) },
+      { kind: "followUp", price: 800, plans: szcPlans({ united: 200 }) },
+    ],
+  },
+  {
+    key: "katz",
+    name: "דניאלה כץ",
+    specialty: "אונקולוגיה",
+    subSpecialty: "סרטן שד, סרקומה וגיסט",
+    items: [
+      { kind: "consult", price: 2400 },
+      { kind: "followUp", price: 1200 },
+    ],
+  },
+  {
+    key: "peled",
+    name: "ניר פלד",
+    specialty: "אונקולוגיה",
+    subSpecialty: "מחלות ריאה אונקולוגיות",
+    items: [
+      { kind: "consult", price: 3000 },
+      { kind: "followUp", price: 2300 },
+    ],
+  },
+  {
+    key: "pfeffer",
+    name: "רפאל פפר",
+    specialty: "אונקולוגיה",
+    subSpecialty: "קרינה",
+    items: [
+      { kind: "consult", price: 2200 },
+      { kind: "followUp", price: 1500 },
+    ],
+  },
+  {
+    key: "cherny",
+    name: "נתן צ׳רני",
+    specialty: "אונקולוגיה",
+    subSpecialty: "רפואה פליאטיבית, טיפול בכאב",
+    items: [
+      { kind: "consult", price: 1700, plans: szcPlans({ united: "החזר", maccabiSheli: 200, maccabiZahav: 200 }) },
+      { kind: "followUp", price: 400, plans: szcPlans({ united: "החזר", maccabiSheli: 200, maccabiZahav: 200 }) },
+    ],
+  },
+  {
+    key: "katan",
+    name: "רפאל קטן",
+    specialty: "אונקולוגיה",
+    subSpecialty: "מערכת עיכול, סרטן שד, ריאות",
+    items: [
+      { kind: "consult", price: 1600 },
+      { kind: "followUp", price: 900 },
+    ],
+  },
+  {
+    key: "klein",
+    name: "יעקב מש קליין",
+    specialty: "אונקולוגיה",
+    subSpecialty: "מערכת עיכול, סרטן שד, ריאות",
+    // The list has a ייעוץ חוזר row for him and no ייעוץ וחוות דעת row.
+    items: [{ kind: "followUp", price: 850, plans: szcPlans({ united: 250 }) }],
+  },
+
+  // ---- אורולוגיה ----
+  {
+    key: "shenfeld",
+    name: "עפר זאב שנפלד",
+    specialty: "אורולוגיה",
+    subSpecialty: "כירורגיה אורולוגית",
+    items: [
+      { kind: "consult", price: 1200, plans: SZC_PLANS_A },
+      { kind: "followUp", price: 750, plans: SZC_PLANS_A },
+    ],
+  },
+  {
+    key: "member",
+    name: "אריאל ממבר גולווניוק",
+    specialty: "אורולוגיה",
+    subSpecialty: "כירורגיה אורולוגית",
+    items: [
+      { kind: "consult", price: 600, plans: SZC_PLANS_C },
+      { kind: "followUp", price: 400, plans: SZC_PLANS_C },
+    ],
+  },
+  {
+    key: "natsheh",
+    name: "עלא אלד נתשה",
+    specialty: "אורולוגיה",
+    subSpecialty: "כירורגיה אורולוגית",
+    items: [
+      { kind: "consult", price: 800, plans: SZC_PLANS_D },
+      { kind: "followUp", price: 600, plans: SZC_PLANS_D },
+    ],
+  },
+  {
+    key: "pesherstnik",
+    name: "מיכאל פשרסטניק",
+    specialty: "אורולוגיה",
+    subSpecialty: "כירורגיה אורולוגית",
+    items: [
+      { kind: "consult", price: 1200 },
+      { kind: "followUp", price: 700 },
+    ],
+  },
+  {
+    key: "chertin",
+    name: "בוריס צ׳רטין",
+    specialty: "אורולוגיה",
+    subSpecialty: "אורולוגיה ילדים",
+    items: [
+      { kind: "consult", price: 850, plans: SZC_PLANS_A },
+      { kind: "followUp", price: 1000, plans: SZC_PLANS_A },
+    ],
+  },
+  {
+    key: "kulikov",
+    name: "דימיטרי קוליקוב",
+    specialty: "אורולוגיה",
+    subSpecialty: "אורולוגיה אונקולוגית",
+    items: [
+      { kind: "consult", price: 800, plans: SZC_PLANS_B },
+      { kind: "followUp", price: 600, plans: SZC_PLANS_B },
+    ],
+  },
+  {
+    key: "kafka",
+    name: "אילן קפקא",
+    specialty: "אורולוגיה",
+    subSpecialty: "אנדואורולוגיה",
+    items: [
+      { kind: "consult", price: 1200, plans: SZC_PLANS_B },
+      { kind: "followUp", price: 400, plans: SZC_PLANS_B },
+    ],
+  },
+  {
+    key: "reisin",
+    name: "גליה רייסין",
+    specialty: "אורולוגיה",
+    subSpecialty: "אורולוגיה ילדים",
+    items: [
+      { kind: "consult", price: 650, plans: SZC_CLALIT_ONLY },
+      { kind: "followUp", price: 400, plans: SZC_CLALIT_ONLY },
+    ],
+  },
+
+  // ---- אורטופדיה ----
+  {
+    key: "arzi",
+    name: "הראל ארזי",
+    specialty: "אורטופדיה",
+    subSpecialty: "נתוחי עמוד שדרה וגב",
+    items: [
+      { kind: "consult", price: 1000, plans: SZC_PLANS_A },
+      { kind: "followUp", price: 800, plans: SZC_PLANS_A },
+    ],
+  },
+  {
+    key: "barzilai",
+    name: "יאיר ברזילי",
+    specialty: "אורטופדיה",
+    subSpecialty: "אורטופדיה גב ועמוד שדרה",
+    items: [{ kind: "consult", price: 1000, plans: SZC_PLANS_A }],
+  },
+  {
+    key: "davidson",
+    name: "עמית דוידסון",
+    specialty: "אורטופדיה",
+    subSpecialty: "אורטופדיה כללית",
+    items: [
+      { kind: "consult", price: 200, plans: SZC_PLANS_C },
+      { kind: "followUp", price: 200, plans: SZC_PLANS_C },
+    ],
+  },
+  {
+    key: "handel",
+    name: "דוד הנדל",
+    specialty: "אורטופדיה",
+    subSpecialty: "החלפת מפרקים",
+    items: [{ kind: "consult", price: 1200, plans: SZC_MACCABI_ONLY }],
+  },
+  {
+    key: "weil",
+    name: "יהודה ווייל",
+    specialty: "אורטופדיה",
+    subSpecialty: "אורטופדיה ילדים",
+    items: [{ kind: "consult", price: 850, plans: SZC_CLALIT_ONLY }],
+  },
+  {
+    key: "zinger",
+    name: "גרשון זינגר",
+    specialty: "אורטופדיה",
+    subSpecialty: "כירורגיה אורתופדית",
+    items: [{ kind: "consult", price: 900, plans: SZC_PLANS_B }],
+  },
+  {
+    key: "lebel",
+    name: "אהוד לבל",
+    specialty: "אורטופדיה",
+    subSpecialty: "אורטופדיה ילדים ועמוד שדרה",
+    items: [
+      { kind: "consult", price: 600, plans: SZC_PLANS_B },
+      { kind: "followUp", price: 600, plans: SZC_PLANS_B },
+    ],
+  },
+  {
+    key: "levy",
+    name: "ידין לוי",
+    specialty: "אורטופדיה",
+    subSpecialty: "ירך ברך",
+    items: [{ kind: "consult", price: 1200, plans: SZC_PLANS_B }],
+  },
+];
+
+const SZC_ITEM_NAMES: Record<SzcItemRow["kind"], string> = {
+  consult: "ייעוץ וחוות דעת",
+  followUp: "ייעוץ חוזר",
+};
+
+/** Which kupah a שב"ן plan belongs to — the plan name alone is the list's key. */
+function kupahOfLevel(level: KLevel): Kupah {
+  const entry = (Object.entries(K_LEVELS_BY_KUPAH) as [Kupah, readonly string[]][]).find(([, levels]) =>
+    levels.includes(level)
+  );
+  return entry ? entry[0] : "כללית";
+}
+
+function szcPayerPrices(plans?: SzcPlanTerms): PayerPrice[] {
+  return Object.entries(plans ?? {}).map(([level, value]) => ({
+    layer: "K" as const,
+    kupah: kupahOfLevel(level as KLevel),
+    level: level as KLevel,
+    ...(value === "החזר" ? { mode: "החזר" as const } : { mode: "הסדר" as const, price: value }),
+  }));
+}
+
+const szcItemId = (key: string, kind: SzcItemRow["kind"]) => `ct_szc_${key}_${kind}`;
+const szcDoctorId = (key: string) => `prov_szc_${key}`;
+
+/** The unit's catalogue — one ConsultationType per row of the list. */
+const szcConsultationTypes: ConsultationType[] = SZC_STAFF.flatMap((doctor) =>
+  doctor.items.map(
+    (row): ConsultationType => ({
+      id: szcItemId(doctor.key, row.kind),
+      name: SZC_ITEM_NAMES[row.kind],
+      duration_minutes: 30,
+      // The private price is the one price the item HAS; every plan's number
+      // hangs off payer_prices, per plan, which is what the list actually says.
+      prices: [{ layer: "H", price: row.price }],
+      price_full: row.price,
+      payer_prices: szcPayerPrices(row.plans),
+      service_type: "consultation",
+      service_subtype: SZC_ITEM_NAMES[row.kind],
+      sub_specialty: doctor.subSpecialty,
+      service_category: row.kind === "consult" ? "ייעוץ" : "ייעוץ חוזר",
+      linked_clinic_ids: [outpatientClinicId],
+    })
+  )
+);
+
+/** One ProviderProfile per doctor on the list — a real person the unit's
+ * appointments, calendar and patient-side cards can all point at. They hold no
+ * agreements of their own: inside the unit, the unit's terms govern. */
+const szcDoctorProfiles: ProviderProfile[] = SZC_STAFF.map((doctor) => ({
+  id: szcDoctorId(doctor.key),
   provider_type: "doctor",
-  display_name: "ד\"ר תמר אביב",
+  display_name: `ד"ר ${doctor.name}`,
   title: "ד\"ר",
-  specialty: "רפואת משפחה",
-  sub_specialties: ["רפואה מונעת", "ניהול מחלות כרוניות"],
-  license_number: "MD-81244",
-  contact_phone: "053-7710022",
-  contact_email: "tamar.aviv@hadassah-demo.co.il",
+  specialty: doctor.specialty,
+  sub_specialties: [doctor.subSpecialty],
   doctor_subtype: "physician",
   is_published: false,
   status: "approved",
@@ -1579,24 +2194,57 @@ const outpatientDoctor1: ProviderProfile = {
   exam_types: [],
   clinic_locations: [],
   referral_forms: [],
-  created_date: isoDateDaysFromNow(-200),
-};
+  created_date: isoDateDaysFromNow(-180),
+}));
+
+const SZC_CLINIC_DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday"] as const;
+
+/** Each doctor's clinic inside the unit. The unit owns these hours — one
+ * half-day a week per doctor, spread across the week so the diary reads like a
+ * real מרפאת חוץ instead of everyone sitting on Sunday morning. */
+const szcAffiliatedDoctors: AffiliatedDoctor[] = SZC_STAFF.map((doctor, index) => {
+  const day = SZC_CLINIC_DAYS[index % SZC_CLINIC_DAYS.length];
+  const morning = index % 2 === 0;
+  return {
+    id: `affdoc_szc_${doctor.key}`,
+    doctor_provider_id: szcDoctorId(doctor.key),
+    role: `${doctor.specialty} — ${doctor.subSpecialty}`,
+    service_array: `מערך ${doctor.specialty}`,
+    service_ids: doctor.items.map((row) => szcItemId(doctor.key, row.kind)),
+    clinic_ids: [outpatientClinicId],
+    added_at: isoDateDaysFromNow(-180),
+    schedule: weekly({
+      [day]: [
+        shift(
+          `sh_szc_${doctor.key}`,
+          morning ? "08:00" : "14:00",
+          morning ? "13:00" : "19:00",
+          { label: morning ? "מרפאת בוקר" : "מרפאת אחר הצהריים", slot_minutes: 30 }
+        ),
+      ],
+    }),
+  };
+});
 
 const providerOutpatient: ProviderProfile = {
   id: "prov_outpatient",
   provider_type: "outpatient_clinic",
   user_id: DEMO_OUTPATIENT_USER.id,
-  display_name: "מרפאות חוץ הדסה קהילה",
-  contact_name: "אורי בן-חיים",
-  contact_phone: "02-5558080",
-  contact_email: "clinic@hadassah-demo.co.il",
-  business_reg_number: "513990877",
-  specialty: "ייעוץ, בדיקות, טיפולים",
-  bio: "רשת מרפאות חוץ קהילתיות הפועלת תחת ארגון רפואי, המספקת ייעוצים, אבחונים, בדיקות וטיפולים.",
-  license_number: "CLN-4410",
+  // The מרפאות חוץ of מרכז רפואי שערי צדק (szmcOrg below) — the unit demo
+  // account, and the unit ד"ר אברהם אשכנזי works inside (§PRV-10).
+  parent_organization_id: "prov_org_szmc",
+  onboarding_path: "unit",
+  display_name: "מרפאות חוץ שערי צדק",
+  contact_name: "מירי אלמליח",
+  contact_phone: "02-6555222",
+  contact_email: "outpatient@szmc-demo.co.il",
+  business_reg_number: "580004073",
+  specialty: "מרפאות מקצועיות — אונקולוגיה, אורולוגיה, אורטופדיה",
+  bio: "מרפאות החוץ של מרכז רפואי שערי צדק — מרפאות מקצועיות בהפניית קופה או באופן פרטי, עם רופאים בכירים של בית החולים.",
+  license_number: "CLN-2210",
   license_issuer: "משרד הבריאות",
-  rating: 4.6,
-  review_count: 298,
+  rating: 4.7,
+  review_count: 412,
   is_published: true,
   status: "approved",
   commission_rate: 12,
@@ -1610,107 +2258,81 @@ const providerOutpatient: ProviderProfile = {
     { id: generateId("agr"), provider_id: "prov_outpatient", layer: "K" },
     { id: generateId("agr"), provider_id: "prov_outpatient", layer: "H" },
   ],
+  // Exactly the שב"ן plans the price list names a term for. לאומית has a column
+  // in the list but no value on any row, so the unit holds no לאומית plan —
+  // a לאומית patient pays the private price, which is what the list says.
   kupah_arrangements: [
-    { kupah: "כללית", level: "כללית מושלם" },
     { kupah: "מאוחדת", level: "מאוחדת עדיף" },
+    { kupah: "מאוחדת", level: "מאוחדת שיא" },
+    { kupah: "כללית", level: "כללית מושלם" },
+    { kupah: "כללית", level: "כללית פלטינום" },
+    { kupah: "מכבי", level: "מכבי שלי" },
+    { kupah: "מכבי", level: "מכבי כסף" },
+    { kupah: "מכבי", level: "מכבי זהב" },
   ],
   consultation_types: [
+    ...szcConsultationTypes,
+    // מרפאת כאבי ראש — ד"ר אברהם אשכנזי inside the unit. The unit owns these
+    // items and their prices; on HIS portal they are a read-only reflection.
     {
-      id: outpatientServiceIds.consult,
-      name: "ייעוץ רפואת משפחה",
-      duration_minutes: 20,
+      id: outpatientServiceIds.neuroConsult,
+      name: "ייעוץ נוירולוגי — מרפאת כאבי ראש",
+      duration_minutes: 30,
       prices: [
         { layer: "S", price: 0 },
-        { layer: "K", price: 90 },
-        { layer: "H", price: 370 },
+        { layer: "K", price: 160 },
+        { layer: "H", price: 620 },
       ],
-      price_full: 320,
+      price_full: 540,
       service_type: "consultation",
       service_category: "ייעוץ",
       linked_clinic_ids: [outpatientClinicId],
+      requires_referral: true,
+      requires_questionnaire: true,
+      questionnaire_title: "שאלון כאבי ראש (HIT-6)",
+      required_documents: [
+        {
+          id: "reqdoc_out_neuro_ref",
+          label: "הפניה למרפאת כאבי ראש",
+          kind: "referral",
+          timing: "before_booking",
+        },
+        {
+          id: "reqdoc_out_neuro_diary",
+          label: "יומן כאבי ראש של החודש האחרון",
+          kind: "form",
+          timing: "before_appointment",
+          instructions: "תיעוד יומי: מספר ימי הכאב, עוצמה, טריגרים ותרופות שנלקחו.",
+        },
+        {
+          id: "reqdoc_out_neuro_imaging",
+          label: "פענוח CT/MRI מוח קודם",
+          kind: "imaging",
+          optional: true,
+          timing: "before_appointment",
+        },
+      ],
     },
     {
-      id: outpatientServiceIds.followUp,
-      name: "ייעוץ חוזר",
-      duration_minutes: 15,
+      id: outpatientServiceIds.neuroFollowUp,
+      name: "ביקור חוזר — מרפאת כאבי ראש",
+      duration_minutes: 20,
       prices: [
-        { layer: "K", price: 60 },
-        { layer: "H", price: 240 },
+        { layer: "K", price: 110 },
+        { layer: "H", price: 380 },
       ],
-      price_full: 210,
+      price_full: 330,
       service_type: "consultation",
       service_category: "ייעוץ חוזר",
       linked_clinic_ids: [outpatientClinicId],
-    },
-    {
-      id: outpatientServiceIds.secondOpinion,
-      name: "חוות דעת נוספת",
-      duration_minutes: 30,
-      prices: [{ layer: "H", price: 550 }],
-      price_full: 480,
-      service_type: "consultation",
-      service_category: "חוות דעת נוספת",
-      linked_clinic_ids: [outpatientClinicId],
-    },
-    {
-      id: outpatientServiceIds.cardioConsult,
-      name: "ייעוץ קרדיולוגי",
-      duration_minutes: 30,
-      prices: [
-        { layer: "S", price: 0 },
-        { layer: "K", price: 140 },
-        { layer: "H", price: 520 },
+      required_documents: [
+        {
+          id: "reqdoc_out_neuro_fu_diary",
+          label: "יומן כאבי ראש מאז הביקור הקודם",
+          kind: "form",
+          timing: "before_appointment",
+        },
       ],
-      price_full: 450,
-      service_type: "consultation",
-      service_category: "ייעוץ",
-      linked_clinic_ids: [outpatientClinicId],
-      requires_referral: true,
-    },
-    {
-      id: outpatientServiceIds.diagnostics,
-      // Named exactly as the MOH code book names it (21040), so the same test
-      // is called the same thing at every provider on the platform.
-      name: "מבחן מאמץ לבבי (ארגומטריה)",
-      duration_minutes: 45,
-      prices: [
-        { layer: "K", price: 180 },
-        { layer: "H", price: 710 },
-      ],
-      price_full: 620,
-      service_type: "test",
-      service_category: "אבחונים",
-      moh_code: "21040",
-      linked_clinic_ids: [outpatientClinicId],
-      requires_referral: true,
-    },
-    {
-      id: outpatientServiceIds.tests,
-      name: "בדיקות דם שגרתיות",
-      duration_minutes: 10,
-      prices: [
-        { layer: "S", price: 0 },
-        { layer: "H", price: 170 },
-      ],
-      price_full: 150,
-      service_type: "test",
-      service_category: "בדיקות",
-      moh_code: "20010",
-      linked_clinic_ids: [outpatientClinicId],
-      requires_fasting: true,
-    },
-    {
-      id: outpatientServiceIds.treatments,
-      name: "טיפול בפצע כרוני",
-      duration_minutes: 30,
-      prices: [
-        { layer: "K", price: 120 },
-        { layer: "H", price: 440 },
-      ],
-      price_full: 380,
-      service_type: "treatment",
-      service_category: "טיפולים",
-      linked_clinic_ids: [outpatientClinicId],
     },
   ],
   exam_types: [],
@@ -1718,144 +2340,69 @@ const providerOutpatient: ProviderProfile = {
     clinicWithSchedule({
       id: outpatientClinicId,
       // A unit's site carries the unit's own name — no second name (§PRV-08).
-      name: "מרפאות חוץ הדסה קהילה",
-      address: "יפו 210",
+      name: "בית חולים שערי צדק",
+      address: "שמואל בייט 12",
       city: "ירושלים",
-      phone: "02-5558080",
+      phone: "02-6555222",
       is_primary: true,
       location_type: "clinic",
-      schedule: {
-        sunday: [
-          shift("sh_out_sun_am", "08:00", "12:30", {
-            label: "מרפאת בוקר",
-            slot_minutes: 20,
-            service_ids: [outpatientServiceIds.consult, outpatientServiceIds.followUp, outpatientServiceIds.tests],
-          }),
-          shift("sh_out_sun_pm", "16:00", "20:00", {
-            label: "מרפאת ערב",
-            slot_minutes: 20,
-            breaks: [{ id: "br_out_sun", start: "18:00", end: "18:20", label: "הפסקה" }],
-          }),
-        ],
-        monday: [
-          shift("sh_out_mon_am", "08:00", "12:30", { label: "מרפאת בוקר", slot_minutes: 20 }),
-        ],
-        tuesday: [
-          shift("sh_out_tue_am", "08:00", "12:30", { label: "מרפאת בוקר", slot_minutes: 20 }),
-          shift("sh_out_tue_pm", "16:00", "20:00", {
-            label: "מרפאת ערב — אבחונים",
-            slot_minutes: 45,
-            service_ids: [outpatientServiceIds.diagnostics, outpatientServiceIds.treatments],
-          }),
-        ],
-        wednesday: [shift("sh_out_wed", "08:00", "15:00", { label: "יום רציף", slot_minutes: 20 })],
-        thursday: [
-          shift("sh_out_thu_am", "08:00", "12:30", { label: "מרפאת בוקר", slot_minutes: 20 }),
-        ],
-        friday: [shift("sh_out_fri", "08:00", "11:00", { label: "בוקר מקוצר", slot_minutes: 20 })],
-        saturday: [],
-      },
+      // The site's opening hours. What is actually bookable is each doctor's
+      // own clinic below — this is the envelope around all of them.
+      schedule: weekly({
+        sunday: [shift("sh_out_sun", "08:00", "19:00", { label: "יום פעילות", slot_minutes: 30 })],
+        monday: [shift("sh_out_mon", "08:00", "19:00", { label: "יום פעילות", slot_minutes: 30 })],
+        tuesday: [shift("sh_out_tue", "08:00", "19:00", { label: "יום פעילות", slot_minutes: 30 })],
+        wednesday: [shift("sh_out_wed", "08:00", "19:00", { label: "יום פעילות", slot_minutes: 30 })],
+        thursday: [shift("sh_out_thu", "08:00", "19:00", { label: "יום פעילות", slot_minutes: 30 })],
+      }),
       schedule_exceptions: [
         { id: "exc_out_1", date: isoDateDaysFromNow(12), closed: true, reason: "יום השתלמות צוות" },
       ],
     }),
   ],
-  // An outpatient clinic is a unit too — mostly doctor-driven, with a couple of
-  // rooms that hold their own queue (§PRV-08).
-  facilities: [
-    {
-      id: "fac_out_sampling_1",
-      name: "עמדת דגימות 1",
-      kind: "sampling_station",
-      room: "קומת כניסה",
-      is_active: true,
-      service_ids: [outpatientServiceIds.tests],
-      created_at: isoDateDaysFromNow(-205),
-      schedule: weekly({
-        sunday: [shift("sh_samp_sun", "07:00", "10:30", { label: "בדיקות דם בצום", slot_minutes: 10 })],
-        monday: [shift("sh_samp_mon", "07:00", "10:30", { label: "בדיקות דם בצום", slot_minutes: 10 })],
-        tuesday: [shift("sh_samp_tue", "07:00", "10:30", { label: "בדיקות דם בצום", slot_minutes: 10 })],
-        wednesday: [shift("sh_samp_wed", "07:00", "10:30", { label: "בדיקות דם בצום", slot_minutes: 10 })],
-        thursday: [shift("sh_samp_thu", "07:00", "10:30", { label: "בדיקות דם בצום", slot_minutes: 10 })],
-      }),
-    },
-    {
-      id: "fac_out_ergo_1",
-      name: "חדר ארגומטריה",
-      kind: "cardiology",
-      model: "Schiller CS-200",
-      room: "חדר 12",
-      is_active: true,
-      service_ids: [outpatientServiceIds.diagnostics],
-      created_at: isoDateDaysFromNow(-190),
-      schedule: weekly({
-        tuesday: [shift("sh_ergo_tue", "16:00", "20:00", { label: "מרפאת אבחונים", slot_minutes: 45 })],
-        wednesday: [shift("sh_ergo_wed", "09:00", "13:00", { label: "מרפאת אבחונים", slot_minutes: 45 })],
-      }),
-    },
-  ],
+  // Consultation clinics only — the price list has no station-run item, so the
+  // unit deliberately holds no עמדות ציוד.
+  facilities: [],
   referral_forms: [],
   affiliated_doctors: [
+    ...szcAffiliatedDoctors,
     {
-      id: "affdoc_out_1",
-      doctor_provider_id: outpatientDoctor1.id,
-      role: "מנהלת המרפאה",
-      service_ids: [
-        outpatientServiceIds.consult,
-        outpatientServiceIds.followUp,
-        outpatientServiceIds.treatments,
-      ],
+      // §PRV-10 — ד"ר אברהם אשכנזי (prov_1, the provider@ demo login) inside
+      // the unit: the THIRD context of the same person, and the one that
+      // behaves differently from his own two branches. The unit owns the
+      // catalogue, the prices and these hours; on his portal the שערי צדק week
+      // is a read-only reflection he cannot edit.
+      id: "affdoc_out_ashkenazi",
+      doctor_provider_id: "prov_1",
+      role: "נוירולוג — מרפאת כאבי ראש",
+      service_array: "מערך נוירולוגיה",
+      service_ids: [outpatientServiceIds.neuroConsult, outpatientServiceIds.neuroFollowUp],
       clinic_ids: [outpatientClinicId],
-      added_at: isoDateDaysFromNow(-200),
+      added_at: isoDateDaysFromNow(-160),
       schedule: weekly({
-        sunday: [
-          shift("sh_odoc1_sun_am", "08:00", "12:30", { label: "מרפאת בוקר", slot_minutes: 20 }),
-          shift("sh_odoc1_sun_pm", "16:00", "20:00", {
-            label: "מרפאת ערב",
-            slot_minutes: 20,
-            breaks: [{ id: "br_odoc1_sun", start: "18:00", end: "18:20", label: "הפסקה" }],
+        wednesday: [
+          shift("sh_out_ashkenazi_wed", "08:00", "14:00", {
+            label: "מרפאת כאבי ראש",
+            slot_minutes: 30,
+            breaks: [{ id: "br_out_ashkenazi_wed", start: "12:00", end: "12:20", label: "הפסקה" }],
           }),
         ],
-        monday: [shift("sh_odoc1_mon", "08:00", "12:30", { label: "מרפאת בוקר", slot_minutes: 20 })],
-        wednesday: [shift("sh_odoc1_wed", "08:00", "15:00", { label: "יום רציף", slot_minutes: 20 })],
-        thursday: [shift("sh_odoc1_thu", "08:00", "12:30", { label: "מרפאת בוקר", slot_minutes: 20 })],
-        friday: [shift("sh_odoc1_fri", "08:00", "11:00", { label: "בוקר מקוצר", slot_minutes: 20 })],
-      }),
-    },
-    {
-      // A doctor who already existed in the platform as a standalone provider
-      // (ד"ר מיכל ברק, prov_2) — linked, not duplicated (§PRV-07 dedup).
-      id: "affdoc_out_2",
-      doctor_provider_id: "prov_2",
-      role: "יועצת קרדיולוגית",
-      // A cardiologist runs the cardiology clinic and gives cardiac second
-      // opinions — she is not a generic "second opinion" desk.
-      service_ids: [outpatientServiceIds.cardioConsult, outpatientServiceIds.secondOpinion],
-      clinic_ids: [outpatientClinicId],
-      added_at: isoDateDaysFromNow(-120),
-      schedule: weekly({
-        tuesday: [shift("sh_odoc2_tue", "16:00", "20:00", { label: "מרפאת יועצים", slot_minutes: 30 })],
       }),
     },
   ],
 };
 
+
 // ---------------------------------------------------------------------------
-// מרכז רפואי שערי צדק — an ORGANIZATION with one outpatient unit under it, and
-// ד"ר אברהם אשכנזי (prov_1, the provider@ demo login) working inside that unit.
-//
-// This is the third context of the same person, and the one that behaves
-// differently from his own two branches: the UNIT owns the catalogue, the
-// prices and his hours here. On his own portal the unit's week is a read-only
-// reflection — he cannot edit a shift he did not schedule (§PRV-10).
+// מרכז רפואי שערי צדק — the ORGANIZATION above the מרפאות חוץ unit demo account
+// (providerOutpatient), where ד"ר אברהם אשכנזי (prov_1, the provider@ login)
+// runs the מרפאת כאבי ראש. That unit is the third context of the same person,
+// and the one that behaves differently from his own two branches: the UNIT owns
+// the catalogue, the prices and his hours there. On his own portal the unit's
+// week is a read-only reflection — he cannot edit a shift he did not
+// schedule (§PRV-10).
 // ---------------------------------------------------------------------------
 const szmcOrgId = "prov_org_szmc";
-const szmcUnitId = "prov_szmc_neuro";
-const szmcClinicId = "clinic_szmc_neuro";
-const szmcServiceIds = {
-  consult: "ct_szmc_neuro_consult",
-  followUp: "ct_szmc_neuro_followup",
-};
 
 const szmcOrg: ProviderProfile = {
   id: szmcOrgId,
@@ -1877,116 +2424,6 @@ const szmcOrg: ProviderProfile = {
   created_date: isoDateDaysFromNow(-400),
 };
 
-const providerSzmc: ProviderProfile = {
-  id: szmcUnitId,
-  provider_type: "outpatient_clinic",
-  parent_organization_id: szmcOrgId,
-  onboarding_path: "unit",
-  display_name: "מרפאות חוץ שערי צדק",
-  contact_name: "מירי אלמליח",
-  contact_phone: "02-6555222",
-  contact_email: "outpatient@szmc-demo.co.il",
-  business_reg_number: "580004073",
-  specialty: "ייעוצים ומרפאות מקצועיות",
-  bio: "מרפאות החוץ של מרכז רפואי שערי צדק — מרפאות מקצועיות בהפניית קופה או באופן פרטי.",
-  license_number: "CLN-2210",
-  license_issuer: "משרד הבריאות",
-  rating: 4.7,
-  review_count: 412,
-  is_published: true,
-  status: "approved",
-  commission_rate: 12,
-  // A hospital outpatient clinic bills at its own counter (payments §5).
-  balance_collector: "unit",
-  location_count: 1,
-  license_verified_at: isoDateDaysFromNow(-380),
-  created_date: isoDateDaysFromNow(-380),
-  agreements: [
-    { id: generateId("agr"), provider_id: szmcUnitId, layer: "S", kupah_list: ["כללית", "מכבי", "מאוחדת", "לאומית"] },
-    { id: generateId("agr"), provider_id: szmcUnitId, layer: "K" },
-    { id: generateId("agr"), provider_id: szmcUnitId, layer: "H" },
-  ],
-  kupah_arrangements: [
-    { kupah: "כללית", level: "כללית מושלם" },
-    { kupah: "מכבי", level: "מכבי זהב" },
-    { kupah: "מאוחדת", level: "מאוחדת עדיף" },
-  ],
-  // The unit's OWN items, at the unit's OWN prices — deliberately different
-  // numbers from his private practice, which is exactly the point: inside the
-  // unit he neither sets nor owns them.
-  consultation_types: [
-    {
-      id: szmcServiceIds.consult,
-      name: "ייעוץ נוירולוגי — מרפאת כאבי ראש",
-      duration_minutes: 30,
-      prices: [
-        { layer: "S", price: 0 },
-        { layer: "K", price: 160 },
-        { layer: "H", price: 620 },
-      ],
-      price_full: 540,
-      service_type: "consultation",
-      service_category: "ייעוץ",
-      linked_clinic_ids: [szmcClinicId],
-      requires_referral: true,
-    },
-    {
-      id: szmcServiceIds.followUp,
-      name: "ייעוץ נוירולוגי חוזר",
-      duration_minutes: 20,
-      prices: [
-        { layer: "K", price: 110 },
-        { layer: "H", price: 380 },
-      ],
-      price_full: 330,
-      service_type: "consultation",
-      service_category: "ייעוץ חוזר",
-      linked_clinic_ids: [szmcClinicId],
-    },
-  ],
-  exam_types: [],
-  clinic_locations: [
-    clinicWithSchedule({
-      id: szmcClinicId,
-      name: "מרפאות חוץ שערי צדק",
-      address: "שמואל בייט 12",
-      city: "ירושלים",
-      phone: "02-6555222",
-      is_primary: true,
-      location_type: "clinic",
-      schedule: weekly({
-        sunday: [shift("sh_szmc_sun", "08:00", "15:00", { label: "מרפאות בוקר", slot_minutes: 30 })],
-        monday: [shift("sh_szmc_mon", "08:00", "15:00", { label: "מרפאות בוקר", slot_minutes: 30 })],
-        tuesday: [shift("sh_szmc_tue", "08:00", "15:00", { label: "מרפאות בוקר", slot_minutes: 30 })],
-        wednesday: [shift("sh_szmc_wed", "08:00", "15:00", { label: "מרפאות בוקר", slot_minutes: 30 })],
-        thursday: [shift("sh_szmc_thu", "08:00", "15:00", { label: "מרפאות בוקר", slot_minutes: 30 })],
-      }),
-    }),
-  ],
-  referral_forms: [],
-  // His עמדה inside the unit. The schedule here is the unit's, not his: it is
-  // what makes Wednesday his שערי צדק day, and it is read-only on his portal.
-  affiliated_doctors: [
-    {
-      id: "affdoc_szmc_ashkenazi",
-      doctor_provider_id: "prov_1",
-      role: "נוירולוג — מרפאת כאבי ראש",
-      service_array: "מערך נוירולוגיה",
-      service_ids: [szmcServiceIds.consult, szmcServiceIds.followUp],
-      clinic_ids: [szmcClinicId],
-      added_at: isoDateDaysFromNow(-160),
-      schedule: weekly({
-        wednesday: [
-          shift("sh_szmc_ashkenazi_wed", "08:00", "14:00", {
-            label: "מרפאת כאבי ראש",
-            slot_minutes: 30,
-            breaks: [{ id: "br_szmc_wed", start: "11:00", end: "11:20", label: "הפסקה" }],
-          }),
-        ],
-      }),
-    },
-  ],
-};
 
 // ---------------------------------------------------------------------------
 // Demo organization hierarchy: רשת (organization) → סניפים (branches) →
@@ -2211,7 +2648,7 @@ const demoUnitClinic = demoUnit({
 // ---------------------------------------------------------------------------
 function inferArrayType(label: string, kind?: string): ServiceArrayType {
   if (/MRI|CT|הדמי|רנטגן|אולטרסאונד|ממוגר|אבחון|קרדיולוג/.test(label)) return "imaging";
-  if (/ייעוץ|ייעוצים|חוות דעת/.test(label)) return "consultations";
+  if (/ייעוץ|ייעוצים|חוות דעת|אונקולוג|אורולוג|אורטופד|אורתופד|נוירולוג/.test(label)) return "consultations";
   if (/מעבד/.test(label)) return "lab";
   if (/דגימ/.test(label)) return "samples";
   if (/פעולו|פעולה/.test(label)) return "procedures";
@@ -2334,14 +2771,7 @@ const instituteHierarchy = buildUnitHierarchy(providerInstitute, {
 });
 const outpatientHierarchy = buildUnitHierarchy(providerOutpatient, {
   id: "branch_outpatient_main",
-  name: "סניף ירושלים",
-  city: "ירושלים",
-  address: "יפו 210",
-  phone: "02-5558080",
-});
-const szmcHierarchy = buildUnitHierarchy(providerSzmc, {
-  id: "branch_szmc_main",
-  name: "סניף ירושלים",
+  name: "בית חולים שערי צדק",
   city: "ירושלים",
   address: "שמואל בייט 12",
   phone: "02-6555222",
@@ -2350,7 +2780,6 @@ const szmcHierarchy = buildUnitHierarchy(providerSzmc, {
 export const SEED_ORGANIZATION_BRANCHES: OrganizationBranch[] = [
   instituteHierarchy.branch,
   outpatientHierarchy.branch,
-  szmcHierarchy.branch,
   {
     id: demoBranchTlvId,
     unit_id: demoUnitInstituteId,
@@ -2387,7 +2816,6 @@ export const SEED_SERVICE_ARRAYS: ServiceArray[] = [
   // Back-filled from the standalone units' resources (מכון הדסה / מרפאות חוץ).
   ...instituteHierarchy.arrays,
   ...outpatientHierarchy.arrays,
-  ...szmcHierarchy.arrays,
   // The demo מכון (under the org), per branch.
   {
     id: "sarr_mri_tlv",
@@ -2477,12 +2905,11 @@ export const SEED_AFFILIATIONS: ProviderAffiliation[] = [
   // The two loginable demo units (institute@ / clinic@) — their doctors now
   // live in the slice, so the new "נותני שירות" management screen lists them.
   ...migrateEmbeddedDoctors(providerInstitute),
-  ...migrateEmbeddedDoctors(providerOutpatient),
-  // ד"ר אברהם אשכנזי (prov_1 — the provider@ demo login) inside מרפאות חוץ
-  // שערי צדק: the third context of the same person, and the one the UNIT owns.
+  // מרפאות חוץ שערי צדק also holds ד"ר אברהם אשכנזי (prov_1 — the provider@ demo
+  // login): the third context of the same person, and the one the UNIT owns.
   // Drives the provider SIDE (ProviderUnitsCard + the read-only unit reflection
   // on his unified calendar). See the seeded unit appointments.
-  ...migrateEmbeddedDoctors(providerSzmc),
+  ...migrateEmbeddedDoctors(providerOutpatient),
   // The org demo unit (no login) — kept so the seed also exercises the guard on
   // ד"ר מיכל ברק, who runs a private clinic AND works here (see the two appts).
   {
@@ -2526,18 +2953,20 @@ export const SEED_FIXED_FEE_RULES: FixedFeeRule[] = [
 export const SEED_PROVIDERS: ProviderProfile[] = [
   provider1,
   provider2,
-  provider3,
-  provider4,
   provider5,
   provider6,
   provider7,
+  // The נותני שירות יחידים price list — real doctors, all seeing patients at
+  // מרכז הילסון בית שמש (plus their own ביקורי בית / אונליין branches).
+  ...soloProviders,
   providerInstitute,
   instituteDoctor1,
   instituteDoctor2,
   providerOutpatient,
-  outpatientDoctor1,
+  // Every doctor on the unit's real price list — a person the appointments,
+  // the diary and the patient-side card can each point at.
+  ...szcDoctorProfiles,
   szmcOrg,
-  providerSzmc,
   demoOrg,
   demoUnitInstitute,
   demoUnitClinic,
@@ -3086,7 +3515,7 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
     // insurance layer — a price copied from an unrelated catalog row is what
     // made a 20-minute consultation show up at an MRI's tariff.
     const resolved = service
-      ? resolvePriceBreakdown(service.prices, provider.agreements, patient, service.price_full)
+      ? resolvePriceBreakdown(service.prices, provider.agreements, patient, service.price_full, service)
       : null;
     const price =
       resolved?.price ??
@@ -3251,12 +3680,12 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
     id: generateId("appt"),
     client_name: SEED_PATIENTS[4].full_name,
     client_phone: SEED_PATIENTS[4].phone,
-    provider_id: szmcUnitId,
+    provider_id: "prov_outpatient",
     provider_name: "מרפאות חוץ שערי צדק",
     service_name: "ייעוץ נוירולוגי — מרפאת כאבי ראש",
-    resource_id: "affdoc_szmc_ashkenazi",
+    resource_id: "affdoc_out_ashkenazi",
     practitioner_id: "prov_1",
-    owner_context_id: "affdoc_szmc_ashkenazi",
+    owner_context_id: "affdoc_out_ashkenazi",
     date: isoNextWeekday(3),
     time: "09:00",
     duration_minutes: 30,
@@ -3455,12 +3884,12 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
     id: generateId("appt"),
     client_name: SEED_PATIENTS[9].full_name,
     client_phone: SEED_PATIENTS[9].phone,
-    provider_id: szmcUnitId,
-    provider_name: providerSzmc.display_name,
+    provider_id: "prov_outpatient",
+    provider_name: providerOutpatient.display_name,
     service_name: "ייעוץ נוירולוגי — מרפאת כאבי ראש",
-    resource_id: "affdoc_szmc_ashkenazi",
+    resource_id: "affdoc_out_ashkenazi",
     practitioner_id: "prov_1",
-    owner_context_id: "affdoc_szmc_ashkenazi",
+    owner_context_id: "affdoc_out_ashkenazi",
     date: isoNextWeekday(3),
     time: "11:00",
     duration_minutes: 30,
@@ -3564,53 +3993,59 @@ export const SEED_APPOINTMENTS: Appointment[] = Array.from({ length: 24 }).map(
     created_by_id: SEED_PATIENTS[2].id,
   },
 
-  // The מרפאת חוץ collects at its own counter: an ergometry that still needs a
-  // referral decision, and a blood test whose balance is paid at reception.
-  {
-    id: generateId("appt"),
-    client_name: SEED_PATIENTS[5].full_name,
-    client_phone: SEED_PATIENTS[5].phone,
-    provider_id: providerOutpatient.id,
-    provider_name: providerOutpatient.display_name,
-    service_name: "מבחן מאמץ לבבי (ארגומטריה)",
-    date: "",
-    time: "",
-    duration_minutes: 45,
-    status: "ממתין לאישור הפניה",
-    funding_layer: "K",
-    price: 180,
-    deposit_amount: 36,
-    balance_amount: 144,
-    balance_collector: "unit",
-    referral_document: {
-      file_name: "הפניה_ארגומטריה.pdf",
-      uploaded_at: isoTimestampHoursFromNow(-9),
-      data_url: "data:application/pdf;base64,",
-    },
-    kupah: SEED_PATIENTS[5].kupah,
-    notes: "",
-    created_by_id: SEED_PATIENTS[5].id,
-  },
+  // The מרפאת חוץ collects at its own counter: a private consultation whose
+  // balance is paid at reception, and a שב"ן co-pay booking — the two payment
+  // routes the unit's price list actually produces.
   {
     id: generateId("appt"),
     client_name: SEED_PATIENTS[8].full_name,
     client_phone: SEED_PATIENTS[8].phone,
     provider_id: providerOutpatient.id,
     provider_name: providerOutpatient.display_name,
-    service_name: "בדיקות דם שגרתיות",
-    date: isoDateDaysFromNow(1),
-    time: "07:30",
-    duration_minutes: 10,
+    service_name: "ייעוץ וחוות דעת",
+    resource_id: "affdoc_szc_peled",
+    practitioner_id: "prov_szc_peled",
+    owner_context_id: "affdoc_szc_peled",
+    date: isoNextWeekday(1),
+    time: "09:00",
+    duration_minutes: 30,
     status: "מאושר",
     funding_layer: "H",
-    price: 150,
-    deposit_amount: 30,
+    // Private price ₪3,000 → 10% deposit, the rest at the unit's counter.
+    price: 3000,
+    deposit_amount: 300,
     deposit_paid_at: isoTimestampHoursFromNow(-26),
-    balance_amount: 120,
+    balance_amount: 2700,
     balance_collector: "unit",
     kupah: SEED_PATIENTS[8].kupah,
     notes: "",
     created_by_id: SEED_PATIENTS[8].id,
+  },
+  {
+    id: generateId("appt"),
+    client_name: SEED_PATIENTS[6].full_name,
+    client_phone: SEED_PATIENTS[6].phone,
+    provider_id: providerOutpatient.id,
+    provider_name: providerOutpatient.display_name,
+    service_name: "ייעוץ וחוות דעת",
+    resource_id: "affdoc_szc_dresler",
+    practitioner_id: "prov_szc_dresler",
+    owner_context_id: "affdoc_szc_dresler",
+    date: isoNextWeekday(4),
+    time: "10:00",
+    duration_minutes: 30,
+    status: "מאושר",
+    funding_layer: "K",
+    // מאוחדת עדיף settles this item at a ₪200 co-pay — a co-pay carries the
+    // flat ₪30 deposit, never a share of it (see lib/deposit.ts).
+    price: 200,
+    deposit_amount: 30,
+    deposit_paid_at: isoTimestampHoursFromNow(-14),
+    balance_amount: 170,
+    balance_collector: "unit",
+    kupah: SEED_PATIENTS[6].kupah,
+    notes: "",
+    created_by_id: SEED_PATIENTS[6].id,
   },
 
   // The ₪300 מאוחדת co-pay, actually charged: מיכל רוזנברג holds מאוחדת שיא,

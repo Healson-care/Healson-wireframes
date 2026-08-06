@@ -17,6 +17,7 @@ import {
   ReferralReviewPanel,
 } from "@/components/provider/AppointmentReferralPanel";
 import { Dialog } from "@/components/ui/Dialog";
+import { appointmentStatusLabel, showsPatientPaymentStatus } from "@/lib/appointment-payments";
 import { fileToDataUrl } from "@/lib/file";
 import { formatDateHe } from "@/lib/utils";
 import { Appointment } from "@/types";
@@ -116,6 +117,7 @@ export default function ProviderPatientChartPage() {
   }
 
   const age = calculateAge(patient.date_of_birth);
+  const seesPayments = showsPatientPaymentStatus(provider);
 
   return (
     <ProviderLayout>
@@ -187,7 +189,11 @@ export default function ProviderPatientChartPage() {
                     >
                       <div className="flex items-start justify-between gap-2">
                         <span className="text-sm text-slate-700">{a.service_name}</span>
-                        <StatusBadge status={a.status} kind="appointment" />
+                        <StatusBadge
+                          status={a.status}
+                          kind="appointment"
+                          label={appointmentStatusLabel(a.status, seesPayments)}
+                        />
                       </div>
                       <p className="mt-0.5 text-xs text-slate-400">
                         {formatDateHe(a.date)} · {a.time}
@@ -252,8 +258,8 @@ export default function ProviderPatientChartPage() {
                 emptyIcon={<CalendarDays className="h-10 w-10" />}
                 emptyTitle="אין תורים קודמים"
                 emptyDescription="תורים של המטופל/ת אצלך יופיעו כאן."
-                // Opens the same referral + payment panels the diary uses, so a
-                // referral can be read (and approved) without leaving the chart.
+                // Opens the same document panels the diary uses, so a referral
+                // can be read (and approved) without leaving the chart.
                 onRowClick={(a) => setOpenAppointmentId(a.id)}
                 columns={
                   [
@@ -269,8 +275,29 @@ export default function ProviderPatientChartPage() {
                         </span>
                       ),
                     },
-                    { key: "status", header: "סטטוס", render: (a) => <StatusBadge status={a.status} kind="appointment" /> },
-                    { key: "payment", header: "תשלום", render: (a) => <PaymentStateBadge appointment={a} /> },
+                    {
+                      key: "status",
+                      header: "סטטוס",
+                      render: (a) => (
+                        <StatusBadge
+                          status={a.status}
+                          kind="appointment"
+                          label={appointmentStatusLabel(a.status, seesPayments)}
+                        />
+                      ),
+                    },
+                    // Whether the patient's money arrived is not part of the
+                    // chart for an individual provider — Healson collects it
+                    // (see showsPatientPaymentStatus).
+                    ...(seesPayments
+                      ? [
+                          {
+                            key: "payment",
+                            header: "תשלום",
+                            render: (a: Appointment) => <PaymentStateBadge appointment={a} />,
+                          },
+                        ]
+                      : []),
                   ] satisfies DataTableColumn<Appointment>[]
                 }
               />
@@ -314,13 +341,13 @@ export default function ProviderPatientChartPage() {
       <Dialog
         open={!!openAppointment}
         onClose={() => setOpenAppointmentId(null)}
-        title="מסמכים ותשלום"
+        title={seesPayments ? "מסמכים ותשלום" : "מסמכים"}
         description={openAppointment ? `${openAppointment.service_name} · ${formatDateHe(openAppointment.date)}` : undefined}
       >
         {openAppointment && (
           <div className="flex flex-col gap-3">
             <ReferralReviewPanel appointment={openAppointment} />
-            <AppointmentPaymentPanel appointment={openAppointment} />
+            <AppointmentPaymentPanel appointment={openAppointment} showMoney={seesPayments} />
           </div>
         )}
       </Dialog>

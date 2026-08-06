@@ -4,7 +4,7 @@ import { ProfilePageFrame } from "@/components/provider/ProfilePageFrame";
 import { AgreementsSection } from "@/components/provider/AgreementsSection";
 import { InheritedArrangementsCard } from "@/components/provider/InheritedArrangementsCard";
 import { useStore } from "@/lib/store";
-import { isUnitProviderType } from "@/types";
+import { INSURANCE_LAYERS, isUnitProviderType } from "@/types";
 import { Building2 } from "lucide-react";
 
 export default function ProviderAgreementsPage() {
@@ -56,6 +56,9 @@ export default function ProviderAgreementsPage() {
                 onPrivateInsuranceCompaniesChange={(private_insurance_companies) =>
                   update({ private_insurance_companies })
                 }
+                // סל קופה (S) is contracted with a יחידה, never with a person —
+                // so an individual provider is not offered it at all.
+                layers={isUnit ? INSURANCE_LAYERS : INSURANCE_LAYERS.filter((l) => l !== "S")}
               />
             )}
 

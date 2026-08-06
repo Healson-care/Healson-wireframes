@@ -14,12 +14,19 @@ import {
 import { HOUR_PX, MIN_BLOCK_MIN, clampMin, snap, timeBounds } from "@/lib/schedule-calendar";
 import { Appointment, isCancelledAppointment } from "@/types";
 import { getAppointmentPaymentState } from "@/lib/appointment-payments";
-import { AlertTriangle, Building2, Lock, User, Wallet } from "lucide-react";
+import { AlertTriangle, Building2, FileText, Lock, User, Wallet } from "lucide-react";
 
-/** Payment states that mean somebody still owes something on this booking. */
-function paymentIsOutstanding(a: Appointment): boolean {
+/** What is still missing on this booking, as a flag on the block: a document
+ * the payer owes ("commitment"), or money that has not arrived ("money").
+ *
+ * An individual provider never sees the money axis — Healson collects and
+ * settles with them monthly — but the missing טופס 17 is still theirs to chase,
+ * so it stays. See showsPatientPaymentStatus. */
+function outstandingFlag(a: Appointment, showMoney: boolean): "commitment" | "money" | null {
   const state = getAppointmentPaymentState(a);
-  return state === "ממתין למקדמה" || state === "ממתין להתחייבות" || state === "יתרה ממתינה";
+  if (state === "ממתין להתחייבות") return "commitment";
+  if (!showMoney) return null;
+  return state === "ממתין למקדמה" || state === "יתרה ממתינה" ? "money" : null;
 }
 
 /** One column of the grid. In week view a column is a DATE; in a unit's day
@@ -76,6 +83,7 @@ export function AppointmentTimeGrid({
   columnKeyOf,
   canCreate,
   showOpenHours = true,
+  showMoneyFlag = true,
   onCreate,
   onOpen,
   onMove,
@@ -87,6 +95,9 @@ export function AppointmentTimeGrid({
   canCreate: boolean;
   /** Paint each column's opened shifts behind the appointments. */
   showOpenHours?: boolean;
+  /** Flag bookings with money still outstanding — units only (see
+   * showsPatientPaymentStatus). A missing התחייבות is flagged either way. */
+  showMoneyFlag?: boolean;
   onCreate: (target: DropTarget) => void;
   onOpen: (block: ApptBlock) => void;
   onMove: (block: ApptBlock, target: DropTarget) => void;
@@ -404,6 +415,7 @@ export function AppointmentTimeGrid({
                     endMin={endMin}
                     showLane={!col.laneId}
                     outsideHours={outsideHours}
+                    showMoneyFlag={showMoneyFlag}
                     dragging={isDragged}
                     onPointerDownMove={(e) => startDrag(e, b, "move", colIndex)}
                     onPointerDownResize={(e) => startDrag(e, b, "resize", colIndex)}
@@ -452,6 +464,7 @@ function AppointmentBlockView({
   endMin,
   showLane,
   outsideHours,
+  showMoneyFlag,
   dragging,
   onPointerDownMove,
   onPointerDownResize,
@@ -464,12 +477,14 @@ function AppointmentBlockView({
   endMin: number;
   showLane: boolean;
   outsideHours?: boolean;
+  showMoneyFlag: boolean;
   dragging: boolean;
   onPointerDownMove: (e: React.PointerEvent) => void;
   onPointerDownResize: (e: React.PointerEvent) => void;
   onOpen: () => void;
 }) {
   const color = APPOINTMENT_STATUS_COLORS[block.status];
+  const outstanding = block.owned ? outstandingFlag(block.appt, showMoneyFlag) : null;
   const compact = height < 42;
   const widthPct = 100 / block.colCount;
   const rightPct = (block.col * 100) / block.colCount;
@@ -535,15 +550,18 @@ function AppointmentBlockView({
             <p className="truncate text-[10px] leading-tight opacity-60">{block.laneName}</p>
           )}
         </div>
-        {/* Money still outstanding on this booking (payments meeting §7) — a
-            deposit, a commitment document or the balance. The status fill
-            already carries the lifecycle; this is the one extra bit a provider
-            scans a day board for. */}
-        {block.owned && paymentIsOutstanding(a) && (
+        {/* Still outstanding on this booking (payments meeting §7) — a missing
+            התחייבות, or money that has not arrived. The status fill already
+            carries the lifecycle; this is the one extra bit a provider scans a
+            day board for. */}
+        {outstanding === "money" && (
           <Wallet
             className="h-2.5 w-2.5 shrink-0 opacity-70"
             aria-label={getAppointmentPaymentState(a)}
           />
+        )}
+        {outstanding === "commitment" && (
+          <FileText className="h-2.5 w-2.5 shrink-0 opacity-70" aria-label="ממתין להתחייבות" />
         )}
         {!block.owned ? (
           <Lock className="h-2.5 w-2.5 shrink-0 opacity-50" />

@@ -8,11 +8,49 @@
 import {
   Appointment,
   AppointmentPaymentState,
+  AppointmentStatus,
   BALANCE_COLLECTOR_LABELS,
   BalanceCollector,
+  ProviderProfile,
   isCancelledAppointment,
+  isUnitProviderType,
 } from "@/types";
 import { formatCurrency } from "./utils";
+
+/** Whether this provider is shown the patient's ACTUAL payment status — was the
+ * מקדמה paid, is a יתרה still open, was the booking settled in full.
+ *
+ * An individual נותן שירות is NOT: Healson charges the patient and settles with
+ * the provider once a month (see MonthlySettlement), so whether the patient's
+ * card went through is Healson's business — not something a doctor should read
+ * off a booking or off a chart. Everything else stays: the prices the provider
+ * set, and the patient's funding route with its הפניה / התחייבות paperwork,
+ * which is clinical-administrative rather than money.
+ *
+ * A medical unit does see it — a unit may collect the balance at its own
+ * counter (balance_collector "unit"), so the money IS its work. */
+export function showsPatientPaymentStatus(
+  provider: Pick<ProviderProfile, "provider_type"> | null | undefined
+): boolean {
+  return isUnitProviderType(provider?.provider_type);
+}
+
+/** The lifecycle status itself names the money on three of its phases, so a
+ * provider who is not shown the payment state must not read it off the badge
+ * either. Those phases collapse into the booking fact behind them: a deposit
+ * that has not arrived means the booking is not confirmed yet, and one that
+ * has been settled means it is. The stored status never changes — only how it
+ * is labelled. */
+const MONEY_FREE_STATUS_LABELS: Partial<Record<AppointmentStatus, string>> = {
+  "ממתין לתשלום מקדמה": "ממתין לאישור",
+  "ממתין לתשלום יתרה": "מאושר",
+  "שולם במלואו": "מאושר",
+};
+
+export function appointmentStatusLabel(status: AppointmentStatus, showMoney: boolean): string {
+  if (showMoney) return status;
+  return MONEY_FREE_STATUS_LABELS[status] ?? status;
+}
 
 /** Routes that are settled with a commitment document instead of money:
  * route S always (סל הקופה — טופס 17), and route B when the insurer issued a

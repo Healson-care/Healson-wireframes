@@ -8,6 +8,7 @@ import { Input, Select } from "@/components/ui/Input";
 import { EmptyState } from "@/components/ui/Misc";
 import { Badge } from "@/components/ui/Badge";
 import { formatCurrency, generateId, cn } from "@/lib/utils";
+import { defaultRequiresReferral, requiresReferral as requiresReferralOf } from "@/lib/referral";
 import {
   ANESTHESIA_TYPE_LABELS,
   ANESTHESIA_TYPES,
@@ -21,6 +22,13 @@ import {
   PROVIDER_SERVICE_TYPE_LABELS,
   PayerPrice,
   ProviderServiceType,
+  REQUIRED_DOCUMENT_KINDS,
+  REQUIRED_DOCUMENT_KIND_LABELS,
+  REQUIRED_DOCUMENT_TIMINGS,
+  REQUIRED_DOCUMENT_TIMING_LABELS,
+  RequiredDocument,
+  RequiredDocumentKind,
+  RequiredDocumentTiming,
   soloServiceTypes,
 } from "@/types";
 import {
@@ -30,7 +38,6 @@ import {
   Stethoscope,
   MapPin,
   Search,
-  Lock,
   FileText,
   Clock,
   X,
@@ -125,7 +132,12 @@ export function SoloItemCatalogSection({
   const [noAgeLimit, setNoAgeLimit] = useState(true);
   const [minAge, setMinAge] = useState("");
   const [maxAge, setMaxAge] = useState("");
-  const [requiredDocs, setRequiredDocs] = useState<{ id: string; label: string }[]>([]);
+  const [requiredDocs, setRequiredDocs] = useState<RequiredDocument[]>([]);
+  const [requiresReferral, setRequiresReferral] = useState(false);
+  // Until the provider touches the checkbox it keeps following the item type's
+  // default, so switching ייעוץ→ניתוח mid-form still lands on the sensible
+  // value — but a deliberate tick is never overwritten behind their back.
+  const [referralTouched, setReferralTouched] = useState(false);
   const [requiresQuestionnaire, setRequiresQuestionnaire] = useState(false);
   const [questionnaireTitle, setQuestionnaireTitle] = useState("");
   const [priceFull, setPriceFull] = useState("");
@@ -161,6 +173,8 @@ export function SoloItemCatalogSection({
     setMinAge("");
     setMaxAge("");
     setRequiredDocs([]);
+    setRequiresReferral(defaultRequiresReferral("consultation"));
+    setReferralTouched(false);
     setRequiresQuestionnaire(false);
     setQuestionnaireTitle("");
     setPriceFull("");
@@ -198,6 +212,10 @@ export function SoloItemCatalogSection({
     setMinAge(item.min_age != null ? String(item.min_age) : "");
     setMaxAge(item.max_age != null ? String(item.max_age) : "");
     setRequiredDocs(item.required_documents ?? []);
+    // An item saved before the flag was editable carries the old type rule —
+    // open it on exactly what patients experience today, then let it change.
+    setRequiresReferral(requiresReferralOf(item));
+    setReferralTouched(true);
     setRequiresQuestionnaire(!!item.requires_questionnaire);
     setQuestionnaireTitle(item.questionnaire_title ?? "");
     setPriceFull(item.price_full != null ? String(item.price_full) : "");
@@ -231,8 +249,16 @@ export function SoloItemCatalogSection({
     setOpen(true);
   }
 
-  // §2 (payments meeting): everything except a consultation is referral-gated.
-  const referralLocked = serviceType !== "consultation";
+  /** Picking a service type re-defaults the referral answer while the provider
+   * hasn't given one — so the fast path (pick "טיפול", type a name, save) never
+   * costs a click, and a ניתוח still opens on "נדרשת הפניה". */
+  function pickServiceType(t: ProviderServiceType) {
+    setServiceType(t);
+    // A ייעוץ hides the row entirely, so a tick left over from another type
+    // would be a gate the provider can no longer see — always clear it.
+    if (t === "consultation") setRequiresReferral(false);
+    else if (!referralTouched) setRequiresReferral(defaultRequiresReferral(t));
+  }
 
   function buildPayerPrices(): PayerPrice[] {
     const rows: PayerPrice[] = [];
@@ -280,7 +306,9 @@ export function SoloItemCatalogSection({
         : undefined,
       requires_questionnaire: requiresQuestionnaire || undefined,
       questionnaire_title: requiresQuestionnaire ? questionnaireTitle.trim() || "שאלון לפני הפגישה" : undefined,
-      requires_referral: referralLocked,
+      // A ייעוץ is never referral-gated here (the row isn't even asked), so a
+      // tick left over from a type switch mid-form can't leak onto it.
+      requires_referral: serviceType === "consultation" ? false : requiresReferral,
       anesthesia_type: serviceType === "surgery" ? anesthesiaType : undefined,
       recovery_days: serviceType === "surgery" && recoveryDays ? Number(recoveryDays) : undefined,
       requires_hospital: serviceType === "surgery" ? requiresHospital : undefined,
@@ -351,7 +379,7 @@ export function SoloItemCatalogSection({
                       </Badge>
                     </div>
                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                      {item.requires_referral && <Badge tone="amber">דורש הפניה</Badge>}
+                      {requiresReferralOf(item) && <Badge tone="amber">דורש הפניה</Badge>}
                       {item.requires_questionnaire && <Badge tone="amber">שאלון מקדים</Badge>}
                       {(item.required_documents?.length ?? 0) > 0 && (
                         <Badge tone="amber">{item.required_documents!.length} מסמכים נדרשים</Badge>
@@ -461,7 +489,7 @@ export function SoloItemCatalogSection({
                 <button
                   key={t}
                   type="button"
-                  onClick={() => setServiceType(t)}
+                  onClick={() => pickServiceType(t)}
                   aria-pressed={serviceType === t}
                   className={cn(
                     "flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
@@ -621,7 +649,10 @@ export function SoloItemCatalogSection({
 
           {/* 5 — what the patient must bring or fill BEFORE the appointment.
               Each entry becomes a pending document on the booking, so the
-              appointment never starts with something missing. */}
+              appointment never starts with something missing. A row is a real
+              requirement, not a name: its KIND files it in the right drawer of
+              the patient's documents tab, חובה/רשות decides whether it blocks,
+              and the timing says by when. */}
           <div className="flex flex-col gap-2.5 rounded-lg border border-slate-200 p-3">
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
@@ -630,39 +661,109 @@ export function SoloItemCatalogSection({
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => setRequiredDocs([...requiredDocs, { id: generateId("doc"), label: "" }])}
+                onClick={() =>
+                  setRequiredDocs([
+                    ...requiredDocs,
+                    {
+                      id: generateId("doc"),
+                      label: "",
+                      kind: "other",
+                      timing: "before_appointment",
+                    },
+                  ])
+                }
               >
                 <Plus className="h-3.5 w-3.5" /> מסמך
               </Button>
             </div>
             {requiredDocs.length === 0 ? (
-              <p className="text-[11px] text-slate-400">
-                לא נדרשים מסמכים. דוגמה: לייעוץ קשב וריכוז — שאלון מורה שיש להביא לפגישה.
+              <p className="text-[11px] leading-relaxed text-slate-400">
+                לא נדרשים מסמכים. אפשר להוסיף כל מסמך שהמטופל צריך להביא או להעלות — הפניה, תוצאות בדיקות,
+                הדמיה קודמת, סיכום רפואי, טופס או שאלון — ולקבוע לכל אחד אם הוא חובה ומתי הוא נדרש.
               </p>
             ) : (
-              <div className="flex flex-col gap-2">
-                {requiredDocs.map((doc) => (
-                  <div key={doc.id} className="flex items-center gap-2">
-                    <input
-                      value={doc.label}
-                      placeholder="שם המסמך שהמטופל צריך להביא"
-                      onChange={(e) =>
-                        setRequiredDocs(
-                          requiredDocs.map((d) => (d.id === doc.id ? { ...d, label: e.target.value } : d))
-                        )
-                      }
-                      className="h-9 flex-1 rounded-md border border-slate-300 px-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setRequiredDocs(requiredDocs.filter((d) => d.id !== doc.id))}
-                      aria-label="הסרת מסמך"
-                      className="rounded-md p-1.5 text-red-500 hover:bg-red-50"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ))}
+              <div className="flex flex-col gap-2.5">
+                {requiredDocs.map((doc) => {
+                  const patch = (next: Partial<RequiredDocument>) =>
+                    setRequiredDocs(requiredDocs.map((d) => (d.id === doc.id ? { ...d, ...next } : d)));
+                  return (
+                    <div key={doc.id} className="flex flex-col gap-2 rounded-lg bg-slate-50 p-2.5">
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={doc.label}
+                          placeholder="שם המסמך כפי שהמטופל יראה אותו"
+                          onChange={(e) => patch({ label: e.target.value })}
+                          aria-label="שם המסמך"
+                          className="h-9 flex-1 rounded-md border border-slate-300 bg-white px-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setRequiredDocs(requiredDocs.filter((d) => d.id !== doc.id))}
+                          aria-label={`הסרת ${doc.label || "מסמך"}`}
+                          className="rounded-md p-1.5 text-red-500 hover:bg-red-100"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <select
+                          value={doc.kind ?? "other"}
+                          onChange={(e) => patch({ kind: e.target.value as RequiredDocumentKind })}
+                          aria-label="סוג המסמך"
+                          className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                        >
+                          {REQUIRED_DOCUMENT_KINDS.map((k) => (
+                            <option key={k} value={k}>
+                              {REQUIRED_DOCUMENT_KIND_LABELS[k]}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={doc.timing ?? "before_appointment"}
+                          onChange={(e) => patch({ timing: e.target.value as RequiredDocumentTiming })}
+                          aria-label="מתי נדרש"
+                          className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                        >
+                          {REQUIRED_DOCUMENT_TIMINGS.map((t) => (
+                            <option key={t} value={t}>
+                              {REQUIRED_DOCUMENT_TIMING_LABELS[t]}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {([false, true] as boolean[]).map((optional) => (
+                          <button
+                            key={String(optional)}
+                            type="button"
+                            onClick={() => patch({ optional })}
+                            aria-pressed={!!doc.optional === optional}
+                            className={cn(
+                              "rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
+                              !!doc.optional === optional
+                                ? "bg-primary text-white"
+                                : "bg-white text-slate-500 ring-1 ring-inset ring-slate-200 hover:bg-slate-50"
+                            )}
+                          >
+                            {optional ? "רשות" : "חובה"}
+                          </button>
+                        ))}
+                        <span className="text-[11px] text-slate-400">
+                          {doc.optional
+                            ? "יופיע למטופל כהמלצה — לא יעכב את התור."
+                            : "התור לא יאושר ללא המסמך."}
+                        </span>
+                      </div>
+                      <input
+                        value={doc.instructions ?? ""}
+                        placeholder="הנחיה למטופל (לא חובה) — מאיפה משיגים, תוקף, מה חשוב שיופיע"
+                        onChange={(e) => patch({ instructions: e.target.value })}
+                        aria-label="הנחיה למטופל"
+                        className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-[13px] outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+                  );
+                })}
               </div>
             )}
 
@@ -678,30 +779,39 @@ export function SoloItemCatalogSection({
             {requiresQuestionnaire && (
               <Input
                 label="שם השאלון"
-                placeholder="לדוגמה: שאלון מורה (קונרס)"
+                placeholder="לדוגמה: שאלון רקע רפואי לפני הפגישה"
                 value={questionnaireTitle}
                 onChange={(e) => setQuestionnaireTitle(e.target.value)}
+                hint="השאלון נשלח למטופל למילוי מקוון לאחר תשלום המקדמה."
               />
             )}
 
-            <label
-              className={cn(
-                "flex items-center gap-2 text-sm",
-                referralLocked ? "cursor-default" : "cursor-pointer"
-              )}
-            >
-              <input
-                type="checkbox"
-                checked={referralLocked}
-                disabled
-                className="h-4 w-4 rounded border-slate-300 accent-primary disabled:opacity-70"
-              />
-              נדרשת הפניה / אישור מראש מהקופה
-              <span className="flex items-center gap-1 text-[11px] text-slate-400">
-                <Lock className="h-3 w-3" />
-                {referralLocked ? "חובה לפריט שאינו ייעוץ" : "ייעוץ אינו דורש הפניה"}
-              </span>
-            </label>
+            {/* The provider's call, never the platform's: a טיפול is usually
+                booked directly, so the box opens unticked and ticking it is
+                what turns on the whole referral gate (upload → אישור → תשלום).
+                Asked only where it is a real question about the item — a ייעוץ
+                is booked directly, so the row would be noise there. */}
+            {serviceType !== "consultation" && (
+              <>
+                <label className="flex cursor-pointer items-center gap-2 border-t border-slate-100 pt-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={requiresReferral}
+                    onChange={(e) => {
+                      setRequiresReferral(e.target.checked);
+                      setReferralTouched(true);
+                    }}
+                    className="h-4 w-4 rounded border-slate-300 accent-primary"
+                  />
+                  נדרשת הפניה / אישור מראש מהקופה
+                </label>
+                <p className="text-[11px] leading-relaxed text-slate-400">
+                  {requiresReferral
+                    ? `המטופל יעלה הפניה לפני קביעת התור, וההזמנה תמתין לאישורכם לפני התשלום.`
+                    : `אין צורך בהפניה — המטופל קובע את ה${itemLabel} ישירות.`}
+                </p>
+              </>
+            )}
           </div>
 
           {/* 6 — prices. */}

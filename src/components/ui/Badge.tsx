@@ -102,10 +102,14 @@ export function StatusBadge({
   status,
   kind,
   title,
+  label,
 }: {
   status: string;
   kind: "appointment" | "order" | "patient" | "lead" | "referral" | "payment";
   title?: string;
+  /** Display text, when the audience reads the status differently from how it
+   * is stored — see appointmentStatusLabel. The tone still follows `status`. */
+  label?: string;
 }) {
   const map =
     kind === "appointment"
@@ -121,7 +125,7 @@ export function StatusBadge({
       : REFERRAL_TONE;
   return (
     <Badge tone={toneFor(map, status)} title={title}>
-      {status}
+      {label ?? status}
     </Badge>
   );
 }

@@ -764,6 +764,93 @@ export const ANESTHESIA_TYPE_LABELS: Record<AnesthesiaType, string> = {
   general: "כללית",
 };
 
+// ---------------------------------------------------------------------------
+// Pre-appointment documents — what the patient must bring or upload before the
+// visit. Deliberately NOT free text: each row says WHAT kind of document it is
+// (so the patient's documents tab files it in the right place), whether it is
+// חובה or רשות, WHEN it is due, and the instruction the patient reads.
+// ---------------------------------------------------------------------------
+export type RequiredDocumentKind =
+  | "referral"
+  | "form"
+  | "questionnaire"
+  | "lab_result"
+  | "imaging"
+  | "medical_summary"
+  | "insurance"
+  | "id"
+  | "other";
+
+export const REQUIRED_DOCUMENT_KINDS: RequiredDocumentKind[] = [
+  "referral",
+  "form",
+  "questionnaire",
+  "lab_result",
+  "imaging",
+  "medical_summary",
+  "insurance",
+  "id",
+  "other",
+];
+
+export const REQUIRED_DOCUMENT_KIND_LABELS: Record<RequiredDocumentKind, string> = {
+  referral: "הפניה / התחייבות מקופה",
+  form: "טופס למילוי",
+  questionnaire: "שאלון",
+  lab_result: "תוצאות בדיקות מעבדה",
+  imaging: "הדמיה / פענוח קודם",
+  medical_summary: "סיכום רפואי / מכתב שחרור",
+  insurance: "אישור מחברת ביטוח",
+  id: "מסמך מזהה",
+  other: "אחר",
+};
+
+/** When the document is due. "before_booking" is the only value that blocks the
+ * booking itself; the other two are tasks on the patient before the visit. */
+export type RequiredDocumentTiming = "before_booking" | "before_appointment" | "at_appointment";
+
+export const REQUIRED_DOCUMENT_TIMINGS: RequiredDocumentTiming[] = [
+  "before_booking",
+  "before_appointment",
+  "at_appointment",
+];
+
+export const REQUIRED_DOCUMENT_TIMING_LABELS: Record<RequiredDocumentTiming, string> = {
+  before_booking: "לפני אישור התור",
+  before_appointment: "עד יום לפני התור",
+  at_appointment: "להביא לפגישה",
+};
+
+export interface RequiredDocument {
+  id: string;
+  label: string;
+  /** Defaults to "other" — rows saved before this field existed have none. */
+  kind?: RequiredDocumentKind;
+  /** true = רשות. Undefined means חובה, which is what every older row meant. */
+  optional?: boolean;
+  /** Defaults to "before_appointment". */
+  timing?: RequiredDocumentTiming;
+  /** What the patient is told about this document (where to get it, validity). */
+  instructions?: string;
+}
+
+const REQUIRED_DOCUMENT_CATEGORY: Record<RequiredDocumentKind, DocumentCategory> = {
+  referral: "referral_personal",
+  form: "referral_personal",
+  questionnaire: "questionnaire",
+  lab_result: "lab_result",
+  imaging: "lab_result",
+  medical_summary: "visit_summary",
+  insurance: "referral_personal",
+  id: "other",
+  other: "other",
+};
+
+/** Which drawer of the patient's documents tab this checklist row files into. */
+export function requiredDocumentCategory(doc: RequiredDocument): DocumentCategory {
+  return REQUIRED_DOCUMENT_CATEGORY[doc.kind ?? "other"];
+}
+
 export interface ConsultationType {
   id: string;
   name: string;
@@ -838,8 +925,8 @@ export interface ConsultationType {
   // Specific documents the patient must upload before the appointment (e.g.
   // a referral letter, prior imaging). Same "once the deposit is paid"
   // timing as requires_questionnaire — each entry becomes a pending
-  // PatientDocument (category "referral_personal") linked to the appointment.
-  required_documents?: { id: string; label: string }[];
+  // PatientDocument, filed by its kind (see requiredDocumentCategory).
+  required_documents?: RequiredDocument[];
 }
 
 export interface ExamType {
