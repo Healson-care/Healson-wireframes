@@ -8,9 +8,8 @@ import { Input, Select, Textarea } from "@/components/ui/Input";
 import { EmptyState } from "@/components/ui/Misc";
 import { Badge } from "@/components/ui/Badge";
 import { useStore } from "@/lib/store";
-import { REFERRAL_EXEMPT_TYPES } from "@/lib/referral";
-import { formatCurrency, generateId } from "@/lib/utils";
 import { defaultRequiresReferral, requiresReferral as requiresReferralOf } from "@/lib/referral";
+import { formatCurrency, generateId } from "@/lib/utils";
 import {
   ANESTHESIA_TYPE_LABELS,
   ANESTHESIA_TYPES,
@@ -466,13 +465,6 @@ export function ServiceCatalogSection({
     return names.length > 0 ? names.join(", ") : null;
   }
 
-  // §2 — everything except a consultation, a treatment or a מוצר is
-  // referral-gated. Derived from the patient gate's own list so the locked
-  // checkbox here and the block the patient hits can never say different
-  // things. For the unlocked types the box is a real choice, and ticking it
-  // adds the gate to that one item (see requiresReferral).
-  const referralLocked = !REFERRAL_EXEMPT_TYPES.includes(serviceType);
-
   const canSave =
     (editingId ? true : !!catalogItemId) &&
     (!serviceCategories || !!serviceCategory) &&
@@ -873,17 +865,6 @@ export function ServiceCatalogSection({
                 what the reference catalog says, when the item came from one),
                 and stays editable either way. */}
             <label className="flex cursor-pointer items-center gap-2 text-sm">
-            {/* Payments meeting §2: uploading a referral is a precondition for
-                booking any item except a ייעוץ, a טיפול or a מוצר. That is a
-                platform rule, not a per-item preference, so the box is ticked
-                and locked for every other clinical item. Where it IS unlocked
-                the choice runs one way only — ticking it adds the gate to this
-                item, and the platform rule can never be switched off. */}
-            <label
-              className={`flex items-center gap-2 text-sm ${
-                referralLocked ? "cursor-default" : "cursor-pointer"
-              }`}
-            >
               <input
                 type="checkbox"
                 checked={requiresReferral}
@@ -896,16 +877,6 @@ export function ServiceCatalogSection({
               {requiresReferral
                 ? "המטופל יצטרך להעלות הפניה לפני קביעת התור, וההזמנה תמתין לאישורכם."
                 : `אין צורך בהפניה — המטופל קובע את ה${itemLabel} ישירות.`}
-              {referralLocked && (
-                <span className="flex items-center gap-1 text-[11px] text-slate-400">
-                  <Lock className="h-3 w-3" /> חובה לסוג פריט זה
-                </span>
-              )}
-            </label>
-            <p className="text-[11px] leading-relaxed text-slate-400">
-              {referralLocked
-                ? "המטופל יעלה הפניה, וההזמנה תמתין לאישורכם — מועדים ייפתחו לו רק לאחר שתאשרו. ייעוץ, טיפול ומוצר הם הפריטים שניתן להזמין ללא הפניה."
-                : "לסוג פריט זה לא נדרשת הפניה כברירת מחדל. אם תסמנו, המטופל יעלה הפניה לפריט הזה בלבד וההזמנה תמתין לאישורכם לפני שייפתחו לו מועדים."}
             </p>
 
             {serviceType === "test" && (
