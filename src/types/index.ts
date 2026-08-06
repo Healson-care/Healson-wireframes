@@ -1449,8 +1449,10 @@ export interface SubSpecialtyRequest {
 // ID-document scan is. So the join flow has two gates, not one:
 //   gate 1 — /apply, above "צור חשבון": terms + data_processing +
 //            third_party_transfer (all required) and marketing (optional);
-//   gate 2 — the licensing step, right before any document upload:
-//            identity_documents (required).
+//   gate 2 — right before any document upload: identity_documents (required).
+//            Solo providers (נותן שירות יחיד) answer it on a screen of its own,
+//            between the phone verification and the licensing step; every other
+//            type answers it inside that step, above the uploads.
 // Each grant is stored with its document version and timestamp and is never
 // overwritten, so what the provider agreed to — and when — stays provable.
 // ---------------------------------------------------------------------------
