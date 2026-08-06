@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Check } from "lucide-react";
 import { Popover } from "@/components/ui/Popover";
 import { GateTrigger } from "@/components/search/GateTrigger";
+import { GatePanelHeader } from "@/components/search/GatePanelHeader";
 import { OptionSearch } from "@/components/search/OptionSearch";
 import { PerformerGate } from "@/components/search/PerformerGate";
 import { TwoLevelGate } from "@/components/search/TwoLevelGate";
@@ -13,12 +14,10 @@ import {
   FilterValue,
   SearchContext,
   SearchQuery,
-  cityRegion,
   facetCount,
   gateOptions,
   matchesQuery,
   primaryFilters,
-  subdomainParent,
   toggleMulti,
 } from "@/lib/search";
 
@@ -58,7 +57,11 @@ export function PrimaryGates({
       ...query,
       performerId: null,
       organizationId: null,
-      filters: { ...query.filters, unitType: undefined },
+      // Every part of this gate's own axis is cleared — the two anchors, the
+      // unit kind AND doctorDelivered. Leaving the last one in was what let
+      // "כל הרופאים" grey out every institute the moment it was chosen, so the
+      // gate could only be cleared and never changed.
+      filters: { ...query.filters, unitType: undefined, doctorDelivered: undefined },
     };
     return ctx.offers.filter((offer) => matchesQuery(offer, probe, ctx));
   }, [query, ctx]);
@@ -88,7 +91,6 @@ export function PrimaryGates({
             <TwoLevelGate
               parentDef={domainGate}
               childDef={gate("subdomain")}
-              parentOf={subdomainParent}
               placeholder="חיפוש תחום או תת-תחום"
               emptyLabel="אין תחומים בתוצאות הנוכחיות"
               noChildrenLabel="אין תת-תחומים לפריטים שנותרו"
@@ -106,7 +108,6 @@ export function PrimaryGates({
             <TwoLevelGate
               parentDef={regionGate}
               childDef={gate("city")}
-              parentOf={cityRegion}
               placeholder="חיפוש אזור או עיר"
               emptyLabel="אין מיקומים בתוצאות הנוכחיות"
               noChildrenLabel="אין ערים לפריטים שנותרו"
@@ -166,9 +167,9 @@ function GateControl({
         </span>
       }
     >
-      {() => (
+      {(close) => (
         <div className="py-1">
-          <p className="px-3 pb-1 pt-1.5 text-[11px] font-semibold text-slate-500">{def.group}</p>
+          <GatePanelHeader title={def.group} onClose={close} />
           {constrained && (
             <p className="px-3 pb-1 text-[11px] text-slate-400">נקבע לפי הבחירות האחרות — אפשר לבטל אותן ולחזור.</p>
           )}

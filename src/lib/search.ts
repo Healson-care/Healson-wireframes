@@ -324,14 +324,21 @@ export interface SearchQuery {
   serviceName: string | null;
   /** Recognised referral code, kept so the UI can show why serviceName is set. */
   referralCode: string | null;
-  /** Registry-driven filters, keyed by FilterDef.key. */
+  /**
+   * Registry-driven filters, keyed by FilterDef.key.
+   *
+   * This is the ONLY thing that narrows the result set. There used to be a
+   * `groupBy` field beside it that quietly dropped every offer without a
+   * doctor — a narrowing with no chip, outside the filter count, untouched by
+   * "נקה הכל", and applied to the offer index every control read from rather
+   * than to the results. It is now the `doctorDelivered` filter in the
+   * registry, so it is visible, countable and clearable like everything else.
+   */
   filters: Record<string, FilterValue>;
-  /** Same results, two presentations. */
-  groupBy: "service" | "provider";
 }
 
 export function emptyQuery(): SearchQuery {
-  return { text: "", performerId: null, organizationId: null, serviceName: null, referralCode: null, filters: {}, groupBy: "service" };
+  return { text: "", performerId: null, organizationId: null, serviceName: null, referralCode: null, filters: {} };
 }
 
 /** Everything the predicates need beyond the offer itself. */
@@ -691,6 +698,21 @@ export interface FilterDef {
    * "ללא צום" stays out of the way of someone booking a consultation.
    */
   appliesTo?: ProviderServiceType[];
+  /**
+   * This filter is the SECOND LEVEL of another — sub-domain under domain, city
+   * under region. A child value only means anything inside its parent, so the
+   * two must move together: drop the parent and its children go, choose a
+   * child and its parent comes with it.
+   *
+   * Declared here rather than enforced inside one control on purpose. The rule
+   * used to live only in TwoLevelGate, which left every OTHER way of writing
+   * these filters — removing a chip, picking a city from the omnibox — free to
+   * break it. As data it is enforced once, for every writer that exists now
+   * and every one added later.
+   */
+  parentKey?: string;
+  /** Maps one of THIS filter's values to the parent value containing it. */
+  parentOf?: (value: string) => string | undefined;
   match: (offer: Offer, value: FilterValue, ctx: SearchContext) => boolean;
 }
 
@@ -803,6 +825,8 @@ export const FILTER_REGISTRY: FilterDef[] = [
     group: "תת-תחום",
     type: "multi",
     primary: true,
+    parentKey: "domain",
+    parentOf: subdomainParent,
     options: (ctx) =>
       Array.from(new Set(ctx.offers.map((o) => offerSubdomainId(o)).filter(Boolean) as string[]))
         .map((id) => ({ value: id, label: subdomainLabel(id) }))
@@ -842,6 +866,29 @@ export const FILTER_REGISTRY: FilterDef[] = [
       !Array.isArray(value) ||
       value.length === 0 ||
       (!!offer.organization?.provider_type && value.includes(offer.organization.provider_type)),
+  },
+  /**
+   * The doctor half of the performer axis. `unitType` asks which KIND OF PLACE
+   * performs the item; this asks whether a PERSON does — the same question, put
+   * to the two kinds of performer the catalogue actually has.
+   *
+   * It replaces what used to be a hidden mode (`groupBy`), and being an
+   * ordinary registry entry is the entire point. Two things follow for free:
+   * it gets a chip, a place in the filter count and a reset from "נקה הכל"
+   * like every other filter; and because it narrows RESULTS rather than the
+   * offer index every control reads from, a station-run unit it rules out now
+   * greys out instead of vanishing from the very gate that would undo it.
+   *
+   * Redundant whenever a specific performer is anchored — `performerId`
+   * already implies a doctor — so the gate sets it only for "כל הרופאים".
+   */
+  {
+    key: "doctorDelivered",
+    group: "נותן שירות",
+    label: "רק שירותים שרופא מבצע",
+    type: "toggle",
+    primary: true,
+    match: (offer, value) => value !== true || !!offer.doctor,
   },
   {
     key: "region",
@@ -886,6 +933,8 @@ export const FILTER_REGISTRY: FilterDef[] = [
     group: "עיר",
     type: "multi",
     primary: true,
+    parentKey: "region",
+    parentOf: cityRegion,
     options: (ctx) => uniqueSorted(ctx.offers.map((o) => o.clinic.city)).map((v) => ({ value: v, label: v })),
     match: (offer, value) =>
       !Array.isArray(value) || value.length === 0 || value.includes(offer.clinic.city),
@@ -958,11 +1007,11 @@ export const FILTER_REGISTRY: FilterDef[] = [
           );
         case "base":
           return pricing.kind === "base" && hint.length === 0;
-        // The umbrella behind the "יש הסדר לפרופיל שלי" quick chip: either
-        // arrangement will do. Not offered in the sheet, where the two
-        // specific answers are the more useful question.
-        case "arrangement":
-          return pricing.kind === "arrangement";
+        // No umbrella value here on purpose. There used to be an "arrangement"
+        // case matching either layer, written only by a quick chip and absent
+        // from the options above — so the sheet could not draw the state the
+        // chip put the filter into. Every value this filter accepts is now one
+        // the sheet lists.
         default:
           return true;
       }
@@ -1076,13 +1125,25 @@ export function filterOptions(def: FilterDef, ctx: SearchContext): FilterOption[
  * the system will ever support. Deliberately keyed off the full offer index
  * rather than the current results: a filter that vanished as soon as it
  * narrowed the list would be impossible to undo from inside the sheet.
+ *
+ * `filters` is not used to narrow this list — only to protect it. Passing the
+ * live filter values is what lets an active filter override the relevance
+ * test, so the promise above holds even if a future caller hands in something
+ * narrower than the full index.
  */
-export function visibleFilters(offers: Offer[]): FilterDef[] {
+export function visibleFilters(offers: Offer[], filters: SearchQuery["filters"]): FilterDef[] {
   const presentTypes = new Set(offers.map((o) => o.service.service_type ?? "consultation"));
   // Gates are rendered at the top of the search, so the sheet must not repeat
   // them — two controls writing one filter key would fight each other.
   return FILTER_REGISTRY.filter((f) => !f.primary).filter(
-    (f) => !f.appliesTo || f.appliesTo.some((t) => presentTypes.has(t))
+    // ACTIVE BEATS RELEVANT. The relevance test decides what to OFFER; it must
+    // never decide what to HIDE. A contextual filter that is switched on has
+    // to stay on screen even once its service type has left the catalogue,
+    // because otherwise it goes on narrowing the results with no control
+    // anywhere to switch it off — countable in the filter badge, invisible in
+    // the sheet, escapable only by "נקה הכל". This guard makes that state
+    // unreachable no matter what index a caller passes in.
+    (f) => isActive(filters[f.key]) || !f.appliesTo || f.appliesTo.some((t) => presentTypes.has(t))
   );
 }
 
@@ -1191,6 +1252,12 @@ export interface GateChip {
   value: string;
   label: string;
   group: string;
+  /**
+   * A yes/no gate, whose label is already a whole sentence. Rendered without
+   * the "axis: value" prefix the list-valued chips use, which would otherwise
+   * read "נותן שירות: רק שירותים שרופא מבצע".
+   */
+  standalone?: boolean;
 }
 
 /**
@@ -1203,6 +1270,19 @@ export function activeGateChips(query: SearchQuery, ctx: SearchContext): GateChi
   const chips: GateChip[] = [];
   for (const def of primaryFilters()) {
     const value = query.filters[def.key];
+    // A yes/no gate holds no list of values — that it is ON *is* the chip.
+    // Without this branch such a filter would keep narrowing with nothing on
+    // screen to undo it, which is the exact failure this function exists for.
+    if (value === true) {
+      chips.push({
+        key: def.key,
+        value: "true",
+        label: def.label ?? def.group,
+        group: def.group,
+        standalone: true,
+      });
+      continue;
+    }
     if (!Array.isArray(value) || value.length === 0) continue;
     const options = filterOptions(def, ctx);
     for (const v of value) {
@@ -1210,6 +1290,69 @@ export function activeGateChips(query: SearchQuery, ctx: SearchContext): GateChi
     }
   }
   return chips;
+}
+
+/**
+ * The single gate every filter write passes through. It applies the rules that
+ * relate one filter to another, so no control has to remember them.
+ *
+ * Today that means the parent/child pairs declared in the registry. Both
+ * directions are needed, and which one applies can only be decided by looking
+ * at what CHANGED — which is why this takes the previous query as well as the
+ * next one:
+ *
+ * - a parent that was just dropped takes its children with it. Without this,
+ *   removing "אורתופדיה" from the chip row leaves "ברך" narrowing on its own,
+ *   while its gate reads "הכל" and offers no way to switch it off — children
+ *   are only drawn underneath a selected parent.
+ * - a child that was just chosen brings its parent in. Without this, picking
+ *   "חיפה" from the search box would leave the location gate reading "הכל"
+ *   while a city quietly filtered.
+ *
+ * Deciding on the delta rather than on the final state is what keeps the two
+ * rules from fighting: applied blindly, "a child implies its parent" would
+ * simply put back any parent the patient just removed.
+ */
+export function normalizeQuery(prev: SearchQuery, next: SearchQuery): SearchQuery {
+  const asList = (value: FilterValue) => (Array.isArray(value) ? value : []);
+  let filters = next.filters;
+  const write = (key: string, list: string[]) => {
+    if (filters === next.filters) filters = { ...next.filters };
+    filters[key] = list.length ? list : undefined;
+  };
+
+  for (const def of FILTER_REGISTRY) {
+    const parentKey = def.parentKey;
+    const parentOf = def.parentOf;
+    if (!parentKey || !parentOf) continue;
+
+    const parentsBefore = asList(prev.filters[parentKey]);
+    const parentsAfter = asList(filters[parentKey]);
+    const childrenBefore = asList(prev.filters[def.key]);
+    const childrenAfter = asList(filters[def.key]);
+
+    const droppedParents = parentsBefore.filter((p) => !parentsAfter.includes(p));
+    if (droppedParents.length > 0) {
+      const kept = childrenAfter.filter((c) => {
+        const parent = parentOf(c);
+        return !parent || !droppedParents.includes(parent);
+      });
+      if (kept.length !== childrenAfter.length) write(def.key, kept);
+      // A write that removed a parent is never also adding a child, so the
+      // second rule can't apply in the same step.
+      continue;
+    }
+
+    const addedChildren = childrenAfter.filter((c) => !childrenBefore.includes(c));
+    if (addedChildren.length > 0) {
+      const missing = Array.from(
+        new Set(addedChildren.map(parentOf).filter((p): p is string => !!p && !parentsAfter.includes(p)))
+      );
+      if (missing.length > 0) write(parentKey, [...parentsAfter, ...missing]);
+    }
+  }
+
+  return filters === next.filters ? next : { ...next, filters };
 }
 
 /** Toggling one value of a multi-select, returning the next array. */
@@ -1353,7 +1496,11 @@ export function offersWithoutDoctor(offers: Offer[]): Offer[] {
   return offers.filter((o) => !o.doctor);
 }
 
-export function groupOffers(offers: Offer[], groupBy: SearchQuery["groupBy"], patient?: Patient | null): ResultGroup[] {
+export function groupOffers(
+  offers: Offer[],
+  groupBy: "service" | "provider",
+  patient?: Patient | null
+): ResultGroup[] {
   if (groupBy === "provider") {
     const map = new Map<string, Offer[]>();
     for (const offer of offers) {
