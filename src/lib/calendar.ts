@@ -33,6 +33,7 @@ export const WEEKDAY_LABELS = ["א", "ב", "ג", "ד", "ה", "ו", "ש"];
 
 export const APPOINTMENT_CHIP_TONE: Record<string, string> = {
   "ממתין לאישור הפניה": "bg-indigo-50 text-indigo-700 border-indigo-200",
+  "ממתין לקביעת מועד": "bg-teal-50 text-teal-700 border-teal-200",
   "ממתין להתחייבות": "bg-amber-50 text-amber-700 border-amber-200",
   "ממתין לתשלום מקדמה": "bg-amber-50 text-amber-700 border-amber-200",
   "מאושר": "bg-blue-50 text-blue-700 border-blue-200",

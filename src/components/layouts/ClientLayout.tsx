@@ -76,7 +76,12 @@ export function ClientLayout({ children }: { children: ReactNode }) {
     // returns to daily, the warm cream read as a colour rather than as paper.
     // A near-white slate keeps the navy cards and their long shadows floating,
     // which is what carried the look — the tint was never doing that work.
-    <div className="relative flex min-h-screen flex-col overflow-hidden bg-slate-50 text-[var(--brand-ink)]">
+    // overflow-x-clip, never overflow-hidden: `hidden` turns this into a
+    // scroll container, and every `position: sticky` inside it then sticks to
+    // a box that doesn't scroll — which is why the search bar rode away with
+    // the page on mobile. `clip` still keeps the decorative circles from
+    // widening the page.
+    <div className="relative flex min-h-screen flex-col overflow-x-clip bg-slate-50 text-[var(--brand-ink)]">
       {/* Navy only — the gold glow was tinting the whole ground and reading as
           a gold page rather than as depth behind it. Gold stays a hairline on
           the hero, never an area of colour. */}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Clock, FileText, Search, Stethoscope, X } from "lucide-react";
+import { Building2, Clock, FileText, MapPin, Search, Stethoscope, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Offer, SearchScope, Suggestion, listEntities, suggest } from "@/lib/search";
 
@@ -70,8 +70,10 @@ export function SearchOmnibox({
               setFocused(false);
             }
           }}
-          placeholder={scope === "provider" ? "שם נותן שירות או התמחות" : "שם שירות או קוד הפניה"}
-          aria-label={scope === "provider" ? "חיפוש נותן שירות" : "חיפוש שירות"}
+          // One field, every entry point — naming them is what tells her she
+          // may type a town here, which no amount of trying would reveal.
+          placeholder="שירות, רופא, מכון, עיר או קוד הפניה"
+          aria-label="חיפוש בקטלוג"
           className="h-11 flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400"
         />
         {text && (
@@ -89,6 +91,24 @@ export function SearchOmnibox({
           doesn't start scrolling the results behind it. */}
       {(showSuggestions || showBrowse) && (
         <div className="absolute inset-x-0 top-full z-30 mt-1.5 max-h-[55vh] overflow-y-auto overscroll-contain rounded-2xl border border-white/70 bg-white/95 shadow-[0_24px_50px_-24px_rgba(20,42,79,0.5)] backdrop-blur-sm">
+          {/* Sticky, so the way out stays reachable however far down the list
+              she has scrolled. Deliberately NOT the X inside the input, which
+              clears what she typed — this one only puts the list away and
+              leaves her text alone. */}
+          <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-slate-100 bg-white/95 px-3 py-1.5 backdrop-blur-sm">
+            <span className="text-[11px] font-semibold text-slate-500">
+              {showBrowse ? "עיון בקטלוג" : "תוצאות מתאימות"}
+            </span>
+            <button
+              type="button"
+              onClick={() => setFocused(false)}
+              aria-label="סגירת רשימת ההצעות"
+              className="focus-ring -me-1 shrink-0 rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
           {showRecents && (
             <>
               <SectionLabel>חיפושים אחרונים</SectionLabel>
@@ -112,7 +132,6 @@ export function SearchOmnibox({
               never depends on already knowing a name. */}
           {showBrowse && (
             <>
-              <SectionLabel>{scope === "provider" ? "כל נותני השירות" : "כל השירותים"}</SectionLabel>
               {fullList.map((s) => (
                 <SuggestionRow
                   key={`${s.kind}:${s.value}`}
@@ -143,10 +162,10 @@ export function SearchOmnibox({
   );
 }
 
+// No longer sticky: the panel now has its own sticky header carrying the close
+// button, and two elements pinned to top-0 would sit on top of each other.
 function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="sticky top-0 bg-white px-3 pb-1 pt-2.5 text-[11px] font-medium text-slate-400">{children}</p>
-  );
+  return <p className="bg-white px-3 pb-1 pt-2.5 text-[11px] font-medium text-slate-400">{children}</p>;
 }
 
 function SuggestionRow({
@@ -173,9 +192,14 @@ function SuggestionRow({
   );
 }
 
+/** The icon is what makes a blended list readable — it says which KIND of
+ *  thing a row is before the label is read, so people, places, towns and
+ *  services don't arrive as one undifferentiated column of text. */
 function SuggestionIcon({ kind }: { kind: Suggestion["kind"] }) {
   const className = "h-4 w-4 shrink-0 mt-0.5";
   if (kind === "provider") return <Stethoscope className={cn(className, "text-primary")} />;
+  if (kind === "organization") return <Building2 className={cn(className, "text-[var(--brand-navy)]/60")} />;
+  if (kind === "city") return <MapPin className={cn(className, "text-teal-600")} />;
   if (kind === "referral") return <FileText className={cn(className, "text-amber-500")} />;
   return <Search className={cn(className, "text-slate-400")} />;
 }

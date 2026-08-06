@@ -49,6 +49,16 @@ export const APPOINTMENT_STATUS_COLORS: Record<AppointmentStatus, StatusColor> =
     accent: "bg-indigo-500",
     ring: "ring-indigo-500",
   },
+  // Approved by the unit, waiting on the patient to pick a time. It is the one
+  // state where the diary has nothing to show yet, so it gets a hue of its own
+  // rather than borrowing the amber of "waiting for money".
+  "ממתין לקביעת מועד": {
+    dot: "bg-teal-500",
+    chip: "bg-teal-50 text-teal-700 border-teal-200",
+    block: "bg-teal-50 border-teal-200 text-teal-900 hover:bg-teal-100",
+    accent: "bg-teal-500",
+    ring: "ring-teal-500",
+  },
   "ממתין להתחייבות": {
     dot: "bg-amber-400",
     chip: "bg-amber-50 text-amber-700 border-amber-200",

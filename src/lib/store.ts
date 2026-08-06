@@ -2015,15 +2015,20 @@ export const useStore = create<Store>()(
         })),
 
       // --- Referral review by the medical unit (payments meeting §7) --------
-      // A booking for anything other than a consultation arrives with a
-      // referral attached and waits in "ממתין לאישור הפניה". Approving it
-      // moves the booking on to whatever its funding route needs next; rejecting
-      // it releases the held slot back to the calendar.
+      // A booking for anything other than a consultation or a treatment arrives
+      // with a referral attached and waits in "ממתין לאישור הפניה". Approving it
+      // is what opens the diary to the patient; rejecting it drops the request.
       approveAppointmentReferral: (id) =>
         set((s) => ({
           appointments: s.appointments.map((a) => {
             if (a.id !== id) return a;
-            const nextStatus: AppointmentStatus = usesCommitment(a)
+            // The ordinary case: no time was chosen up front, so approval hands
+            // the patient the slot picker rather than a bill. The funding gate
+            // below only applies to a booking that already has a date — which
+            // now means one seeded that way, not one the flow produced.
+            const nextStatus: AppointmentStatus = !a.date
+              ? "ממתין לקביעת מועד"
+              : usesCommitment(a)
               ? a.commitment_document
                 ? "מאושר"
                 : "ממתין להתחייבות"

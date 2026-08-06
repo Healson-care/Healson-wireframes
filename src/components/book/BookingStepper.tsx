@@ -10,11 +10,12 @@ import { cn } from "@/lib/utils";
 export const SEARCH_FLOW_STEPS = ["בחירה", "מיקום", "שעה", "תשלום", "סיום"];
 
 /**
- * Anything that isn't a consultation needs a kupah referral, and that adds
- * two stages the patient must see coming: uploading it before any slot is
- * picked, and the medical unit's review of it before any money is charged.
+ * A referred item adds two stages the patient must see coming, and both come
+ * BEFORE any time is chosen: uploading the referral, and the medical unit's
+ * review of it. Only an approved referral opens the slot picker — picking a
+ * time the unit might refuse would be an appointment made of nothing.
  */
-export const REFERRAL_FLOW_STEPS = ["בחירה", "הפניה", "מיקום", "שעה", "אישור יחידה", "תשלום", "סיום"];
+export const REFERRAL_FLOW_STEPS = ["בחירה", "הפניה", "אישור יחידה", "מיקום", "שעה", "תשלום", "סיום"];
 
 /**
  * The route decides the journey. Where the payer settles by undertaking —

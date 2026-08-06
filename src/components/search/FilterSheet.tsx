@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { Dialog } from "@/components/ui/Dialog";
+import { OptionSearch } from "@/components/search/OptionSearch";
 import { cn } from "@/lib/utils";
 import {
   FilterDef,
@@ -41,7 +42,9 @@ export function FilterSheet({
   resultCount: number;
   onClearAll: () => void;
 }) {
-  const defs = useMemo(() => visibleFilters(ctx.offers), [ctx.offers]);
+  // The live filter values go in so that a switched-on filter can never be
+  // hidden by the relevance test — see visibleFilters.
+  const defs = useMemo(() => visibleFilters(ctx.offers, query.filters), [ctx.offers, query.filters]);
   // Undefined for a group = "not touched yet", so it can fall back to
   // auto-opening when it holds an active filter.
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
@@ -154,6 +157,7 @@ function FilterControl({
   onSetValue: (key: string, value: FilterValue) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [text, setText] = useState("");
   const current = query.filters[def.key];
 
   if (def.type === "toggle") {
@@ -170,13 +174,24 @@ function FilterControl({
     );
   }
 
-  const options = filterOptions(def, ctx);
-  const visible = def.collapsible && !expanded ? options.slice(0, COLLAPSED_OPTION_COUNT) : options;
+  const all = filterOptions(def, ctx);
+  const term = text.trim();
+  const options = term ? all.filter((o) => o.label.includes(term)) : all;
+  // A search term is already a narrowing — collapsing its results behind
+  // "הצג עוד" would hide the very thing she typed to find.
+  const visible = def.collapsible && !expanded && !term ? options.slice(0, COLLAPSED_OPTION_COUNT) : options;
   const hiddenCount = options.length - visible.length;
 
   return (
     <div>
       {def.label && <p className="mb-1.5 text-xs text-slate-500">{def.label}</p>}
+      {/* Only the long lists get a search box — a field above four chips is
+          more furniture than help. */}
+      {def.collapsible && (
+        <div className="-mx-3 mb-2">
+          <OptionSearch value={text} onChange={setText} placeholder={`חיפוש ב${def.label ?? def.group}`} />
+        </div>
+      )}
       <div className="flex flex-wrap gap-2">
         {def.type === "single" && (
           <OptionChip

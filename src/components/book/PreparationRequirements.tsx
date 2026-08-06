@@ -9,7 +9,8 @@ import { ANESTHESIA_TYPE_LABELS, ConsultationType } from "@/types";
  * the patient anywhere in the booking flow. */
 function buildPreparationItems(consultation: ConsultationType): string[] {
   const items: string[] = [];
-  if (requiresReferral(consultation)) items.push("יש להעלות הפניה תקפה מקופת החולים לפני קביעת התור");
+  if (requiresReferral(consultation))
+    items.push("יש להעלות הפניה תקפה מקופת החולים — המועדים נפתחים רק לאחר שהיחידה הרפואית תאשר אותה");
   if (consultation.requires_fasting) items.push("יש להגיע בצום (לא לאכול/לשתות לפני הבדיקה)");
   if (consultation.requires_contrast) items.push("הבדיקה כוללת הזרקת חומר ניגוד");
   if (consultation.has_radiation) items.push("הבדיקה כרוכה בחשיפה לקרינה מייננת");

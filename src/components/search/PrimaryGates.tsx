@@ -1,9 +1,13 @@
 "use client";
 
-import { Check, ChevronDown } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Check } from "lucide-react";
 import { Popover } from "@/components/ui/Popover";
-import { DomainGate } from "@/components/search/DomainGate";
+import { GateTrigger } from "@/components/search/GateTrigger";
+import { GatePanelHeader } from "@/components/search/GatePanelHeader";
+import { OptionSearch } from "@/components/search/OptionSearch";
 import { PerformerGate } from "@/components/search/PerformerGate";
+import { TwoLevelGate } from "@/components/search/TwoLevelGate";
 import { cn } from "@/lib/utils";
 import {
   FilterDef,
@@ -12,20 +16,22 @@ import {
   SearchQuery,
   facetCount,
   gateOptions,
+  matchesQuery,
   primaryFilters,
   toggleMulti,
 } from "@/lib/search";
 
 /**
  * The gates: the axes a patient narrows by before she cares about price or
- * timing — in what field, what kind of item, who gives it, at what kind of
- * unit. They stand in place of the old by-service/by-provider toggle, because
- * choosing a kind of performer already says which of those two she wants.
+ * timing — in what field, what kind of item, and from whom. They stand in
+ * place of the old by-service/by-provider toggle, because choosing a kind of
+ * performer already says which of those two she wants.
  *
- * Three of them are ordinary registry filters (flagged `primary`, so the sheet
+ * The first two are ordinary registry filters (flagged `primary`, so the sheet
  * knows not to draw them twice) and each lists only what the other gates have
- * left standing. The performer gate is a two-step entity picker and has its
- * own control.
+ * left standing. The performer gate is a two-step entity picker with its own
+ * control; the kind of unit lives inside it, since "מכון" and "which מכון" are
+ * one question asked at two depths.
  */
 export function PrimaryGates({
   query,
@@ -40,28 +46,78 @@ export function PrimaryGates({
   const gate = (key: string) => gates.find((g) => g.key === key);
   const domainGate = gate("domain");
   const itemGate = gate("serviceType");
-  const unitGate = gate("unitType");
+  const regionGate = gate("region");
+
+  // The performer gate answers to the others exactly the way a registry gate
+  // does: it sees the offers that pass everything EXCEPT its own axis, so
+  // choosing a domain or an item type shortens the list of doctors and units —
+  // and its own anchors don't shorten it into a list containing only itself.
+  const performerScope = useMemo(() => {
+    const probe: SearchQuery = {
+      ...query,
+      performerId: null,
+      organizationId: null,
+      // Every part of this gate's own axis is cleared — the two anchors, the
+      // unit kind AND doctorDelivered. Leaving the last one in was what let
+      // "כל הרופאים" grey out every institute the moment it was chosen, so the
+      // gate could only be cleared and never changed.
+      filters: { ...query.filters, unitType: undefined, doctorDelivered: undefined },
+    };
+    return ctx.offers.filter((offer) => matchesQuery(offer, probe, ctx));
+  }, [query, ctx]);
 
   function setValue(key: string, value: FilterValue) {
     onChange({ ...query, filters: { ...query.filters, [key]: value } });
   }
 
   return (
-    // Two per row on a phone — four gates side by side would truncate every
-    // label to a syllable.
-    <div className="mb-3 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-      {domainGate && (
-        <DomainGate
-          domainDef={domainGate}
-          subdomainDef={gate("subdomain")}
-          query={query}
-          onChange={onChange}
-          ctx={ctx}
-        />
-      )}
-      {itemGate && <GateControl def={itemGate} query={query} ctx={ctx} onSetValue={setValue} />}
-      <PerformerGate query={query} onChange={onChange} offers={ctx.offers} />
-      {unitGate && <GateControl def={unitGate} query={query} ctx={ctx} onSetValue={setValue} />}
+    // One surface, divided — not four loose pills. `grid` on each cell, not
+    // `block`: Popover's root is inline-block, and only a grid/flex parent
+    // stretches it to full width.
+    <div className="mb-2 overflow-hidden rounded-2xl bg-gradient-to-l from-[var(--brand-navy)]/[0.07] via-white/70 to-[var(--brand-gold)]/[0.16]">
+      {/* All four axes on one row at every width.
+          `min-w-0` on every cell is load-bearing, not tidying: a grid item
+          defaults to `min-width: auto`, so a cell holding a long value grows
+          past its 1fr track and squeezes its neighbours out of the row — which
+          is exactly what "מרפאות חוץ הדסה" did to the gate beside it. With it,
+          the track's width wins and the value truncates inside its own quarter.
+          The full text is never lost: it reads in the chip below the bar. */}
+      <div className="grid grid-cols-4">
+        <div className="grid min-w-0 border-e border-[var(--brand-navy)]/10">
+          {itemGate && <GateControl def={itemGate} query={query} ctx={ctx} onSetValue={setValue} />}
+        </div>
+        <div className="grid min-w-0">
+          {domainGate && (
+            <TwoLevelGate
+              parentDef={domainGate}
+              childDef={gate("subdomain")}
+              placeholder="חיפוש תחום או תת-תחום"
+              emptyLabel="אין תחומים בתוצאות הנוכחיות"
+              noChildrenLabel="אין תת-תחומים לפריטים שנותרו"
+              query={query}
+              onChange={onChange}
+              ctx={ctx}
+            />
+          )}
+        </div>
+        <div className="grid min-w-0 border-s border-[var(--brand-navy)]/10">
+          <PerformerGate query={query} onChange={onChange} offers={ctx.offers} scope={performerScope} />
+        </div>
+        <div className="grid min-w-0 border-s border-[var(--brand-navy)]/10">
+          {regionGate && (
+            <TwoLevelGate
+              parentDef={regionGate}
+              childDef={gate("city")}
+              placeholder="חיפוש אזור או עיר"
+              emptyLabel="אין מיקומים בתוצאות הנוכחיות"
+              noChildrenLabel="אין ערים לפריטים שנותרו"
+              query={query}
+              onChange={onChange}
+              ctx={ctx}
+            />
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -77,38 +133,51 @@ function GateControl({
   ctx: SearchContext;
   onSetValue: (key: string, value: FilterValue) => void;
 }) {
-  const options = gateOptions(def, query, ctx);
+  const [text, setText] = useState("");
+  const all = gateOptions(def, query, ctx);
+  const options = text.trim() ? all.filter((o) => o.label.includes(text.trim())) : all;
   const selected = Array.isArray(query.filters[def.key]) ? (query.filters[def.key] as string[]) : [];
   const active = selected.length > 0;
   // Once something is chosen the value matters more than the axis name — the
   // label is only there to explain an empty gate.
-  const summary = active ? options.find((o) => o.value === selected[0])?.label ?? def.group : def.group;
+  // Read off the unfiltered list: typing in the search box must not blank out
+  // the label of something that is still selected.
+  const summary = active ? all.find((o) => o.value === selected[0])?.label ?? def.group : def.group;
+
+  // What the OTHER gates have left choosable here. One answer left means there
+  // is nothing to decide — the segment greys out and states it, but still
+  // opens: that's where she undoes it.
+  const choosable = all.filter((o) => facetCount(query, def.key, toggleMulti(query.filters[def.key], o.value), ctx) > 0);
+  const constrained = !active && choosable.length <= 1;
 
   return (
     <Popover
+      block
       trigger={
-        <button
-          type="button"
-          className={cn(
-            "focus-ring flex h-11 w-full items-center justify-between gap-1 rounded-xl border px-2.5 text-right text-[11px] font-semibold transition-colors",
-            active
-              ? "border-[var(--brand-navy)]/25 bg-[var(--brand-navy)]/8 text-[var(--brand-navy)]"
-              : "border-white/70 bg-white/85 text-[var(--brand-ink-soft)] shadow-[0_18px_40px_-32px_rgba(20,42,79,0.4)] backdrop-blur-sm"
-          )}
-        >
-          <span className="min-w-0 truncate">
-            {summary}
-            {selected.length > 1 && <span className="font-normal"> +{selected.length - 1}</span>}
-          </span>
-          <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
-        </button>
+        // A span, not a button: Popover already wraps the trigger in one, and
+        // a button inside a button is invalid HTML that swallows the click.
+        <span className="block w-full min-w-0">
+          <GateTrigger
+            axis={def.group}
+            value={active ? summary : constrained ? choosable[0]?.label ?? "אין אפשרויות" : "הכל"}
+            active={active}
+            muted={constrained}
+            extra={selected.length - 1}
+          />
+        </span>
       }
     >
-      {() => (
+      {(close) => (
         <div className="py-1">
-          <p className="px-3 pb-1 pt-1.5 text-[11px] font-semibold text-slate-500">{def.group}</p>
+          <GatePanelHeader title={def.group} onClose={close} />
+          {constrained && (
+            <p className="px-3 pb-1 text-[11px] text-slate-400">נקבע לפי הבחירות האחרות — אפשר לבטל אותן ולחזור.</p>
+          )}
+          <OptionSearch value={text} onChange={setText} placeholder={`חיפוש ב${def.group}`} />
           {options.length === 0 && (
-            <p className="px-3 py-2 text-xs text-slate-400">אין אפשרויות בתוצאות הנוכחיות</p>
+            <p className="px-3 py-2 text-xs text-slate-400">
+              {text.trim() ? "לא נמצאו תוצאות" : "אין אפשרויות בתוצאות הנוכחיות"}
+            </p>
           )}
           {options.map((opt) => {
             const isOn = selected.includes(opt.value);

@@ -65,7 +65,17 @@ export function ReferralReviewPanel({
         <p className="text-xs text-slate-400">המטופל טרם העלה מסמך הפניה.</p>
       )}
 
-      {pending && appointment.slot_hold_expires_at && (
+      {/* A request that arrived through the referral gate has no time on it —
+          the patient picks one only after this decision — so there is nothing
+          being held and nothing to run out. Older bookings that were made the
+          other way round still carry a hold, and still show it. */}
+      {pending && !appointment.date && (
+        <p className="flex items-center gap-1.5 text-[11px] text-teal-700">
+          <Hourglass className="h-3 w-3" />
+          טרם נקבע מועד — המטופל יבחר מועד מהיומן רק לאחר אישור ההפניה. אין משבצת תפוסה בינתיים.
+        </p>
+      )}
+      {pending && appointment.date && appointment.slot_hold_expires_at && (
         <p className="flex items-center gap-1.5 text-[11px] text-amber-700">
           <Hourglass className="h-3 w-3" />
           המועד משוריין למטופל עד {formatBalanceDue(appointment.slot_hold_expires_at)} — לאחר מכן הוא משתחרר
@@ -100,7 +110,10 @@ export function ReferralReviewPanel({
             size="sm"
             onClick={() => {
               approve(appointment.id);
-              showToast("ההפניה אושרה — התור ממשיך לשלב התשלום", { variant: "success" });
+              showToast(
+                appointment.date ? "ההפניה אושרה — התור ממשיך לשלב התשלום" : "ההפניה אושרה — המטופל יכול לבחור מועד",
+                { variant: "success" }
+              );
             }}
           >
             <Check className="h-3.5 w-3.5" /> אישור הפניה
@@ -112,7 +125,11 @@ export function ReferralReviewPanel({
         open={rejectOpen}
         onClose={() => setRejectOpen(false)}
         title="דחיית הפניה"
-        description="דחיית ההפניה מבטלת את התור ומשחררת את המועד ליומן. הסיבה תישלח למטופל."
+        description={
+          appointment.date
+            ? "דחיית ההפניה מבטלת את התור ומשחררת את המועד ליומן. הסיבה תישלח למטופל."
+            : "דחיית ההפניה סוגרת את הבקשה. לא נקבע מועד, ולכן אין מה לשחרר ביומן. הסיבה תישלח למטופל."
+        }
       >
         <div className="flex flex-col gap-3">
           <Textarea
@@ -127,10 +144,12 @@ export function ReferralReviewPanel({
             onClick={() => {
               reject(appointment.id, reason.trim());
               setRejectOpen(false);
-              showToast("ההפניה נדחתה והמועד שוחרר", { variant: "default" });
+              showToast(appointment.date ? "ההפניה נדחתה והמועד שוחרר" : "ההפניה נדחתה והבקשה נסגרה", {
+                variant: "default",
+              });
             }}
           >
-            דחה ושחרר את המועד
+            {appointment.date ? "דחה ושחרר את המועד" : "דחיית ההפניה"}
           </Button>
         </div>
       </Dialog>

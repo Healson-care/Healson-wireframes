@@ -25,7 +25,7 @@ import { buildIcsDataUrl, formatCurrency } from "@/lib/utils";
 import { fileToDataUrl } from "@/lib/file";
 import { requiresReferral } from "@/lib/referral";
 import { POST_REGISTER_REDIRECT_KEY } from "@/lib/constants";
-import { ConsultationType, ProviderProfile, UNIT_APPROVAL_HOLD_HOURS } from "@/types";
+import { ConsultationType, ProviderProfile } from "@/types";
 
 const HOLD_SECONDS = 600;
 
@@ -43,6 +43,9 @@ export default function ClientSearchPage() {
   const appointments = useStore((s) => s.appointments);
   const addAppointment = useStore((s) => s.addAppointment);
   const updateAppointment = useStore((s) => s.updateAppointment);
+  // The demo's stand-in for the unit answering runs the same store action the
+  // provider portal runs, so the two paths can't drift apart.
+  const approveAppointmentReferral = useStore((s) => s.approveAppointmentReferral);
   const addOrder = useStore((s) => s.addOrder);
   const addDocument = useStore((s) => s.addDocument);
   const showToast = useStore((s) => s.showToast);
@@ -63,7 +66,6 @@ export default function ClientSearchPage() {
   const [selectedDoctor, setSelectedDoctor] = useState<ProviderProfile | null>(null);
   // Search state lives here so stepping forward and back doesn't reset it.
   const [searchQuery, setSearchQuery] = useState<SearchQuery>(emptyQuery);
-  const [openGroupKey, setOpenGroupKey] = useState<string | null>(null);
 
   const [selectedSlot, setSelectedSlot] = useState<{ date: string; time: string; label: string } | null>(null);
   const [holdExpiresAt, setHoldExpiresAt] = useState<number | null>(null);
@@ -72,6 +74,9 @@ export default function ClientSearchPage() {
 
   const [payMethod, setPayMethod] = useState<"card" | "apple" | "google">("card");
   const [paying, setPaying] = useState(false);
+  // Reading the referral off disk takes a tick, and the click that starts it
+  // creates the request — so the button has to stop accepting a second one.
+  const [submittingReferral, setSubmittingReferral] = useState(false);
   // Held here rather than inside PaymentPanel: leaving the payment step and
   // coming back shouldn't silently drop a referral the patient already picked.
   const [referralFile, setReferralFile] = useState<File | null>(null);
@@ -113,9 +118,9 @@ export default function ClientSearchPage() {
   // "full price" vs. "your price" as two distinct lines.
   const fullPrice = priceBreakdown?.basePrice ?? price;
 
-  // Everything that isn't a consultation goes through two extra stages — the
-  // referral upload and the unit's review — so the meter has to describe a
-  // different journey for it.
+  // A referred item goes through two extra stages before a time is ever shown
+  // — the referral upload and the unit's review — so the meter has to describe
+  // a different journey for it.
   const referralFlow = requiresReferral(consultation);
   // Routes settled by an undertaking — the kupah's טופס 17 for a basket
   // service, the insurer's for surgery under a private policy — collect that
@@ -186,74 +191,141 @@ export default function ClientSearchPage() {
     const label = flowSteps[index];
     const target =
       label === "בחירה" ? 0 : label === "הפניה" ? 1 : label === "אישור יחידה" ? 5 : label === "מיקום" || label === "שעה" ? 2 : 3;
-    // Stepping back out of payment or the unit's queue releases the slot that
-    // was being held for them, rather than leaving a stuck pending record.
-    if ((step === 3 || step === 5) && target < 3) abandonHold();
+    // How far back she goes decides how much is given up. Back to the picker
+    // releases the slot but keeps the request — on a referred item that means
+    // keeping the unit's answer, which is the expensive part. Back past the
+    // referral screen abandons the request itself.
+    if (target <= 1) abandonRequest();
+    else if (step === 3 && target === 2) abandonHold();
     setStep(target);
   }
 
-  const unitHoldUntilLabel = holdExpiresAt
-    ? new Date(holdExpiresAt).toLocaleString("he-IL", {
-        weekday: "long",
-        day: "2-digit",
-        month: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : "";
+  /**
+   * On a referred item the referral — not a slot — is what creates the request.
+   * It enters the patient's history right here, dateless, so an answer that
+   * takes days still has a record to arrive at, and the document travels on the
+   * booking itself so the unit has something to actually review.
+   */
+  function submitReferral() {
+    if (!selectedProvider || !referralFile || submittingReferral) return;
+    if (patient?.processing_restricted) {
+      showToast("לא ניתן להמשיך", { description: "עיבוד הנתונים של מטופל זה חסום. פנה לתמיכה.", variant: "destructive" });
+      return;
+    }
+    setSubmittingReferral(true);
+    void (async () => {
+      const dataUrl = await fileToDataUrl(referralFile);
+      const uploadedAt = new Date().toISOString();
+      const appointment = addAppointment({
+        client_name: currentUser?.full_name ?? "מטופל",
+        client_phone: currentUser?.phone,
+        provider_id: selectedProvider.id,
+        provider_name: `${selectedProvider.title ?? ""} ${selectedProvider.display_name}`.trim(),
+        service_name: consultation?.name ?? "ייעוץ",
+        // Neither a place nor a time yet — both are chosen only once the unit
+        // has answered, which is the whole point of this stage.
+        date: "",
+        time: "",
+        duration_minutes: consultation?.duration_minutes ?? 30,
+        status: "ממתין לאישור הפניה",
+        price,
+        deposit_amount: resolveDepositAmount(price, consultation),
+        kupah: patient?.kupah,
+        notes: "",
+        created_by_id: patient?.id ?? currentUser?.id,
+        referral_document: { file_name: referralFile.name, uploaded_at: uploadedAt, data_url: dataUrl },
+      });
+      setPendingAppointmentId(appointment.id);
+      // Filed now rather than at payment: the referral was sent, so it belongs
+      // in her documents whether or not the booking is ever completed.
+      const patientId = patient?.id ?? currentUser?.id;
+      if (patientId) {
+        addDocument({
+          patient_id: patientId,
+          category: "referral_personal",
+          title: "הפניה תקפה מקופת החולים",
+          uploaded_by: "patient",
+          appointment_id: appointment.id,
+          status: "זמין",
+          file: { file_name: referralFile.name, uploaded_at: uploadedAt, data_url: dataUrl },
+        });
+      }
+      setSubmittingReferral(false);
+      setStep(5);
+    })();
+  }
 
-  // Creating the appointment here (not at payment time) is deliberate: from
-  // the moment a slot is picked it's "ממתין לתשלום מקדמה" in the patient's
-  // history, even if they never complete payment.
+  // A referred booking already exists by now (the unit approved it before any
+  // time was on the table), so picking a slot fills that record in rather than
+  // opening a second one. A direct booking has nothing yet, and is created here
+  // so it shows up in the patient's history even if payment never happens.
   function selectSlot(date: string, time: string, label: string, clinicId: string) {
     if (!selectedProvider) return;
     if (patient?.processing_restricted) {
       showToast("לא ניתן להמשיך", { description: "עיבוד הנתונים של מטופל זה חסום. פנה לתמיכה.", variant: "destructive" });
       return;
     }
-    const appointment = addAppointment({
-      client_name: currentUser?.full_name ?? "מטופל",
-      client_phone: currentUser?.phone,
-      provider_id: selectedProvider.id,
-      provider_name: `${selectedProvider.title ?? ""} ${selectedProvider.display_name}`.trim(),
-      service_name: consultation?.name ?? "ייעוץ",
-      clinic_id: clinicId,
-      date,
-      time,
-      duration_minutes: consultation?.duration_minutes ?? 30,
-      // A referral item can't be paid for until the unit has reviewed it, so
-      // it enters the patient's history in the waiting state instead.
-      status: referralFlow ? "ממתין לאישור הפניה" : "ממתין לתשלום מקדמה",
-      price,
-      deposit_amount: resolveDepositAmount(price, consultation),
-      kupah: patient?.kupah,
-      notes: "",
-      created_by_id: patient?.id ?? currentUser?.id,
-    });
-    setPendingAppointmentId(appointment.id);
-    setSelectedSlot({ date, time, label });
-
-    if (referralFlow) {
-      // The slot is held for a day while the unit answers — not the 10-minute
-      // payment hold, which would expire long before a human replies.
-      setHoldExpiresAt(Date.now() + UNIT_APPROVAL_HOLD_HOURS * 60 * 60 * 1000);
-      setStep(5);
-      return;
+    if (referralFlow && pendingAppointmentId) {
+      updateAppointment(pendingAppointmentId, {
+        date,
+        time,
+        clinic_id: clinicId,
+        status: "ממתין לתשלום מקדמה",
+      });
+    } else {
+      const appointment = addAppointment({
+        client_name: currentUser?.full_name ?? "מטופל",
+        client_phone: currentUser?.phone,
+        provider_id: selectedProvider.id,
+        provider_name: `${selectedProvider.title ?? ""} ${selectedProvider.display_name}`.trim(),
+        service_name: consultation?.name ?? "ייעוץ",
+        clinic_id: clinicId,
+        date,
+        time,
+        duration_minutes: consultation?.duration_minutes ?? 30,
+        status: "ממתין לתשלום מקדמה",
+        price,
+        deposit_amount: resolveDepositAmount(price, consultation),
+        kupah: patient?.kupah,
+        notes: "",
+        created_by_id: patient?.id ?? currentUser?.id,
+      });
+      setPendingAppointmentId(appointment.id);
     }
+    setSelectedSlot({ date, time, label });
     setHoldExpiresAt(Date.now() + HOLD_SECONDS * 1000);
     setStep(3);
   }
 
-  /** Stands in for the medical unit answering from its own portal. */
+  /** Stands in for the medical unit answering from its own portal. Runs the
+   * same store action the provider portal runs, so the demo shortcut and the
+   * real path can't produce different bookings. */
   function approveByUnit() {
-    if (pendingAppointmentId) updateAppointment(pendingAppointmentId, { status: "ממתין לתשלום מקדמה" });
-    setHoldExpiresAt(Date.now() + HOLD_SECONDS * 1000);
-    setStep(3);
+    if (pendingAppointmentId) approveAppointmentReferral(pendingAppointmentId);
+    setStep(2);
   }
 
-  // Leaving the payment step without paying — hold timeout or manual back —
-  // cancels that pending attempt instead of leaving it stuck forever.
+  // Leaving the payment step without paying — hold timeout or manual back. On a
+  // referred booking only the slot is given up: the unit's approval was the
+  // expensive part and it survives, so she lands back on the picker with the
+  // request still standing. A direct booking has nothing worth keeping without
+  // a slot, so it is cancelled outright.
   function abandonHold() {
+    if (pendingAppointmentId) {
+      if (referralFlow) {
+        updateAppointment(pendingAppointmentId, { date: "", time: "", status: "ממתין לקביעת מועד" });
+      } else {
+        updateAppointment(pendingAppointmentId, { status: "בוטל" });
+        setPendingAppointmentId(null);
+      }
+    }
+    setSelectedSlot(null);
+    setHoldExpiresAt(null);
+  }
+
+  /** Walking away from the request itself — back past the referral screen —
+   * rather than just from the slot. */
+  function abandonRequest() {
     if (pendingAppointmentId) updateAppointment(pendingAppointmentId, { status: "בוטל" });
     setPendingAppointmentId(null);
     setSelectedSlot(null);
@@ -262,12 +334,18 @@ export default function ClientSearchPage() {
 
   const handleHoldExpire = useCallback(() => {
     showToast("ה-Hold פג", { description: "התור שוחרר. רוצה לנסות שוב?", variant: "destructive" });
-    if (pendingAppointmentId) updateAppointment(pendingAppointmentId, { status: "בוטל" });
-    setPendingAppointmentId(null);
+    if (pendingAppointmentId) {
+      if (referralFlow) {
+        updateAppointment(pendingAppointmentId, { date: "", time: "", status: "ממתין לקביעת מועד" });
+      } else {
+        updateAppointment(pendingAppointmentId, { status: "בוטל" });
+        setPendingAppointmentId(null);
+      }
+    }
     setSelectedSlot(null);
     setHoldExpiresAt(null);
     setStep(2);
-  }, [pendingAppointmentId, showToast, updateAppointment]);
+  }, [pendingAppointmentId, referralFlow, showToast, updateAppointment]);
 
   /**
    * Route S has nothing to charge — the kupah funds it — so the appointment is
@@ -314,7 +392,6 @@ export default function ClientSearchPage() {
     setReferralFile(null);
     setCommitmentFile(null);
     setSearchQuery(emptyQuery());
-    setOpenGroupKey(null);
     setSelectedService(null);
     setSelectedProvider(null);
     setSelectedSlot(null);
@@ -337,8 +414,10 @@ export default function ClientSearchPage() {
     setSelectedService(offer.service);
     setSelectedProvider(offer.provider);
     setSelectedDoctor(offer.doctor ?? null);
-    // Clear the location and referral picked for a *previous* offer.
-    setDiscoveryClinicId(null);
+    // A result IS a branch, so the branch she tapped carries straight through
+    // — the price on the card and the price at payment are then the same
+    // number by construction. SlotPicker still lets her change it from here.
+    setDiscoveryClinicId(offer.clinic.id);
     setReferralFile(null);
     setHasAdvanced(true);
     // Non-consultations must produce a referral before a slot is even shown.
@@ -358,7 +437,6 @@ export default function ClientSearchPage() {
       return;
     }
     setPaying(true);
-    const referralDataUrl = referralFile ? await fileToDataUrl(referralFile) : "";
     setTimeout(() => {
       const commissionRate = selectedProvider.commission_rate ?? 15;
       const commissionAmount = Math.round((price * commissionRate) / 100);
@@ -418,24 +496,8 @@ export default function ClientSearchPage() {
             status: "ממתין למילוי",
           });
         }
-        // The referral was a condition of booking, not a follow-up task — it
-        // was already attached at the payment step, so it lands as a filed
-        // document rather than another thing waiting on the patient.
-        if (requiresReferral(consultation) && referralFile) {
-          addDocument({
-            patient_id: patientId,
-            category: "referral_personal",
-            title: "הפניה תקפה מקופת החולים",
-            uploaded_by: "patient",
-            appointment_id: pendingAppointmentId,
-            status: "זמין",
-            file: {
-              file_name: referralFile.name,
-              uploaded_at: new Date().toISOString(),
-              data_url: referralDataUrl,
-            },
-          });
-        }
+        // The referral itself is NOT filed here — it was sent to the unit long
+        // before this point, and submitReferral filed it then.
       }
       const icsUrl = buildIcsDataUrl({
         title: `תור ל-${selectedProvider.display_name}`,
@@ -497,8 +559,6 @@ export default function ClientSearchPage() {
                 patient={patient}
                 query={searchQuery}
                 onQueryChange={setSearchQuery}
-                openKey={openGroupKey}
-                onOpenKeyChange={setOpenGroupKey}
                 onSelectOffer={selectOffer}
               />
             </motion.div>
@@ -512,22 +572,17 @@ export default function ClientSearchPage() {
                 file={referralFile}
                 onFileChange={setReferralFile}
                 onBack={() => setStep(0)}
-                onContinue={() => setStep(2)}
+                submitting={submittingReferral}
+                onContinue={submitReferral}
               />
             </motion.div>
           )}
 
-          {step === 5 && selectedProvider && selectedSlot && (
+          {step === 5 && selectedProvider && (
             <motion.div key="step5" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition}>
               <UnitApprovalPending
                 provider={selectedProvider}
                 consultation={consultation}
-                selectedSlot={selectedSlot}
-                clinicName={
-                  selectedProvider.clinic_locations.find((c) => c.id === discoveryClinicId)?.name ??
-                  selectedProvider.clinic_locations[0]?.name
-                }
-                holdUntilLabel={unitHoldUntilLabel}
                 onSimulateApproval={approveByUnit}
               />
             </motion.div>
@@ -538,12 +593,19 @@ export default function ClientSearchPage() {
               {/* Back to the search exactly as she left it — same query, same
                   filters, same card still open — instead of a separate
                   "pick another doctor" screen that duplicates it. */}
-              <button
-                onClick={() => setStep(referralFlow ? 1 : 0)}
-                className="text-sm text-primary mb-4 flex items-center gap-1"
-              >
-                <ArrowRight className="h-3.5 w-3.5" /> {referralFlow ? "חזרה להפניה" : "חזרה לבחירה"}
-              </button>
+              {/* A referred booking has no "back" here: the request is approved
+                  and saved, so the honest offer is to leave and finish later
+                  rather than a button that would throw the approval away. */}
+              {referralFlow ? (
+                <p className="mb-4 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-800">
+                  ההפניה אושרה והבקשה נשמרה. אפשר לבחור מועד עכשיו, או לחזור לזה בכל שלב מ&quot;התורים
+                  שלי&quot;.
+                </p>
+              ) : (
+                <button onClick={() => setStep(0)} className="text-sm text-primary mb-4 flex items-center gap-1">
+                  <ArrowRight className="h-3.5 w-3.5" /> חזרה לבחירה
+                </button>
+              )}
               <SlotPicker
                 provider={selectedProvider}
                 appointments={appointments}
@@ -608,8 +670,9 @@ export default function ClientSearchPage() {
                 onPayMethodChange={setPayMethod}
                 paying={paying}
                 onPay={handlePay}
+                // No referral upload here any more: by the time payment is on
+                // the screen the referral has been sent AND approved.
                 referralFile={referralFile}
-                onReferralFileChange={setReferralFile}
               />
               )}
             </motion.div>

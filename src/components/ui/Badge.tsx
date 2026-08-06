@@ -3,7 +3,7 @@ import { BadgeCheck, Ban, Clock3, FileSignature, PauseCircle, type LucideIcon } 
 import { cn } from "@/lib/utils";
 import { ProviderStatus, PROVIDER_STATUS_LABELS } from "@/types";
 
-type Tone = "neutral" | "success" | "warning" | "danger" | "info" | "accent" | "purple" | "indigo";
+type Tone = "neutral" | "success" | "warning" | "danger" | "info" | "accent" | "purple" | "indigo" | "teal";
 // Legacy raw-color aliases kept so existing call sites across the app keep working
 // while still resolving to the centralized semantic tokens.
 type LegacyTone = "slate" | "green" | "amber" | "red" | "blue" | "rose";
@@ -22,6 +22,7 @@ const toneClasses: Record<Tone | LegacyTone, string> = {
   // Kept for statuses that need a distinct hue beyond the 4 semantic states (e.g. "in progress" vs "info")
   purple: "bg-purple-50 text-purple-700 border border-purple-200",
   indigo: "bg-indigo-50 text-indigo-700 border border-indigo-200",
+  teal: "bg-teal-50 text-teal-700 border border-teal-200",
   // Legacy aliases
   slate: "bg-neutral-bg text-neutral-text border border-neutral-border",
   green: "bg-success-bg text-success-text border border-success-border",
@@ -46,6 +47,7 @@ export function Badge({ className, tone = "neutral", ...props }: BadgeProps) {
 
 const APPOINTMENT_TONE: Record<string, Tone> = {
   "ממתין לאישור הפניה": "indigo",
+  "ממתין לקביעת מועד": "teal",
   "ממתין להתחייבות": "warning",
   "ממתין לתשלום מקדמה": "warning",
   "מאושר": "info",

@@ -34,6 +34,7 @@ import {
 // no relation to meaning.
 const APPOINTMENT_STATUS_COLOR: Record<string, string> = {
   "ממתין לאישור הפניה": "#4f46e5", // indigo
+  "ממתין לקביעת מועד": "#0d9488", // teal
   "ממתין להתחייבות": "#d97706", // warning
   "ממתין לתשלום מקדמה": "#d97706", // warning
   "מאושר": "#2563eb", // info
@@ -349,7 +350,10 @@ export default function AdminDashboardHome() {
                 >
                   <div>
                     <p className="font-medium text-slate-800">{a.client_name}</p>
-                    <p className="text-xs text-slate-500">{a.provider_name} · {a.date}</p>
+                    {/* A referral request has no date until the unit answers. */}
+                    <p className="text-xs text-slate-500">
+                      {a.provider_name} · {a.date || "טרם נקבע מועד"}
+                    </p>
                   </div>
                   <StatusBadge status={a.status} kind="appointment" />
                 </Link>
