@@ -15,8 +15,11 @@ import { cn } from "@/lib/utils";
  *
  * Used at BOTH points where the law requires it, with a different `types` list:
  *   • /apply, above "צור חשבון" — before a single personal detail is stored;
- *   • the licensing sub-step, above the file uploads — a separate, explicit
- *     consent for identity documents, which are "מידע בעל רגישות מיוחדת".
+ *   • before identity documents ("מידע בעל רגישות מיוחדת") are collected — a
+ *     separate, explicit consent. For a solo provider (נותן שירות יחיד) this is
+ *     its own screen straight after the phone verification, blocking the way
+ *     into "זיהוי, מקצוע ורישוי"; for organizations and stores it sits inside
+ *     that step, above the uploads it covers.
  *
  * Consents are never pre-ticked and never bundled into one box: each purpose is
  * its own decision, which is what makes it הסכמה מדעת. The parent owns the
