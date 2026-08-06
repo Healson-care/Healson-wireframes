@@ -43,6 +43,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
+import { CancellationPolicy } from "@/components/shared/CancellationPolicy";
 import { cn, formatCurrency } from "@/lib/utils";
 import {
   Appointment,
@@ -144,37 +145,6 @@ const WAITLIST_STATUS_DESCRIPTIONS: Record<WaitlistStatus, string> = {
   "נוצר קשר": "הצוות יצר איתכם קשר לגבי הבקשה",
   "בוטל": "בקשת ההמתנה בוטלה",
 };
-
-function CancellationPolicy() {
-  const [open, setOpen] = useState(false);
-  return (
-    <Card className="p-3 mb-4">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between gap-2 text-xs font-semibold text-slate-700"
-      >
-        מדיניות ביטול
-        <ChevronDown className={cn("h-4 w-4 text-slate-400 transition-transform", open && "rotate-180")} />
-      </button>
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden"
-          >
-            <p className="text-xs text-slate-500 leading-relaxed pt-2">
-              ניתן לבטל תור ללא עלות עד לתשלום המקדמה. עד 48 שעות ממועד תשלום המקדמה ניתן לבטל ולקבל החזר מקדמה
-              בניכוי דמי טיפול (5% מסך העסקה או ₪100 — הנמוך מביניהם). לאחר מכן לא ניתן לבטל את התור.
-            </p>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </Card>
-  );
-}
 
 function PaymentMethodFields({
   payMethod,
@@ -1347,7 +1317,7 @@ function ClientAppointmentsPageContent() {
             onReschedule={setRescheduleAppointment}
           />
 
-          <CancellationPolicy />
+          <CancellationPolicy className="mb-4" />
         </>
       )}
 

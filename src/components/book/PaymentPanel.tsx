@@ -6,13 +6,18 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { HoldTimer } from "@/components/book/HoldTimer";
 import { PreparationRequirements } from "@/components/book/PreparationRequirements";
+import { CancellationPolicy } from "@/components/shared/CancellationPolicy";
 import { resolveBalanceAmount, resolveDepositAmount } from "@/lib/deposit";
 import { requiresReferral } from "@/lib/referral";
 import { providerLabel } from "@/lib/search";
 import { formatCurrency } from "@/lib/utils";
 import { ConsultationType, InsuranceLayer, Kupah, LAYER_LABELS, ProviderProfile } from "@/types";
 
-
+/**
+ * Confirming the booking and paying for it, on one screen: what she's booking,
+ * what it costs, and the card form — in that order, ending with the terms she
+ * accepts by paying.
+ */
 export function PaymentPanel({
   provider,
   itemName,
@@ -30,7 +35,6 @@ export function PaymentPanel({
   paying,
   onPay,
   referralFile,
-  onReferralFileChange,
 }: {
   provider: ProviderProfile;
   itemName?: string;
@@ -51,9 +55,8 @@ export function PaymentPanel({
   onPayMethodChange: (method: "card" | "apple" | "google") => void;
   paying: boolean;
   onPay: () => void;
-  /** The kupah referral attached so far, when this service demands one. */
+  /** The kupah referral already filed, when this service demanded one. */
   referralFile?: File | null;
-  onReferralFileChange?: (file: File | null) => void;
 }) {
   const [saveCard, setSaveCard] = useState(false);
   const depositAmount = resolveDepositAmount(price, consultation);
@@ -64,19 +67,19 @@ export function PaymentPanel({
   // Basket-covered service (route S): nothing is paid on the platform — the
   // patient arrives with a kupah commitment instead of paying a deposit.
   const basketCovered = layer === "S" && price === 0;
-  // A referral isn't advice, it's a condition of the booking: the kupah won't
-  // honour the appointment without one, so payment is blocked until it's here.
-  const referralRequired = requiresReferral(consultation) && !!onReferralFileChange;
+  // Guard the rule itself and not just the button: a service that demands a
+  // referral can't be paid for without one, however the flow got here.
+  const referralRequired = requiresReferral(consultation);
   const referralMissing = referralRequired && !referralFile;
 
   return (
     <div>
-      <div className="text-center mb-4">
+      <div className="mb-4 text-center">
         <HoldTimer expiresAt={holdExpiresAt} onExpire={onExpire} />
       </div>
 
-      <div className="rounded-lg border border-slate-200 bg-white p-4 mb-4">
-        <p className="text-xs text-slate-400 mb-2">סיכום ההזמנה</p>
+      <div className="mb-4 rounded-lg border border-slate-200 bg-white p-4">
+        <p className="mb-2 text-xs text-slate-400">סיכום ההזמנה</p>
         {itemName && (
           <div className="flex items-start justify-between gap-3 text-sm">
             <span className="flex items-center gap-1.5 text-slate-500">
@@ -85,14 +88,12 @@ export function PaymentPanel({
             <span className="font-medium text-slate-900">{itemName}</span>
           </div>
         )}
-        <div className="flex items-center justify-between text-sm mt-2">
+        <div className="mt-2 flex items-center justify-between text-sm">
           <span className="text-slate-500">רופא</span>
-          <span className="font-medium text-slate-900">
-            {providerLabel(provider)}
-          </span>
+          <span className="font-medium text-slate-900">{providerLabel(provider)}</span>
         </div>
         {clinic && (
-          <div className="flex items-start justify-between gap-3 text-sm mt-2">
+          <div className="mt-2 flex items-start justify-between gap-3 text-sm">
             <span className="flex items-center gap-1.5 text-slate-500">
               <MapPin className="h-3.5 w-3.5 shrink-0" /> מיקום
             </span>
@@ -104,20 +105,20 @@ export function PaymentPanel({
             </span>
           </div>
         )}
-        <div className="flex items-center justify-between text-sm mt-2">
+        <div className="mt-2 flex items-center justify-between text-sm">
           <span className="text-slate-500">תאריך ושעה</span>
           <span className="font-medium text-slate-900">
             {selectedSlot.label} · {selectedSlot.time}
           </span>
         </div>
         {kupah && (
-          <div className="flex items-center justify-between text-sm mt-2">
+          <div className="mt-2 flex items-center justify-between text-sm">
             <span className="text-slate-500">קופת חולים</span>
             <span className="font-medium text-slate-900">{kupah}</span>
           </div>
         )}
         {layer && (
-          <div className="flex items-center justify-between text-sm mt-2">
+          <div className="mt-2 flex items-center justify-between text-sm">
             <span className="text-slate-500">שכבת ביטוח</span>
             <span className="font-medium text-emerald-700">{LAYER_LABELS[layer]}</span>
           </div>
@@ -128,11 +129,11 @@ export function PaymentPanel({
         <PreparationRequirements consultation={consultation} />
       </div>
 
-      {/* By the time payment is reached the referral has already been
-          uploaded and approved by the unit — this is a receipt of that, not
-          another chance to attach it. */}
+      {/* By the time payment is reached the referral has already been uploaded
+          and approved by the unit — this is a receipt of that, not another
+          chance to attach it. */}
       {referralRequired && referralFile && (
-        <div className="rounded-lg border border-success-border bg-success-bg p-4 mb-4">
+        <div className="mb-4 rounded-lg border border-success-border bg-success-bg p-4">
           <p className="flex items-center gap-1.5 text-sm font-semibold text-success-text">
             <FileCheck2 className="h-4 w-4 shrink-0" /> ההפניה אושרה על ידי היחידה
           </p>
@@ -142,10 +143,12 @@ export function PaymentPanel({
         </div>
       )}
 
-      <div className="rounded-lg border border-slate-200 bg-white p-4 mb-4">
-        <p className="text-xs text-slate-400 mb-2">מחיר</p>
+      <div className="mb-4 rounded-lg border border-slate-200 bg-white p-4">
+        <p className="mb-2 text-xs text-slate-400">מחיר</p>
         {basketCovered ? (
-          <p className="text-sm font-medium text-emerald-700">מכוסה בסל הבריאות — לא נדרש תשלום באתר. יש להצטייד בהתחייבות (טופס 17) מהקופה.</p>
+          <p className="text-sm font-medium text-emerald-700">
+            מכוסה בסל הבריאות — לא נדרש תשלום באתר. יש להצטייד בהתחייבות (טופס 17) מהקופה.
+          </p>
         ) : (
           <>
             <div className="flex items-center justify-between text-sm">
@@ -154,18 +157,19 @@ export function PaymentPanel({
                 {formatCurrency(resolvedFullPrice)}
               </span>
             </div>
-            <div className="flex items-center justify-between text-sm mt-2">
+            <div className="mt-2 flex items-center justify-between text-sm">
               <span className="text-slate-500">המחיר שלך</span>
               <span className="font-medium text-slate-900">{formatCurrency(price)}</span>
             </div>
             {hasArrangement && layer && (
-              <p className="text-[11px] text-slate-400 mt-1">
+              <p className="mt-1 text-[11px] text-slate-400">
                 * המחיר מבוסס על ה{LAYER_LABELS[layer]}
-                {layer === "S" && kupah ? ` שלך ב${kupah}` : " שלך"} — בהנחת זכאות מלאה. מגבלות זכאות אישיות (למשל תקרת
-                מספר טיפולים מוטבים בשנה) לא מוצגות כאן ואינן ידועות למערכת; מומלץ לוודא מול חברת הביטוח/הקופה שלך.
+                {layer === "S" && kupah ? ` שלך ב${kupah}` : " שלך"} — בהנחת זכאות מלאה. מגבלות זכאות אישיות (למשל
+                תקרת מספר טיפולים מוטבים בשנה) לא מוצגות כאן ואינן ידועות למערכת; מומלץ לוודא מול חברת הביטוח/הקופה
+                שלך.
               </p>
             )}
-            <div className="h-px bg-slate-100 my-3" />
+            <div className="my-3 h-px bg-slate-100" />
             {/* One number, never a rate: how the deposit is worked out is a
                 business rule (see lib/deposit.ts), and showing the percentage
                 would let anyone derive what the platform keeps. */}
@@ -173,10 +177,10 @@ export function PaymentPanel({
               <span className="text-sm font-semibold text-slate-700">לתשלום עכשיו</span>
               <span className="text-lg font-bold text-primary">{formatCurrency(depositAmount)}</span>
             </div>
-            <p className="text-[11px] text-slate-400 mt-1">
+            <p className="mt-1 text-[11px] text-slate-400">
               התשלום הזה משריין את התור. את היתרה משלמים במועד הביקור.
             </p>
-            <div className="flex items-center justify-between mt-2">
+            <div className="mt-2 flex items-center justify-between">
               <span className="text-[11px] text-slate-400">יתרה במועד הביקור</span>
               <span className="text-[11px] text-slate-400">{formatCurrency(balanceAmount)}</span>
             </div>
@@ -185,8 +189,8 @@ export function PaymentPanel({
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-white p-4">
-        <p className="text-sm font-bold text-slate-900 mb-3">אמצעי תשלום</p>
-        <div className="grid grid-cols-3 gap-2 mb-4">
+        <p className="mb-3 text-sm font-bold text-slate-900">אמצעי תשלום</p>
+        <div className="mb-4 grid grid-cols-3 gap-2">
           <button
             onClick={() => onPayMethodChange("card")}
             className={`flex flex-col items-center gap-1 rounded-lg border p-3 text-xs font-medium ${payMethod === "card" ? "border-primary bg-primary/5 text-primary" : "border-slate-200 text-slate-500"}`}
@@ -207,13 +211,13 @@ export function PaymentPanel({
           </button>
         </div>
         {payMethod === "card" && (
-          <div className="grid grid-cols-2 gap-2 mb-4">
+          <div className="mb-4 grid grid-cols-2 gap-2">
             <div className="col-span-2">
               <Input placeholder="מספר כרטיס" dir="ltr" defaultValue="4580 •••• •••• 1234" />
             </div>
             <Input placeholder="MM/YY" dir="ltr" defaultValue="08/28" />
             <Input placeholder="CVV" dir="ltr" defaultValue="•••" />
-            <label className="col-span-2 flex items-center gap-2 text-xs text-slate-500 mt-1 cursor-pointer">
+            <label className="col-span-2 mt-1 flex cursor-pointer items-center gap-2 text-xs text-slate-500">
               <input
                 type="checkbox"
                 checked={saveCard}
@@ -224,7 +228,7 @@ export function PaymentPanel({
             </label>
           </div>
         )}
-        <p className="flex items-center gap-1.5 text-[11px] text-slate-400 mb-4">
+        <p className="mb-4 flex items-center gap-1.5 text-[11px] text-slate-400">
           <ShieldCheck className="h-3.5 w-3.5" /> תשלום מאובטח בתקן PCI DSS · מצב הדגמה, לא מתבצע חיוב אמיתי
         </p>
         <Button size="lg" className="w-full" loading={paying} onClick={onPay} disabled={referralMissing}>
@@ -232,10 +236,15 @@ export function PaymentPanel({
         </Button>
         {referralMissing && (
           <p className="mt-2 text-center text-[11px] text-warning-text">
-            לא ניתן לשריין תור לשירות הזה ללא הפניה תקפה — צרפו אותה למעלה.
+            לא ניתן לשריין תור לשירות הזה ללא הפניה תקפה.
           </p>
         )}
       </div>
+
+      {/* Below the button on purpose: these are the terms the patient accepts
+          BY paying, so they belong next to the commitment — and putting them
+          here adds no height above the price or the CTA. */}
+      <CancellationPolicy className="mt-3" />
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { AlertCircle, ArrowLeft, Calendar, CheckCircle2, MapPin, Phone, Receipt,
 import { Button } from "@/components/ui/Button";
 import { ServiceItemCard } from "@/components/book/ServiceItemCard";
 import { PreparationRequirements } from "@/components/book/PreparationRequirements";
+import { CancellationPolicy } from "@/components/shared/CancellationPolicy";
 import { useStore } from "@/lib/store";
 import { providerLabel } from "@/lib/search";
 import { ConsultationType, PROVIDER_SERVICE_TYPE_LABELS, ProviderProfile } from "@/types";
@@ -174,6 +175,11 @@ export function BookingConfirmation({
           </Button>
         </Link>
       </div>
+
+      {/* After the actions, before the cross-sell: "how do I cancel this?" is
+          the first question once a booking is made, and it belongs with the
+          transaction rather than below an appendix of other services. */}
+      <CancellationPolicy className="mx-auto mt-6 max-w-md" />
 
       {otherServices.length > 0 && (
         <div className="mt-8 text-right">
