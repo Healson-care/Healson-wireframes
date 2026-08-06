@@ -13,18 +13,17 @@ import { cn } from "@/lib/utils";
 /**
  * The privacy-law consent gate (חוק הגנת הפרטיות + תיקון 13).
  *
- * Used at BOTH points where the law requires it, with a different `types` list:
- *   • /apply, above "צור חשבון" — before a single personal detail is stored;
- *   • before identity documents ("מידע בעל רגישות מיוחדת") are collected — a
- *     separate, explicit consent. For a solo provider (נותן שירות יחיד) this is
- *     its own screen straight after the phone verification, blocking the way
- *     into "זיהוי, מקצוע ורישוי"; for organizations and stores it sits inside
- *     that step, above the uploads it covers.
+ * Asked once, at the foot of the "פרטים אישיים" step of /provider/register —
+ * directly above the button that sends the phone OTP, which is the first moment
+ * the applicant's own data is verified and stored. One gate covers the whole
+ * application, including the identity documents ("מידע בעל רגישות מיוחדת")
+ * uploaded on the next step, which is why `identity_documents` stays a line of
+ * its own here rather than being folded into the general data-processing box.
  *
  * Consents are never pre-ticked and never bundled into one box: each purpose is
  * its own decision, which is what makes it הסכמה מדעת. The parent owns the
- * state and calls the store (registerProviderAccount / recordProviderConsents)
- * so every grant is written with its version + timestamp.
+ * state and calls `recordProviderConsents`, so every grant is written with its
+ * version + timestamp.
  */
 export function ProviderConsentGate({
   types,

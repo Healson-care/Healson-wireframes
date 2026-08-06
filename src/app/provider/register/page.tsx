@@ -53,7 +53,8 @@ import {
   getCategory,
 } from "@/lib/provider-categories";
 import {
-  DOCUMENT_CONSENT_TYPES,
+  PROVIDER_CONSENT_REQUIRED,
+  REGISTRATION_CONSENT_TYPES,
   DOCTOR_SUBTYPES,
   DOCTOR_SUBTYPE_LABELS,
   DoctorSubtype,
@@ -73,18 +74,18 @@ import {
   consentGrants,
 } from "@/components/provider/ProviderConsentGate";
 
-// The application, end to end: pick a category/type → fill in who you are →
-// verify the phone you just entered → licensing, insurance and coverage →
-// read the whole thing back → send. There is deliberately no email step: the
-// welcome mail sent at signup is a notification, never a gate.
+// The application, end to end: pick a category/type → fill in who you are and
+// agree to the privacy consents → verify the phone you just entered →
+// licensing, insurance and coverage → read the whole thing back → send. There
+// is deliberately no email step: the welcome mail sent at signup is a
+// notification, never a gate.
 //
-// "consent" is a solo-only stop (נותן שירות יחיד — doctor/caregiver): the
-// document-consent gate gets its own screen between the phone verification and
-// the licensing step, because the licensing step is the first place a person's
-// license number and ID scan are stored, and the consent has to block that
-// screen rather than sit inside it. Organizations and stores keep the same
-// consent inline, above the uploads it covers.
-type Phase = "category" | "type" | "form" | "otp" | "consent" | "review" | "success";
+// The consents sit at the very bottom of the first sub-step, immediately above
+// the button that sends the OTP, and cover the whole application — including
+// the license number, the ת"ז and the document uploads that come after it.
+// That button is the line the law cares about: /apply only opened an empty
+// account, and this is where the applicant's own data starts being stored.
+type Phase = "category" | "type" | "form" | "otp" | "review" | "success";
 
 /** The form's own sub-steps, in order. "identity" and "license" always exist. */
 type FormStepKey = "identity" | "license" | "extras" | "area";
@@ -510,13 +511,11 @@ const REGISTER_STEPS: { key: string; label: string; icon: ReactNode }[] = [
 
 // The "form" phase spans two stepper stops — the identity sub-step is stop 1
 // (it feeds the OTP), everything after it is stop 3 — so the stepper needs to
-// know which sub-step is showing, not just the phase. The solo consent screen
-// belongs to stop 3 too: it is the door to "זיהוי ורישוי", not a stop of its own.
+// know which sub-step is showing, not just the phase.
 function phaseToStepIndex(phase: Phase, onIdentityStep: boolean): number {
   if (phase === "category" || phase === "type") return 0;
   if (phase === "form") return onIdentityStep ? 1 : 3;
   if (phase === "otp") return 2;
-  if (phase === "consent") return 3;
   if (phase === "review") return 4;
   return 5;
 }
@@ -788,10 +787,10 @@ export default function ProviderRegisterPage() {
   const [idPhotoFile, setIdPhotoFile] = useState<File | null>(null);
   const [specialistLicenseNumber, setSpecialistLicenseNumber] = useState("");
   const [specialistLicenseFile, setSpecialistLicenseFile] = useState<File | null>(null);
-  // Privacy gate 2 — explicit consent for identity documents (מידע בעל
-  // רגישות מיוחדת), asked right where those documents are uploaded.
-  const [docConsents, setDocConsents] = useState<Record<string, boolean>>({});
-  const docConsentWrittenRef = useRef(false);
+  // The privacy gate — asked once, at the foot of the identity sub-step, right
+  // above the button that sends the phone OTP.
+  const [consents, setConsents] = useState<Record<string, boolean>>({});
+  const consentWrittenRef = useRef(false);
   const [doctorSubtype, setDoctorSubtype] = useState<DoctorSubtype>("physician");
   const [kupahArrangements, setKupahArrangements] = useState<KupahArrangement[]>([]);
   const [privateInsurers, setPrivateInsurers] = useState<string[]>([]);
@@ -890,27 +889,26 @@ export default function ProviderRegisterPage() {
         setOtherSubSpecialty(pendingOther.value);
         setSubSpecialties((prev) => (prev.includes("אחר") ? prev : [...prev, "אחר"]));
       }
-      // Consent already given in an earlier sitting — don't ask twice.
-      const consentGiven = (provider.consents ?? []).some(
-        (c) => c.type === "identity_documents" && c.granted
+      // Consents already given in an earlier sitting — don't ask twice.
+      const granted = new Set(
+        (provider.consents ?? []).filter((c) => c.granted).map((c) => c.type)
       );
-      if (consentGiven) {
-        setDocConsents({ identity_documents: true });
+      if (granted.size) {
+        setConsents(Object.fromEntries([...granted].map((t) => [t, true])));
       }
       setLocationCount(provider.location_count != null ? String(provider.location_count) : "");
       setStoreStructure(type === "store" && (provider.location_count ?? 1) > 1 ? "chain" : "single");
       // Resume into the form, at the first sub-step that still has work: the
       // identity details until the phone is verified, the licensing details
       // once it is. Never straight into "otp" — the OTP is only ever entered
-      // right after the number itself was typed on the identity sub-step.
-      // A solo applicant who verified the phone but never gave the document
-      // consent resumes on the consent screen, not past it.
-      setFormStep(provider.phone_verified_at ? 1 : 0);
-      setPhase(
-        provider.phone_verified_at && categoryForType(type) === "individual" && !consentGiven
-          ? "consent"
-          : "form"
+      // right after the number itself was typed on the identity sub-step. An
+      // application started before the consents moved here resumes on the
+      // identity sub-step too, so the gate is answered before anything else.
+      const consentsPending = REGISTRATION_CONSENT_TYPES.some(
+        (t) => PROVIDER_CONSENT_REQUIRED[t] && !granted.has(t)
       );
+      setFormStep(provider.phone_verified_at && !consentsPending ? 1 : 0);
+      setPhase("form");
     } else if (provider) {
       // No provider type yet — e.g. the Google demo shortcut, which lands
       // here without one (see loginWithGoogle). Every normal /apply signup
@@ -928,16 +926,17 @@ export default function ProviderRegisterPage() {
 
   const config = providerType ? TYPE_CONFIG[providerType] : null;
   const isDoctor = providerType === "doctor";
-  // "נותן שירות יחיד" — the individual category (doctor/caregiver). Only this
-  // path asks for the document consent on its own screen, straight after the
-  // phone verification and before the licensing step is ever shown; every other
-  // type keeps the same consent inline, above the uploads it covers.
-  const isSoloApplicant = !!providerType && categoryForType(providerType) === "individual";
-  // Privacy gate 2 — required before any document field is even rendered.
-  const docConsentAlreadyRecorded = (provider?.consents ?? []).some(
-    (c) => c.type === "identity_documents" && c.granted
+  // The privacy gate — every required consent has to be on file before the
+  // phone verification is triggered, and therefore before any of the personal
+  // data collected from here on is stored. Grants written in an earlier sitting
+  // stand; the gate itself then disappears rather than asking again.
+  const grantedConsents = new Set(
+    (provider?.consents ?? []).filter((c) => c.granted).map((c) => c.type)
   );
-  const docConsentOk = docConsentAlreadyRecorded || consentGateSatisfied(DOCUMENT_CONSENT_TYPES, docConsents);
+  const consentsAlreadyRecorded = REGISTRATION_CONSENT_TYPES.every(
+    (t) => !PROVIDER_CONSENT_REQUIRED[t] || grantedConsents.has(t)
+  );
+  const consentsOk = consentsAlreadyRecorded || consentGateSatisfied(REGISTRATION_CONSENT_TYPES, consents);
   // For individual provider types the "name" field IS the person's name (and
   // therefore the account holder's); organizations name the business instead.
   const nameIsPerson = providerType === "doctor" || providerType === "caregiver";
@@ -982,11 +981,6 @@ export default function ProviderRegisterPage() {
   // re-checked on final submit as a safety net.
   function licenseStepError(): { field: ErrorField; message: string } | null {
     if (!config) return null;
-    // The document-consent gate comes first: nothing may be uploaded before it
-    // is given, so an unticked box is the blocking error, not the missing file.
-    if (!docConsentOk) {
-      return { field: "consent", message: "יש לאשר את ההסכמה לשמירת מסמכי הזיהוי לפני העלאתם" };
-    }
     if (config.showIdentityDocument && !idPhotoFile && !provider?.id_document_photo) {
       return { field: "idPhoto", message: "נא לצרף צילום תעודת זהות" };
     }
@@ -1029,12 +1023,12 @@ export default function ProviderRegisterPage() {
       setError(err instanceof Error ? err.message : "שגיאה בהעלאת הקובץ");
       return false;
     }
-    // Record the document consent the first time it's given. The store keeps an
+    // Record the consents the first time they're given. The store keeps an
     // append-only log, so the ref (not just the profile flag, which is a render
-    // behind) is what stops a second save from writing the same grant twice.
-    if (docConsentOk && !docConsentAlreadyRecorded && !docConsentWrittenRef.current) {
-      docConsentWrittenRef.current = true;
-      recordProviderConsents(provider.id, consentGrants(DOCUMENT_CONSENT_TYPES, docConsents));
+    // behind) is what stops a second save from writing the same grants twice.
+    if (consentsOk && !consentsAlreadyRecorded && !consentWrittenRef.current) {
+      consentWrittenRef.current = true;
+      recordProviderConsents(provider.id, consentGrants(REGISTRATION_CONSENT_TYPES, consents));
     }
     // A free-text "אחר" sub-specialty goes to Healson for approval alongside
     // the license — it never lands straight in `sub_specialties`.
@@ -1082,6 +1076,12 @@ export default function ProviderRegisterPage() {
     e.preventDefault();
     if (!providerType || !config || !provider) return;
     setError("");
+    // Nothing on this step leaves the browser until the consents are ticked —
+    // this submit is what sends the OTP and writes the applicant's details.
+    if (currentFormStepKey === "identity" && !consentsOk) {
+      setError("יש לאשר את ההסכמות המסומנות בכוכבית כדי להמשיך", "consent");
+      return;
+    }
     if (currentFormStepKey === "license" || isLastFormStep) {
       const stepError = licenseStepError();
       if (stepError) {
@@ -1108,15 +1108,6 @@ export default function ProviderRegisterPage() {
       setLoading(false);
       setPhase("otp");
       setOtpCode("");
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      return;
-    }
-    // Phone already verified (e.g. the applicant went back to fix a typo in
-    // their name): a solo applicant still may not slip into the licensing step
-    // without the document consent, so route through its screen here too.
-    if (currentFormStepKey === "identity" && isSoloApplicant && !docConsentOk) {
-      setLoading(false);
-      setPhase("consent");
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
@@ -1183,39 +1174,11 @@ export default function ProviderRegisterPage() {
         return;
       }
       setApplicationProviderId(result.providerId ?? null);
-      // Identity is behind us. A solo applicant gets the document-consent
-      // screen first — the licensing sub-step it guards is where the license
-      // number and the ID scan are stored, so the consent comes before it, not
-      // inside it. Everyone else goes straight on.
+      // Straight on to the licensing sub-step — identity is behind us.
       setFormStep(1);
-      if (isSoloApplicant && !docConsentOk) {
-        setPhase("consent");
-        showToast("הטלפון אומת", { description: "לפני מסירת מסמכי הזיהוי — הסכמה קצרה", variant: "success" });
-      } else {
-        setPhase("form");
-        showToast("הטלפון אומת", { description: "ממשיכים לפרטי המקצוע והרישוי", variant: "success" });
-      }
+      setPhase("form");
+      showToast("הטלפון אומת", { description: "ממשיכים לפרטי המקצוע והרישוי", variant: "success" });
     }, 300);
-  }
-
-  /** The solo document-consent screen's only way forward — records the grant
-   * (with its version + timestamp) and opens the licensing sub-step. */
-  function handleDocConsentContinue() {
-    if (!provider) return;
-    setError("");
-    if (!consentGateSatisfied(DOCUMENT_CONSENT_TYPES, docConsents)) {
-      setError("יש לאשר את ההסכמה לשמירת מסמכי הזיהוי כדי להמשיך", "consent");
-      return;
-    }
-    // Same guard as persistDraft: the append-only consent log must not get the
-    // same grant twice, and the profile flag is a render behind.
-    if (!docConsentAlreadyRecorded && !docConsentWrittenRef.current) {
-      docConsentWrittenRef.current = true;
-      recordProviderConsents(provider.id, consentGrants(DOCUMENT_CONSENT_TYPES, docConsents));
-    }
-    setFormStep(1);
-    setPhase("form");
-    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function handleResend() {
@@ -1442,71 +1405,6 @@ export default function ProviderRegisterPage() {
             </button>
           </div>
         </form>
-      </RegisterShell>
-    );
-  }
-
-  // Privacy gate 2, solo path (חוק הגנת הפרטיות + תיקון 13) — its own screen
-  // between the phone verification and "זיהוי, מקצוע ורישוי". That next screen
-  // is the first point at which sensitive personal data (license number, ת"ז,
-  // ID scan) is stored, so the consent blocks the way in rather than sitting
-  // among the fields it covers.
-  if (phase === "consent") {
-    return (
-      <RegisterShell phase={phase}>
-        <div className="flex flex-col items-center text-center mb-5">
-          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <Lock className="h-6 w-6" />
-          </div>
-          <h1 className="font-display text-xl font-bold text-[var(--brand-navy)]">הסכמה לפני מסירת פרטי הרישוי</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            בשלב הבא נבקש את מספר הרישיון, תעודת הזהות והמסמכים שלהם. לפי חוק הגנת הפרטיות, נדרשת לכך הסכמה
-            נפרדת ומפורשת — לפני שהפרטים נשמרים אצלנו.
-          </p>
-        </div>
-        {error && errorField !== "consent" && (
-          <div role="alert" className="mb-4 rounded-lg bg-danger-bg border border-danger-border px-3 py-2 text-sm text-danger-text">
-            {error}
-          </div>
-        )}
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <ProviderConsentGate
-              types={DOCUMENT_CONSENT_TYPES}
-              value={docConsents}
-              onChange={(v) => {
-                setDocConsents(v);
-                if (errorField === "consent") setError("");
-              }}
-              title="הסכמה לשמירת מסמכי זיהוי ורישוי"
-            />
-            {errorField === "consent" && error && (
-              <span role="alert" className="text-xs text-danger-text">
-                {error}
-              </span>
-            )}
-          </div>
-          <Button type="button" onClick={handleDocConsentContinue} className="w-full">
-            אני מסכים/ה — המשך
-          </Button>
-          <div className="flex items-center justify-center gap-3 text-sm">
-            <button
-              type="button"
-              onClick={() => {
-                setError("");
-                setFormStep(0);
-                setPhase("form");
-              }}
-              className="text-slate-500 hover:underline"
-            >
-              חזרה לפרטים האישיים
-            </button>
-            <span className="text-slate-300">·</span>
-            <button type="button" onClick={handleSaveAndExit} className="text-slate-500 hover:underline">
-              שמירה והמשך מאוחר יותר
-            </button>
-          </div>
-        </div>
       </RegisterShell>
     );
   }
@@ -2097,6 +1995,29 @@ export default function ProviderRegisterPage() {
               )}
             </div>
           )}
+
+          {/* The privacy gate (חוק הגנת הפרטיות + תיקון 13), the last thing on
+              this step: the button below it is what sends the OTP and saves the
+              details above, and everything the application asks for afterwards
+              — license number, ת"ז, document uploads — is covered by the same
+              grants. Once recorded (a resumed application, or the demo Google
+              account) it isn't asked again. */}
+          {!consentsAlreadyRecorded && (
+            <div className="flex flex-col gap-1.5 border-t border-slate-100 pt-3.5">
+              <ProviderConsentGate
+                types={REGISTRATION_CONSENT_TYPES}
+                value={consents}
+                onChange={(v) => {
+                  setConsents(v);
+                  if (errorField === "consent") setError("");
+                }}
+                description="אלה ההסכמות שהחוק מחייב, לפני אימות הטלפון ולפני שהפרטים שמסרת נשמרים בבקשה. הן חלות על כל שלביה — כולל פרטי הרישוי, תעודת הזהות והמסמכים שיועלו בשלב הבא. שדות המסומנים ב-* הם תנאי להמשך."
+              />
+              {errorField === "consent" && error && (
+                <span className="text-xs text-danger-text">{error}</span>
+              )}
+            </div>
+          )}
         </FormSection>
         )}
 
@@ -2222,32 +2143,9 @@ export default function ProviderRegisterPage() {
             />
           )}
 
-          {/* Privacy gate 2 (חוק הגנת הפרטיות + תיקון 13), organization/store
-              placement. Document fields stay hidden until it is given: an ID
-              scan is מידע בעל רגישות מיוחדת and may not be collected before an
-              explicit, separate consent. A solo applicant never sees this — the
-              same gate already blocked the way into this step (phase "consent"),
-              so the grant is on file by the time this renders. */}
-          {!docConsentAlreadyRecorded && (
-            <div className="flex flex-col gap-1.5">
-              <ProviderConsentGate
-                types={DOCUMENT_CONSENT_TYPES}
-                value={docConsents}
-                onChange={(v) => {
-                  setDocConsents(v);
-                  if (errorField === "consent") setError("");
-                }}
-                title="הסכמה לשמירת מסמכי זיהוי ורישוי"
-                description="השלב הבא כולל העלאת מסמכים אישיים. לפי חוק, נדרשת לכך הסכמה נפרדת ומפורשת."
-              />
-              {errorField === "consent" && error && (
-                <span className="text-xs text-danger-text">{error}</span>
-              )}
-            </div>
-          )}
-
-          {docConsentOk && (
-            <>
+          {/* No consent gate here: the documents below are covered by the one
+              given on the identity step, before the phone was ever verified. */}
+          <>
               {config.showIdentityDocument && (
                 <div className="flex flex-col gap-3 rounded-xl border border-slate-200 p-3">
                   <p className="text-xs font-semibold text-slate-600">זיהוי אישי</p>
@@ -2320,7 +2218,6 @@ export default function ProviderRegisterPage() {
                 </div>
               )}
             </>
-          )}
         </FormSection>
         )}
 

@@ -1446,13 +1446,15 @@ export interface SubSpecialtyRequest {
 //
 // The law requires informed consent BEFORE personal data is collected, and a
 // separate, explicit consent for "מידע בעל רגישות מיוחדת" — which is what an
-// ID-document scan is. So the join flow has two gates, not one:
-//   gate 1 — /apply, above "צור חשבון": terms + data_processing +
-//            third_party_transfer (all required) and marketing (optional);
-//   gate 2 — right before any document upload: identity_documents (required).
-//            Solo providers (נותן שירות יחיד) answer it on a screen of its own,
-//            between the phone verification and the licensing step; every other
-//            type answers it inside that step, above the uploads.
+// ID-document scan is. Both are asked ONCE, in one gate, at the bottom of the
+// "פרטים אישיים" step of /provider/register — immediately before the button
+// that sends the phone OTP. That button is the real line: it is where the
+// applicant's own details start being verified and stored, and everything
+// after it (license number, ת"ז, document uploads) is covered by the same
+// gate. /apply, which only opens an empty account, carries a plain link to
+// the terms instead of a checkbox wall. Medical units never pass through here
+// at all — Healson opens their account and signs their paperwork off-platform.
+//
 // Each grant is stored with its document version and timestamp and is never
 // overwritten, so what the provider agreed to — and when — stays provable.
 // ---------------------------------------------------------------------------
@@ -1465,16 +1467,16 @@ export type ProviderConsentType =
 
 export const PROVIDER_CONSENT_VERSION = "PRV-PP-2026-08-v1";
 
-/** Gate 1 — collected before the account (and therefore any personal data) exists. */
-export const ACCOUNT_CONSENT_TYPES: ProviderConsentType[] = [
+/** The registration gate, in display order — required first, optional last.
+ * `identity_documents` stays its own line (never bundled) because the law
+ * wants a discrete, explicit decision for sensitive documents. */
+export const REGISTRATION_CONSENT_TYPES: ProviderConsentType[] = [
   "terms",
   "data_processing",
   "third_party_transfer",
+  "identity_documents",
   "marketing",
 ];
-
-/** Gate 2 — collected before ID / license documents are uploaded. */
-export const DOCUMENT_CONSENT_TYPES: ProviderConsentType[] = ["identity_documents"];
 
 export const PROVIDER_CONSENT_REQUIRED: Record<ProviderConsentType, boolean> = {
   terms: true,
