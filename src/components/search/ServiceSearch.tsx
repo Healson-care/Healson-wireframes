@@ -2,7 +2,7 @@
 
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Search, SlidersHorizontal, X } from "lucide-react";
+import { SlidersHorizontal, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { OrganizationBranch, Patient, ProviderProfile } from "@/types";
 import {
@@ -10,10 +10,12 @@ import {
   Offer,
   SearchContext,
   SearchQuery,
+  SearchScope,
   Suggestion,
   activeFilterCount,
   activeGateChips,
   buildOffers,
+  normalizeQuery,
   offersWithoutDoctor,
   searchOffers,
   offerPricing,
@@ -30,8 +32,15 @@ import { PrimaryGates } from "@/components/search/PrimaryGates";
  * without opening anything. Everything else lives in the sheet — this row
  * stays this short no matter how many filters the registry grows to.
  */
+/**
+ * Every quick chip must write a value the filter sheet can also DRAW. The
+ * coverage chip broke that rule: it wrote an umbrella value ("any arrangement")
+ * that wasn't one of the sheet's six options, so with the chip on, the כיסוי
+ * group showed "1 active" while no option — not even "הכל" — appeared chosen.
+ * Removed rather than papered over; the six specific answers are still in the
+ * sheet, and they are the more useful question anyway.
+ */
 const QUICK_CHIPS: { key: string; value: FilterValue; label: string }[] = [
-  { key: "coverage", value: "arrangement", label: "יש הסדר לפרופיל שלי" },
   { key: "availability", value: "week", label: "השבוע הקרוב" },
   { key: "noReferral", value: true, label: "ללא הפניה" },
 ];
@@ -71,15 +80,15 @@ export function ServiceSearch({
 
   /**
    * The sticky band carries four things — the insurance strip, the gates, the
-   * omnibox and the chips — which together eat most of a phone screen. Nothing
-   * is dropped to fix that: scrolling DOWN folds away the two that only need
-   * to be read once (the strip, the box), while the gates and the chips stay,
-   * because those are the controls she reaches for mid-list. Scrolling up even
-   * slightly brings everything back, and a magnifier in the chip row reopens
-   * the box directly — so no capability is ever more than one gesture away.
+   * omnibox and the chips — which together eat most of a phone screen.
+   *
+   * Only ONE of them folds while she scrolls down: the insurance strip, which
+   * is a legend and is read once. The gates, the search box and the chips all
+   * stay, because each is a control she reaches for mid-list, and a control
+   * that has to be summoned back before it can be used isn't really there.
+   * Scrolling up even slightly brings the strip back.
    */
   const [collapsed, setCollapsed] = useState(false);
-  const [focusSignal, setFocusSignal] = useState(0);
   const lastY = useRef(0);
 
   useEffect(() => {
@@ -101,24 +110,31 @@ export function ServiceSearch({
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  function reopenSearch() {
-    setCollapsed(false);
-    setFocusSignal((n) => n + 1);
-  }
+  /**
+   * THE write gate. Every control that changes the query goes through here —
+   * the gates via `onChange`, this component's own handlers via `setQuery` —
+   * so cross-filter rules are applied in one place instead of being
+   * re-remembered by each control. See normalizeQuery.
+   */
+  const commitQuery = (next: SearchQuery) => onQueryChange(normalizeQuery(query, next));
 
   const setQuery = (update: SearchQuery | ((prev: SearchQuery) => SearchQuery)) =>
-    onQueryChange(typeof update === "function" ? update(query) : update);
+    commitQuery(typeof update === "function" ? update(query) : update);
 
   const offers = useMemo(() => buildOffers(providers, branches), [providers, branches]);
 
-  // "לפי נותן שירות" shows only services a doctor actually delivers. Scoping
-  // the index itself — rather than filtering at render time — keeps the result
-  // count, the facet counts and the grouped cards all describing one same set.
-  const scopedOffers = useMemo(
-    () => (query.groupBy === "provider" ? offers.filter((o) => o.doctor) : offers),
-    [offers, query.groupBy]
-  );
-  const ctx: SearchContext = useMemo(() => ({ patient, offers: scopedOffers }), [patient, scopedOffers]);
+  /**
+   * The FULL index, always. "Only what a doctor delivers" is now the
+   * `doctorDelivered` filter and narrows the results like any other — it no
+   * longer shrinks the index the controls themselves are drawn from.
+   *
+   * That distinction is the whole fix. While it shrank the index, a station-run
+   * unit it excluded disappeared from the performer gate rather than greying
+   * out there, so the gate could only be cleared and never changed; and the
+   * sheet, judging which contextual filters were "relevant" against the same
+   * shrunken index, could hide the switch for a filter that was still on.
+   */
+  const ctx: SearchContext = useMemo(() => ({ patient, offers }), [patient, offers]);
 
   const results = useMemo(() => searchOffers(query, ctx), [query, ctx]);
 
@@ -153,10 +169,15 @@ export function ServiceSearch({
     : undefined;
   const filterCount = activeFilterCount(query);
   const gateChips = useMemo(() => activeGateChips(query, ctx), [query, ctx]);
-  // Station-run imaging and lab work have no doctor, so a search scoped to
-  // "רופאים" can't hold them. Worth one line of explanation, since the totals
+  const doctorOnly = query.filters.doctorDelivered === true;
+  // Station-run imaging and lab work have no doctor, so "רק שירותים שרופא
+  // מבצע" can't hold them. Worth one line of explanation, since the totals
   // differ — but no number, which would describe nothing on screen.
-  const hasDoctorlessOffers = query.groupBy === "provider" && offersWithoutDoctor(offers).length > 0;
+  const hasDoctorlessOffers = doctorOnly && offersWithoutDoctor(offers).length > 0;
+  // Which kind of entity leads the omnibox list. Every kind is always offered;
+  // this only picks the order. Derived rather than stored, so it cannot drift
+  // out of step with what she actually asked for.
+  const omniboxScope: SearchScope = query.performerId || doctorOnly ? "provider" : "service";
 
   /**
    * Every kind the box can return resolves to the query field that actually
@@ -215,42 +236,28 @@ export function ServiceSearch({
             what kind of item, from what kind of person, at what kind of unit.
             Choosing a kind of PERSON is itself the statement that she's looking
             for a person, so the view follows the gate instead of asking twice. */}
-        <PrimaryGates query={query} onChange={onQueryChange} ctx={ctx} />
+        <PrimaryGates query={query} onChange={commitQuery} ctx={ctx} />
 
-        {/* 2 — the search bar, scoped by the choice above. Folds with the
-            strip; the magnifier in the chip row below brings it straight back
-            with the cursor already in it. */}
-        <Collapsible show={!collapsed}>
-          <div className="mb-2">
-            <SearchOmnibox
-              text={query.text}
-              onTextChange={(text) => setQuery((q) => ({ ...q, text }))}
-              offers={scopedOffers}
-              scope={query.groupBy}
-              recents={recents}
-              onPick={pick}
-              onPickRecent={(value) => setQuery((q) => ({ ...q, text: value }))}
-              focusSignal={focusSignal}
-            />
-          </div>
-        </Collapsible>
+        {/* 2 — the search bar, scoped by the choice above. Stays for the whole
+            scroll, like the gates: typing a name is the fastest route to a
+            result, and a route that has to be summoned back first isn't fast.
+            Only the insurance strip folds — it is a legend, read once. */}
+        <div className="mb-2">
+          <SearchOmnibox
+            text={query.text}
+            onTextChange={(text) => setQuery((q) => ({ ...q, text }))}
+            offers={offers}
+            scope={omniboxScope}
+            recents={recents}
+            onPick={pick}
+            onPickRecent={(value) => setQuery((q) => ({ ...q, text: value }))}
+          />
+        </div>
 
         {/* 3 — filters: anchors and quick chips inline, the rest in the sheet.
             Wraps rather than scrolling sideways — a chip the patient has to
             discover by swiping may as well not be on screen. */}
         <div className="flex flex-wrap items-center gap-2">
-        {/* Only while the box is folded away — this IS the box, in one tap. */}
-        {collapsed && (
-          <button
-            onClick={reopenSearch}
-            aria-label="פתיחת תיבת החיפוש"
-            className="focus-ring inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-white/85 px-3.5 text-sm font-medium text-[var(--brand-ink-soft)] sm:h-8 sm:px-3 sm:text-xs"
-          >
-            <Search className="h-3.5 w-3.5" />
-            {query.text ? <span className="max-w-[32vw] truncate">{query.text}</span> : "חיפוש"}
-          </button>
-        )}
-
         <button
           onClick={() => setSheetOpen(true)}
           className={cn(
@@ -268,16 +275,14 @@ export function ServiceSearch({
         {performer && (
           <AnchorChip
             label={`נותן שירות: ${performer.title ?? ""} ${performer.display_name}`.trim()}
-            // Undo everything picking a person did, not just the id. Leaving
-            // groupBy on "provider" would keep the index scoped to services a
-            // doctor gives, so after the X she could no longer reach a מכון —
-            // or get back to the doctor she just removed.
+            // Undo everything picking a person did, not just the id — the
+            // performer axis is written by one gate and has to be cleared as
+            // one thing, or the X would leave half a choice behind.
             onRemove={() =>
               setQuery((q) => ({
                 ...q,
                 performerId: null,
-                groupBy: "service",
-                filters: { ...q.filters, unitType: undefined },
+                filters: { ...q.filters, unitType: undefined, doctorDelivered: undefined },
               }))
             }
           />
@@ -289,8 +294,7 @@ export function ServiceSearch({
               setQuery((q) => ({
                 ...q,
                 organizationId: null,
-                groupBy: "service",
-                filters: { ...q.filters, unitType: undefined },
+                filters: { ...q.filters, unitType: undefined, doctorDelivered: undefined },
               }))
             }
           />
@@ -311,9 +315,16 @@ export function ServiceSearch({
         {gateChips.map((chip) => (
           <AnchorChip
             key={`${chip.key}:${chip.value}`}
-            label={`${chip.group}: ${chip.label}`}
+            // A yes/no gate's label is already a full sentence — prefixing it
+            // with its axis would read "נותן שירות: רק שירותים שרופא מבצע".
+            label={chip.standalone ? chip.label : `${chip.group}: ${chip.label}`}
             onRemove={() =>
               setQuery((q) => {
+                // Same X, two shapes of value behind it: a yes/no gate simply
+                // switches off, a list gate drops the one value this chip names.
+                if (q.filters[chip.key] === true) {
+                  return { ...q, filters: { ...q.filters, [chip.key]: undefined } };
+                }
                 const next = toggleMulti(q.filters[chip.key], chip.value);
                 return { ...q, filters: { ...q.filters, [chip.key]: next.length ? next : undefined } };
               })

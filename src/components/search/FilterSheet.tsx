@@ -42,7 +42,9 @@ export function FilterSheet({
   resultCount: number;
   onClearAll: () => void;
 }) {
-  const defs = useMemo(() => visibleFilters(ctx.offers), [ctx.offers]);
+  // The live filter values go in so that a switched-on filter can never be
+  // hidden by the relevance test — see visibleFilters.
+  const defs = useMemo(() => visibleFilters(ctx.offers, query.filters), [ctx.offers, query.filters]);
   // Undefined for a group = "not touched yet", so it can fall back to
   // auto-opening when it holds an active filter.
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});

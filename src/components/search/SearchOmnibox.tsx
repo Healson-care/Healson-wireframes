@@ -20,7 +20,6 @@ export function SearchOmnibox({
   recents,
   onPick,
   onPickRecent,
-  focusSignal,
 }: {
   text: string;
   onTextChange: (next: string) => void;
@@ -29,16 +28,9 @@ export function SearchOmnibox({
   recents: string[];
   onPick: (suggestion: Suggestion) => void;
   onPickRecent: (value: string) => void;
-  /**
-   * Bump this to put the cursor in the box. Used by the collapsed search bar,
-   * which reopens the band and then has to land the patient inside the field —
-   * otherwise tapping the magnifier would only unfold furniture at her.
-   */
-  focusSignal?: number;
 }) {
   const [focused, setFocused] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   const suggestions = useMemo(() => suggest(text, offers, scope), [text, offers, scope]);
   const fullList = useMemo(() => listEntities(offers, scope), [offers, scope]);
@@ -46,17 +38,6 @@ export function SearchOmnibox({
   const showSuggestions = focused && !empty && suggestions.length > 0;
   const showBrowse = focused && empty;
   const showRecents = showBrowse && recents.length > 0;
-
-  // Skips the first render: the box must not steal focus (and open the phone
-  // keyboard) just because the page loaded.
-  const firstFocusSignal = useRef(true);
-  useEffect(() => {
-    if (firstFocusSignal.current) {
-      firstFocusSignal.current = false;
-      return;
-    }
-    inputRef.current?.focus();
-  }, [focusSignal]);
 
   useEffect(() => {
     if (!focused) return;
@@ -79,7 +60,6 @@ export function SearchOmnibox({
       <div className="flex items-center gap-2 rounded-2xl border border-white/70 bg-white/85 px-3 shadow-[0_18px_40px_-30px_rgba(20,42,79,0.4)] backdrop-blur-sm focus-within:border-[var(--brand-navy)]/35">
         <Search className="h-4 w-4 shrink-0 text-slate-400" />
         <input
-          ref={inputRef}
           value={text}
           onChange={(e) => onTextChange(e.target.value)}
           onFocus={() => setFocused(true)}
@@ -111,6 +91,24 @@ export function SearchOmnibox({
           doesn't start scrolling the results behind it. */}
       {(showSuggestions || showBrowse) && (
         <div className="absolute inset-x-0 top-full z-30 mt-1.5 max-h-[55vh] overflow-y-auto overscroll-contain rounded-2xl border border-white/70 bg-white/95 shadow-[0_24px_50px_-24px_rgba(20,42,79,0.5)] backdrop-blur-sm">
+          {/* Sticky, so the way out stays reachable however far down the list
+              she has scrolled. Deliberately NOT the X inside the input, which
+              clears what she typed — this one only puts the list away and
+              leaves her text alone. */}
+          <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-slate-100 bg-white/95 px-3 py-1.5 backdrop-blur-sm">
+            <span className="text-[11px] font-semibold text-slate-500">
+              {showBrowse ? "עיון בקטלוג" : "תוצאות מתאימות"}
+            </span>
+            <button
+              type="button"
+              onClick={() => setFocused(false)}
+              aria-label="סגירת רשימת ההצעות"
+              className="focus-ring -me-1 shrink-0 rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
           {showRecents && (
             <>
               <SectionLabel>חיפושים אחרונים</SectionLabel>
@@ -134,9 +132,6 @@ export function SearchOmnibox({
               never depends on already knowing a name. */}
           {showBrowse && (
             <>
-              <SectionLabel>
-                {scope === "provider" ? "עיון — נותני שירות, מכונים ושירותים" : "עיון בקטלוג"}
-              </SectionLabel>
               {fullList.map((s) => (
                 <SuggestionRow
                   key={`${s.kind}:${s.value}`}
@@ -167,10 +162,10 @@ export function SearchOmnibox({
   );
 }
 
+// No longer sticky: the panel now has its own sticky header carrying the close
+// button, and two elements pinned to top-0 would sit on top of each other.
 function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="sticky top-0 bg-white px-3 pb-1 pt-2.5 text-[11px] font-medium text-slate-400">{children}</p>
-  );
+  return <p className="bg-white px-3 pb-1 pt-2.5 text-[11px] font-medium text-slate-400">{children}</p>;
 }
 
 function SuggestionRow({

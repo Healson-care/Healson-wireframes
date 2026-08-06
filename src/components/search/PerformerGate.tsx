@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ArrowRight, Building2, Stethoscope, X } from "lucide-react";
 import { Popover } from "@/components/ui/Popover";
 import { GateTrigger } from "@/components/search/GateTrigger";
+import { GatePanelHeader } from "@/components/search/GatePanelHeader";
 import { OptionSearch } from "@/components/search/OptionSearch";
 import { cn } from "@/lib/utils";
 import { Offer, SearchQuery, providerLabel } from "@/lib/search";
@@ -100,16 +101,20 @@ export function PerformerGate({
     : undefined;
   const selected = selectedDoctor ?? selectedOrg;
   const unitTypes = Array.isArray(query.filters.unitType) ? (query.filters.unitType as string[]) : [];
+  // "כל הרופאים" — the doctor half of this gate's axis. An ordinary registry
+  // filter now, where it used to be a hidden `groupBy` mode with no chip and
+  // no place in the filter count.
+  const doctorOnly = query.filters.doctorDelivered === true;
 
   // Named entity first, then "every X", then nothing chosen at all.
   const summary = selected
     ? providerLabel(selected)
     : unitTypes.length === 1
       ? `כל ה${PROVIDER_TYPE_LABELS[unitTypes[0] as ProviderType] ?? unitTypes[0]}`
-      : query.groupBy === "provider"
+      : doctorOnly
         ? `כל ה${PROVIDER_TYPE_LABELS.doctor}`
         : "סוג נותן שירות";
-  const active = !!selected || unitTypes.length > 0 || query.groupBy === "provider";
+  const active = !!selected || unitTypes.length > 0 || doctorOnly;
 
   function chooseEntity(k: Kind, id: string, close: () => void) {
     onChange({
@@ -118,11 +123,10 @@ export function PerformerGate({
       // The two anchors are mutually exclusive: she is looking for one entity.
       performerId: k.isDoctor ? id : null,
       organizationId: k.isDoctor ? null : id,
-      // A named place doesn't need the kind filter on top of it.
-      filters: { ...query.filters, unitType: undefined },
-      // Naming a person regroups the results around people; naming a place
-      // leaves them as the list of services that place gives.
-      groupBy: k.isDoctor ? "provider" : "service",
+      // A named performer doesn't need either kind filter on top of it —
+      // `performerId` already implies a doctor, so keeping doctorDelivered on
+      // would be a second chip saying what the first one said.
+      filters: { ...query.filters, unitType: undefined, doctorDelivered: undefined },
     });
     // Back to the top level, so re-opening the gate shows the kinds — and the
     // clear button with them — instead of dropping her back into the list she
@@ -137,8 +141,13 @@ export function PerformerGate({
       ...query,
       performerId: null,
       organizationId: null,
-      filters: { ...query.filters, unitType: k.isDoctor ? undefined : [k.key] },
-      groupBy: k.isDoctor ? "provider" : "service",
+      // One axis, two halves: a person, or a kind of place. Whichever half she
+      // answers, the other is cleared — they can't both be narrowing at once.
+      filters: {
+        ...query.filters,
+        unitType: k.isDoctor ? undefined : [k.key],
+        doctorDelivered: k.isDoctor ? true : undefined,
+      },
     });
     setKind(null);
     close();
@@ -149,8 +158,7 @@ export function PerformerGate({
       ...query,
       performerId: null,
       organizationId: null,
-      filters: { ...query.filters, unitType: undefined },
-      groupBy: "service",
+      filters: { ...query.filters, unitType: undefined, doctorDelivered: undefined },
     });
     setKind(null);
     close();
@@ -181,7 +189,7 @@ export function PerformerGate({
         if (!kind) {
           return (
             <div className="py-1">
-              <p className="px-3 pb-1 pt-1.5 text-[11px] font-semibold text-slate-500">מי נותן את השירות?</p>
+              <GatePanelHeader title="מי נותן את השירות?" onClose={close} />
               {constrained && (
                 <p className="px-3 pb-1 text-[11px] text-slate-400">נקבע לפי הבחירות האחרות — אפשר לבטל אותן ולחזור.</p>
               )}
@@ -232,13 +240,24 @@ export function PerformerGate({
 
         return (
           <div className="py-1">
-            <button
-              type="button"
-              onClick={() => setKind(null)}
-              className="focus-ring flex items-center gap-1 px-3 py-1.5 text-[11px] font-medium text-[var(--brand-navy)]"
-            >
-              <ArrowRight className="h-3 w-3" /> {kind.label}
-            </button>
+            {/* Two exits, and they mean different things: the arrow goes back
+                to the list of kinds, the X leaves the gate entirely. On the
+                second screen the first one alone isn't enough — she may be
+                done, not merely one level too deep. */}
+            <GatePanelHeader
+              title={kind.label}
+              onClose={close}
+              leading={
+                <button
+                  type="button"
+                  onClick={() => setKind(null)}
+                  aria-label="חזרה לסוגי נותני השירות"
+                  className="focus-ring rounded-md p-1 text-[var(--brand-navy)] hover:bg-slate-100"
+                >
+                  <ArrowRight className="h-3 w-3" />
+                </button>
+              }
+            />
 
             <OptionSearch value={text} onChange={setText} placeholder={`חיפוש ב${kind.label}`} />
 

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Check } from "lucide-react";
 import { Popover } from "@/components/ui/Popover";
 import { GateTrigger } from "@/components/search/GateTrigger";
+import { GatePanelHeader } from "@/components/search/GatePanelHeader";
 import { OptionSearch } from "@/components/search/OptionSearch";
 import { cn } from "@/lib/utils";
 import { FilterDef, SearchContext, SearchQuery, facetCount, gateOptions, toggleMulti } from "@/lib/search";
@@ -23,7 +24,6 @@ import { FilterDef, SearchContext, SearchQuery, facetCount, gateOptions, toggleM
 export function TwoLevelGate({
   parentDef,
   childDef,
-  parentOf,
   placeholder,
   emptyLabel,
   noChildrenLabel,
@@ -33,8 +33,6 @@ export function TwoLevelGate({
 }: {
   parentDef: FilterDef;
   childDef?: FilterDef;
-  /** Which parent a child value belongs to. */
-  parentOf: (childValue: string) => string | undefined;
   placeholder: string;
   emptyLabel: string;
   noChildrenLabel: string;
@@ -46,6 +44,11 @@ export function TwoLevelGate({
   const term = text.trim();
   const parentKey = parentDef.key;
   const childKey = childDef?.key;
+  // Read off the child's own definition rather than taken as a prop. It used
+  // to be both — declared in the registry AND passed in at the call site —
+  // which is one fact in two places waiting to disagree. The child with no
+  // parent mapping simply has no children to place, so a no-op is right.
+  const parentOf = childDef?.parentOf ?? (() => undefined);
 
   const allParents = gateOptions(parentDef, query, ctx);
   const children = childDef ? gateOptions(childDef, query, ctx) : [];
@@ -74,15 +77,11 @@ export function TwoLevelGate({
     onChange({ ...query, filters: { ...query.filters, ...next } });
 
   function toggleParent(value: string) {
+    // Just the parent. Dropping its children is no longer this control's job —
+    // the rule is declared on the filter itself and applied by normalizeQuery,
+    // so it holds for the chip row and the omnibox too, not only for here.
     const nextParents = toggleMulti(query.filters[parentKey], value);
-    // Dropped the parent → drop whatever hung off it.
-    const nextChildren = nextParents.includes(value)
-      ? selectedChildren
-      : selectedChildren.filter((c) => parentOf(c) !== value);
-    setFilters({
-      [parentKey]: nextParents.length ? nextParents : undefined,
-      ...(childKey ? { [childKey]: nextChildren.length ? nextChildren : undefined } : {}),
-    });
+    setFilters({ [parentKey]: nextParents.length ? nextParents : undefined });
   }
 
   function toggleChild(value: string) {
@@ -102,12 +101,28 @@ export function TwoLevelGate({
       : labelOf(selectedParents[0] ?? "");
   const extra = selectedParents.length - 1;
 
+  /**
+   * "How many results if she picks this", once per parent.
+   *
+   * facetCount answers that by re-running the whole search with one value
+   * swapped, so each call walks the entire offer index. This used to be asked
+   * twice for every parent with identical arguments — once to decide whether
+   * the gate greys out, once again while drawing the same row's number — and
+   * half the work was thrown away. Splitting offers per branch multiplied the
+   * index those walks cross, which is what turned a wasteful habit into a
+   * noticeable pause when the panel opens.
+   */
+  const parentCounts = new Map(
+    allParents.map((p) => [
+      p.value,
+      facetCount(query, parentKey, toggleMulti(query.filters[parentKey], p.value), ctx),
+    ])
+  );
+
   // Nothing left to ask on either level — one parent reachable, and no child
   // choice inside it. The segment greys out and states the answer, but still
   // opens: that's where she undoes what decided it.
-  const choosable = allParents.filter(
-    (p) => facetCount(query, parentKey, toggleMulti(query.filters[parentKey], p.value), ctx) > 0
-  );
+  const choosable = allParents.filter((p) => (parentCounts.get(p.value) ?? 0) > 0);
   const only = choosable.length === 1 ? choosable[0] : undefined;
   const constrained =
     !active && choosable.length <= 1 && (!only || children.filter((c) => parentOf(c.value) === only.value).length <= 1);
@@ -129,9 +144,9 @@ export function TwoLevelGate({
         </span>
       }
     >
-      {() => (
+      {(close) => (
         <div className="py-1">
-          <p className="px-3 pb-1 pt-1.5 text-[11px] font-semibold text-slate-500">{parentDef.group}</p>
+          <GatePanelHeader title={parentDef.group} onClose={close} />
           {constrained && (
             <p className="px-3 pb-1 text-[11px] text-slate-400">נקבע לפי הבחירות האחרות — אפשר לבטל אותן ולחזור.</p>
           )}
@@ -145,7 +160,7 @@ export function TwoLevelGate({
           <div className="max-h-[55vh] overflow-y-auto">
             {parents.map((opt) => {
               const isOn = selectedParents.includes(opt.value);
-              const count = facetCount(query, parentKey, toggleMulti(query.filters[parentKey], opt.value), ctx);
+              const count = parentCounts.get(opt.value) ?? 0;
               const own = isOn ? childrenFor(opt.value) : [];
 
               return (
