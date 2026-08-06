@@ -27,6 +27,7 @@ export function AgreementsSection({
   onKupahArrangementsChange,
   privateInsuranceCompanies,
   onPrivateInsuranceCompaniesChange,
+  layers = INSURANCE_LAYERS,
 }: {
   providerId: string;
   agreements: ProviderAgreement[];
@@ -35,6 +36,10 @@ export function AgreementsSection({
   onKupahArrangementsChange: (value: KupahArrangement[]) => void;
   privateInsuranceCompanies: string[];
   onPrivateInsuranceCompaniesChange: (value: string[]) => void;
+  /** Which layers this provider can hold at all. An individual נותן שירות never
+   * bills סל קופה (S) — the basket is contracted with a יחידה, not a person —
+   * so that layer is left out entirely rather than shown and refused. */
+  layers?: InsuranceLayer[];
 }) {
   function agreementFor(layer: InsuranceLayer) {
     return agreements.find((a) => a.layer === layer);
@@ -58,7 +63,7 @@ export function AgreementsSection({
 
   return (
     <div className="flex flex-col gap-3">
-      {INSURANCE_LAYERS.map((layer) => {
+      {layers.map((layer) => {
         const agreement = agreementFor(layer);
         const enabled = !!agreement;
         return (

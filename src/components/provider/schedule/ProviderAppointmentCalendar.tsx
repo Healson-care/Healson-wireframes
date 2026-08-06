@@ -29,6 +29,7 @@ import { DAY_LABELS } from "@/lib/medical-tree";
 import { isoDate } from "@/lib/calendar";
 import { dayKeyForDate, minutesToTime, shiftsForDate, timeToMinutes } from "@/lib/schedule";
 import { getUnitResources, isUnitProvider } from "@/lib/unit-resources";
+import { appointmentStatusLabel, showsPatientPaymentStatus } from "@/lib/appointment-payments";
 import { resolvePriceBreakdown } from "@/lib/pricing";
 import {
   CalendarView,
@@ -99,6 +100,9 @@ export function ProviderAppointmentCalendar({ provider }: { provider: ProviderPr
   const showToast = useStore((s) => s.showToast);
 
   const isUnit = isUnitProvider(provider);
+  // An individual provider is never shown the patient's collection state — see
+  // showsPatientPaymentStatus.
+  const showsMoney = showsPatientPaymentStatus(provider);
   /** For a solo practitioner the person IS the calendar — pass their id into the
    * conflict guard so a booking here also respects the shifts they deliver
    * inside units (§PRV-10), not just this diary. */
@@ -332,17 +336,31 @@ export function ProviderAppointmentCalendar({ provider }: { provider: ProviderPr
   }, [view, anchor, dates]);
 
   // Status legend — only statuses that actually occur in this provider's diary,
-  // with live counts for the range on screen.
+  // with live counts for the range on screen. Where several statuses read as
+  // the same thing to this provider (the payment phases, for an individual —
+  // see appointmentStatusLabel) they share one chip and hide together, so the
+  // legend never shows the same word twice.
   const legend = useMemo(() => {
     const counts = new Map<AppointmentStatus, number>();
     for (const a of scoped) {
       if (!inRange(a.date)) continue;
       counts.set(a.status, (counts.get(a.status) ?? 0) + 1);
     }
-    return APPOINTMENT_STATUSES.map((status) => ({ status, count: counts.get(status) ?? 0 })).filter(
-      (s) => s.count > 0 || hiddenStatuses.has(s.status)
-    );
-  }, [scoped, inRange, hiddenStatuses]);
+    const groups = new Map<string, { label: string; statuses: AppointmentStatus[]; count: number }>();
+    for (const status of APPOINTMENT_STATUSES) {
+      const count = counts.get(status) ?? 0;
+      if (count === 0 && !hiddenStatuses.has(status)) continue;
+      const label = appointmentStatusLabel(status, showsMoney);
+      const group = groups.get(label);
+      if (group) {
+        group.statuses.push(status);
+        group.count += count;
+      } else {
+        groups.set(label, { label, statuses: [status], count });
+      }
+    }
+    return [...groups.values()];
+  }, [scoped, inRange, hiddenStatuses, showsMoney]);
 
   const monthAppointments = useMemo(
     () => (view === "month" ? visible.filter((a) => inRange(a.date)) : []),
@@ -847,18 +865,20 @@ export function ProviderAppointmentCalendar({ provider }: { provider: ProviderPr
       {/* Status legend — click to hide/show a status */}
       {legend.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
-          {legend.map(({ status, count }) => {
-            const hidden = hiddenStatuses.has(status);
-            const color = APPOINTMENT_STATUS_COLORS[status];
+          {legend.map(({ label, statuses, count }) => {
+            const hidden = statuses.every((s) => hiddenStatuses.has(s));
+            const color = APPOINTMENT_STATUS_COLORS[statuses[0]];
             return (
               <button
-                key={status}
+                key={label}
                 type="button"
                 onClick={() =>
                   setHiddenStatuses((prev) => {
                     const next = new Set(prev);
-                    if (next.has(status)) next.delete(status);
-                    else next.add(status);
+                    for (const s of statuses) {
+                      if (hidden) next.delete(s);
+                      else next.add(s);
+                    }
                     return next;
                   })
                 }
@@ -869,7 +889,7 @@ export function ProviderAppointmentCalendar({ provider }: { provider: ProviderPr
                 )}
               >
                 <span className={cn("h-2.5 w-2.5 rounded-full", hidden ? "bg-slate-300" : color.dot)} />
-                {status}
+                {label}
                 <span className="opacity-70">({count})</span>
               </button>
             );
@@ -904,6 +924,7 @@ export function ProviderAppointmentCalendar({ provider }: { provider: ProviderPr
           columnKeyOf={columnKeyOf}
           canCreate={canBook}
           showOpenHours={showOpenHours}
+          showMoneyFlag={showsMoney}
           onCreate={openCreate}
           onOpen={(b) => setDetailId(b.appt.id)}
           onMove={handleMove}
@@ -1099,6 +1120,7 @@ function DetailBody({
   ) => void;
 }) {
   const owned = a.provider_id === provider.id;
+  const showsMoney = showsPatientPaymentStatus(provider);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({
     date: a.date,
@@ -1128,8 +1150,14 @@ function DetailBody({
           )}
         </div>
         <div className="flex flex-col items-end gap-1">
-          <StatusBadge status={a.status} kind="appointment" />
-          <PaymentStateBadge appointment={a} />
+          <StatusBadge
+            status={a.status}
+            kind="appointment"
+            label={appointmentStatusLabel(a.status, showsMoney)}
+          />
+          {/* Collection state is a unit's own work; for an individual provider
+              Healson collects and settles, so it is not shown at all. */}
+          {showsMoney && <PaymentStateBadge appointment={a} />}
           {laneName && laneName !== provider.display_name && <Badge tone="neutral">{laneName}</Badge>}
           {typeof a.price === "number" && (
             <span className="text-xs font-medium text-slate-600">{formatCurrency(a.price)}</span>
@@ -1147,9 +1175,11 @@ function DetailBody({
 
       {/* The referral decision and the money picture — the two things a
           provider needs on an incoming booking (payments meeting §7). Both are
-          owner-only: a reflection of another calendar's booking is read-only. */}
+          owner-only: a reflection of another calendar's booking is read-only.
+          For an individual provider the second panel keeps only the payer's
+          התחייבות, since the collection itself is Healson's. */}
       {owned && <ReferralReviewPanel appointment={a} />}
-      {owned && <AppointmentPaymentPanel appointment={a} />}
+      {owned && <AppointmentPaymentPanel appointment={a} showMoney={showsMoney} />}
 
       {a.notes && !editing && (
         <div className="rounded-lg border border-slate-200 px-3 py-2">

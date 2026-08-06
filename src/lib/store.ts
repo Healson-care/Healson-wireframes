@@ -2318,7 +2318,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 39,
+      version: 42,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
       // records), the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER seed
       // account, the v3 -> v4 AppointmentStatus rename ("ממתין לאישור" ->
@@ -2456,7 +2456,20 @@ export const useStore = create<Store>()(
       // v38 -> v39 replaces the solo-provider demo entirely (ד"ר אברהם אשכנזי,
       // his two branches, his six items and the שערי צדק unit he works in), so
       // a v38 blob would keep showing the orthopaedic practice it replaced.
-      migrate: (persistedState, version) => (version < 39 ? ({} as Store) : (persistedState as Store)),
+      // v39 -> v40 merges the two מרפאות חוץ demo units into one: the unit
+      // login IS מרפאות חוץ שערי צדק now (ד"ר אברהם אשכנזי runs its מרפאת כאבי
+      // ראש), its catalogue was rewritten as real items with per-item required
+      // documents, and ConsultationType.required_documents gained kind/חובה/
+      // timing/instructions — a v39 blob keeps the old unit, items and flat
+      // document rows, so reseed clean.
+      // v40 -> v41 replaces the מרפאות חוץ demo catalogue with the unit's REAL
+      // price list: 27 doctors of בית חולים שערי צדק, 48 ייעוץ items, per-plan
+      // שב"ן terms on each item (payer_prices), and no invented items or
+      // stations. A v40 blob keeps the invented catalogue — reseed clean.
+      // v41 -> v42 adds the real נותני שירות יחידים list (18 doctors at מרכז
+      // הילסון בית שמש, with their ביקורי בית / אונליין branches) and drops two
+      // invented demo doctors — reseed clean so the fake ones are gone.
+      migrate: (persistedState, version) => (version < 42 ? ({} as Store) : (persistedState as Store)),
       // Uploaded files (photos/PDFs) are stored as base64 data URLs inside
       // this same persisted blob (no real backend — see file.ts). If a
       // single write ever still exceeds the browser's localStorage quota
