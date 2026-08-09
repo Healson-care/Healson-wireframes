@@ -5,7 +5,7 @@
 // doesn't need 11 hand-built screens.
 import { LocationType, ProviderProfile, ProviderType } from "@/types";
 import { hasAnyAvailability } from "./schedule";
-import { isUnitPath } from "./provider-phases";
+import { isUnitPath, needsEmailActivation } from "./provider-phases";
 import { getUnitResources, isUnitProvider } from "./unit-resources";
 
 export interface ProviderTypeSetupConfig {
@@ -285,6 +285,9 @@ export function getNextProviderAction(provider: ProviderProfile): string | null 
   const config = getProviderSetupConfig(provider.provider_type);
 
   if (provider.status === "pending_review") {
+    if (needsEmailActivation(provider)) {
+      return "שלחנו לך מייל עם קישור הפעלה — לחיצה עליו תאמת את כתובת המייל ותפתח את מילוי הבקשה.";
+    }
     return provider.application_submitted_at
       ? "הבקשה שלך ממתינה לבדיקת רישיון על ידי צוות Healson — נעדכן אותך במייל בסיום הבדיקה."
       : "השלימו את פרטי הבקשה ושלחו אותה לבדיקת Healson.";

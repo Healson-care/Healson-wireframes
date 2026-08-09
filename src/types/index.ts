@@ -1540,9 +1540,15 @@ export interface ProviderProfile {
   // from provider_type (units are never self-registerable).
   onboarding_path?: "solo" | "unit";
   // Set by verifyProviderPhoneOtp, right after the phone is entered on the
-  // application's "פרטים אישיים" sub-step. There is no email counterpart:
-  // the mail sent at signup is a welcome notification, not a gate.
+  // application's "פרטים אישיים" sub-step.
   phone_verified_at?: string;
+  // Set by verifyProviderEmailLink when the applicant opens the activation
+  // link mailed to them the moment the account was created. This IS a gate:
+  // until it's stamped, the portal shows nothing but the activation notice —
+  // no provider-type picker and no application form (see
+  // needsEmailActivation). Only the solo join path has one; a unit account is
+  // opened by Healson ops, who hand the credentials over directly.
+  email_verified_at?: string;
   license_file?: UploadedFile;
   // Individual providers (רופא/מטפל) — national ID number and a scan of the ID
   // document. Both mandatory at registration: an individual is licensed as a

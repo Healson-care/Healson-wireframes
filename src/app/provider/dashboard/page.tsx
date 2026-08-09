@@ -13,6 +13,7 @@ import { Avatar, EmptyState, SectionHeading, StatCard } from "@/components/ui/Mi
 import { CardListSkeleton, Skeleton } from "@/components/ui/Skeleton";
 import { OnboardingProgress } from "@/components/provider/OnboardingProgress";
 import { RegistrationProgress } from "@/components/provider/RegistrationProgress";
+import { ProviderEmailActivation } from "@/components/provider/ProviderEmailActivation";
 import { ProviderApplicationSummary } from "@/components/provider/ProviderApplicationSummary";
 import {
   Users,
@@ -28,6 +29,7 @@ import {
 import { isCancelledAppointment } from "@/types";
 import { formatCurrency, formatDateHe, monthOverMonthTrend, buildMonthlyData } from "@/lib/utils";
 import { getProviderSetupConfig, isSetupReadyToPublish, isAvailabilityComplete } from "@/lib/provider-setup";
+import { needsEmailActivation } from "@/lib/provider-phases";
 
 export default function ProviderDashboardPage() {
   const currentUser = useStore((s) => s.currentUser);
@@ -68,9 +70,13 @@ export default function ProviderDashboardPage() {
     : undefined;
   const isPendingReview = provider.status === "pending_review";
   const applicationSubmitted = !!provider.application_submitted_at;
-  // Brand-new account: RegistrationProgress renders its own welcome hero (which is
-  // the greeting), so the operational header would just repeat it.
-  const showWelcomeHero = isPendingReview && !provider.provider_type;
+  // First gate of all: the account is signed in but its activation link hasn't
+  // been opened yet, so the portal shows only that notice.
+  const awaitingActivation = needsEmailActivation(provider);
+  // Brand-new account: RegistrationProgress (or the activation notice) renders
+  // its own welcome hero, which IS the greeting — the operational header would
+  // just repeat it.
+  const showWelcomeHero = isPendingReview && (!provider.provider_type || awaitingActivation);
   const isOnboarding = provider.status === "onboarding";
   const isApproved = provider.status === "approved";
   const isLive = provider.status === "approved" && provider.is_published;
@@ -271,9 +277,15 @@ export default function ProviderDashboardPage() {
             </div>
           </div>
         )}
-        {isPendingReview && (
-          <RegistrationProgress provider={provider} displayName={provider.display_name || currentUser.full_name} />
-        )}
+        {isPendingReview &&
+          (awaitingActivation ? (
+            <ProviderEmailActivation
+              email={currentUser.email}
+              displayName={provider.display_name || currentUser.full_name}
+            />
+          ) : (
+            <RegistrationProgress provider={provider} displayName={provider.display_name || currentUser.full_name} />
+          ))}
         {isOnboarding && <OnboardingProgress provider={provider} />}
         {(isOnboarding || (isPendingReview && applicationSubmitted)) && (
           // Same navy/gold token remap as the two phase panels above it, so the

@@ -52,6 +52,22 @@ export function isUnitPath(provider: ProviderProfile): boolean {
   return getProviderPath(provider) === "unit";
 }
 
+/** Whether the account is still waiting for its activation link to be opened.
+ *
+ * The very first gate of רישום: the account exists and the applicant is signed
+ * in, but until the emailed link is clicked the portal offers nothing but the
+ * activation notice — no type picker, no application form. Unit accounts never
+ * have one (Ops opens them and hands over the credentials), and past the
+ * license check the question is moot, so this is scoped to a solo
+ * `pending_review` record. */
+export function needsEmailActivation(provider: ProviderProfile): boolean {
+  return (
+    provider.status === "pending_review" &&
+    !isUnitPath(provider) &&
+    !provider.email_verified_at
+  );
+}
+
 export function getProviderPhase(provider: ProviderProfile): ProviderPhase {
   if (provider.status === "pending_review") return "registration";
   if (provider.status === "onboarding") return "setup";

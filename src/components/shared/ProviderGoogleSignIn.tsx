@@ -2,15 +2,15 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles, ArrowLeft } from "lucide-react";
+import { Sparkles, ArrowLeft, ShieldCheck } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
 
 /** Google's multi-color "G" mark, inlined so it works without a remote asset. */
-function GoogleGlyph() {
+export function GoogleGlyph({ className = "h-5 w-5" }: { className?: string }) {
   return (
-    <svg viewBox="0 0 48 48" className="h-5 w-5" aria-hidden>
+    <svg viewBox="0 0 48 48" className={className} aria-hidden>
       <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
       <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
       <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
@@ -64,9 +64,13 @@ export function ProviderGoogleSignIn({ label = "המשך עם Google" }: { label
           </span>
           <h2 className="text-xl font-bold text-slate-900">ברוכים הבאים ל-Healson!</h2>
           <p className="mt-2 text-sm text-slate-500">החשבון שלך נוצר ואתם כבר מחוברים.</p>
+          <p className="mt-2 flex items-center justify-center gap-1.5 text-xs font-medium text-success-text">
+            <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
+            שלחנו לך מייל עם קישור להפעלת החשבון
+          </p>
           <p className="mt-3 max-w-sm text-sm leading-relaxed text-slate-600">
-            נכנסים ישירות לפורטל שלכם. שם תבחרו את סוג הספק ותשלימו את פרטי הבקשה — בקצב שלכם, הכול נשמר,
-            ושום דבר לא נשלח לבדיקה עד שתחליטו.
+            נכנסים לפורטל שלכם. שם מחכה מסך ההפעלה — אחרי הלחיצה על הקישור שבמייל תבחרו את סוג הספק
+            ותשלימו את פרטי הבקשה, בקצב שלכם, הכול נשמר.
           </p>
           <Button className="mt-6 w-full" onClick={goToPortal}>
             כניסה לפורטל
