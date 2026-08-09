@@ -25,7 +25,7 @@ const NAV_ITEMS = [
   { href: "/client", label: "אזור אישי", icon: LayoutDashboard },
   { href: "/client/search", label: "חיפוש", icon: Search },
   { href: "/client/appointments", label: "התורים שלי", icon: CalendarDays },
-  { href: "/client/documents", label: "מסמכים", icon: FileText },
+  { href: "/client/documents", label: "מסמכים שלי", icon: FileText },
   { href: "/client/profile", label: "פרופיל", icon: UserRound },
 ];
 

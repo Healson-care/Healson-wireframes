@@ -143,6 +143,46 @@ body {
   box-shadow: 0 0 0 2px var(--focus-ring-color);
 }
 
+/* Two-handle range slider (the price filter). Two native <input type="range">
+   share one track, so each input's own track is hidden and only its thumb is
+   drawn. `pointer-events` is the load-bearing part: the upper input covers the
+   whole width, so left as-is it would swallow every click meant for the lower
+   handle — only the thumbs accept the pointer. */
+.range-thumb {
+  pointer-events: none;
+}
+
+.range-thumb::-webkit-slider-thumb {
+  pointer-events: auto;
+  appearance: none;
+  height: 1.15rem;
+  width: 1.15rem;
+  border-radius: 9999px;
+  background: #fff;
+  border: 2px solid var(--brand-navy);
+  box-shadow: 0 1px 4px rgb(20 42 79 / 0.3);
+  cursor: pointer;
+}
+
+.range-thumb::-moz-range-thumb {
+  pointer-events: auto;
+  height: 1.15rem;
+  width: 1.15rem;
+  border-radius: 9999px;
+  background: #fff;
+  border: 2px solid var(--brand-navy);
+  box-shadow: 0 1px 4px rgb(20 42 79 / 0.3);
+  cursor: pointer;
+}
+
+.range-thumb:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px var(--focus-ring-color);
+}
+
+.range-thumb:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px var(--focus-ring-color);
+}
+
 @keyframes fadeSlideIn {
   from {
     opacity: 0;

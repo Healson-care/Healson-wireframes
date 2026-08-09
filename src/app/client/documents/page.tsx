@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -8,12 +8,17 @@ import {
   ClipboardList,
   Download,
   FileText,
+  FileSpreadsheet,
   FlaskConical,
+  IdCard,
   ListChecks,
   MoreVertical,
   Pencil,
+  Pill,
   Plus,
   Receipt,
+  Scan,
+  ShieldCheck,
   Stethoscope,
   Trash2,
   Upload,
@@ -49,19 +54,24 @@ type LabItem = { kind: "lab"; id: string; category: "lab_result"; created_date: 
 type DisplayItem = DocItem | LabItem;
 
 const CATEGORY_ICON: Record<DocumentCategory, typeof FileText> = {
-  referral_personal: FileText,
-  receipt: Receipt,
+  referral: FileText,
   visit_summary: ClipboardList,
   questionnaire: ListChecks,
   lab_result: FlaskConical,
+  prescription: Pill,
+  commitment: ShieldCheck,
+  imaging: Scan,
+  personal: IdCard,
+  invoice: FileSpreadsheet,
+  receipt: Receipt,
   other: FileText,
 };
 
-// Tab split: receipts are the patient's financial paper trail; everything
-// else (referrals, visit summaries, questionnaires, lab results, misc) is
-// medical.
+// Tab split: tax invoices and receipts are the patient's financial paper
+// trail; everything else (referrals, visit summaries, questionnaires, results,
+// imaging, personal papers, misc) is medical.
 type DocumentsTab = "medical" | "financial";
-const FINANCIAL_CATEGORIES: DocumentCategory[] = ["receipt"];
+const FINANCIAL_CATEGORIES: DocumentCategory[] = ["invoice", "receipt"];
 const MEDICAL_CATEGORY_OPTIONS = DOCUMENT_CATEGORIES.filter((c) => !FINANCIAL_CATEGORIES.includes(c.id));
 
 const REFERRAL_STATUS_DESCRIPTIONS: Record<ReferralStatus, string> = {
@@ -402,7 +412,7 @@ function ClientDocumentsPageContent() {
   return (
     <ClientLayout>
       <PageHeader
-        title="מסמכים"
+        title="מסמכים שלי"
         actions={
           <Button size="sm" onClick={() => setUploadOpen(true)}>
             <Plus className="h-4 w-4" /> מסמך חדש
@@ -502,7 +512,7 @@ function ClientDocumentsPageContent() {
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
         patientId={patient?.id ?? ""}
-        category="referral_personal"
+        category="referral"
         dialogTitle="מסמך חדש"
         description="הפניה או טופס אישי (למשל צילום ת&quot;ז)"
       />

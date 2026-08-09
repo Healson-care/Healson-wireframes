@@ -756,6 +756,57 @@ export const CONSULTATION_SUBTYPES = [
   "פענוח וסיכום בדיקות",
 ] as const;
 
+/**
+ * The age groups an item is offered for — one shared vocabulary for the whole
+ * platform: the provider picks from these when adding an item, and the patient
+ * filters by the same four.
+ *
+ * "כל הגילאים" is the absence of a limit, not a fifth bracket, which is why it
+ * spans the full range: an item with no age rule must be findable under every
+ * group, and an item restricted to children must not surface for an adult.
+ * The boundaries deliberately overlap (18 and 60 belong to both neighbours) —
+ * an item offered "from 18" is for both a young adult and a pensioner.
+ */
+export type AgeGroup = "0-18" | "18-60" | "60+" | "all";
+
+export const AGE_GROUPS: { value: AgeGroup; label: string; min: number; max: number }[] = [
+  { value: "0-18", label: "0–18", min: 0, max: 18 },
+  { value: "18-60", label: "18–60", min: 18, max: 60 },
+  { value: "60+", label: "60+", min: 60, max: 120 },
+  { value: "all", label: "כל הגילאים", min: 0, max: 120 },
+];
+
+export const AGE_GROUP_LABELS: Record<AgeGroup, string> = {
+  "0-18": "0–18",
+  "18-60": "18–60",
+  "60+": "60+",
+  all: "כל הגילאים",
+};
+
+/** The min/max an item carries when the provider picks a group. "כל הגילאים"
+ * stores nothing at all — an absent limit, which is what it means. */
+export function ageGroupToRange(group: AgeGroup): { min_age?: number; max_age?: number } {
+  switch (group) {
+    case "0-18":
+      return { max_age: 18 };
+    case "18-60":
+      return { min_age: 18, max_age: 60 };
+    case "60+":
+      return { min_age: 60 };
+    default:
+      return {};
+  }
+}
+
+/** Which group an item's stored range came from — the inverse of the above, so
+ * the provider form reopens on what was saved. */
+export function ageGroupOfRange(minAge?: number, maxAge?: number): AgeGroup {
+  if (minAge == null && maxAge == null) return "all";
+  if (minAge == null && maxAge != null) return "0-18";
+  if (minAge != null && maxAge == null) return "60+";
+  return "18-60";
+}
+
 export type AnesthesiaType = "local" | "sedation" | "general";
 export const ANESTHESIA_TYPES: AnesthesiaType[] = ["local", "sedation", "general"];
 export const ANESTHESIA_TYPE_LABELS: Record<AnesthesiaType, string> = {
@@ -835,14 +886,17 @@ export interface RequiredDocument {
 }
 
 const REQUIRED_DOCUMENT_CATEGORY: Record<RequiredDocumentKind, DocumentCategory> = {
-  referral: "referral_personal",
-  form: "referral_personal",
+  referral: "referral",
+  form: "referral",
   questionnaire: "questionnaire",
   lab_result: "lab_result",
-  imaging: "lab_result",
+  // Imaging has a drawer of its own now — a scan filed under "תוצאות בדיקות"
+  // was findable only by someone who already knew where it had been put.
+  imaging: "imaging",
   medical_summary: "visit_summary",
-  insurance: "referral_personal",
-  id: "other",
+  // An insurance paper is the patient's own, not a result of the visit.
+  insurance: "personal",
+  id: "personal",
   other: "other",
 };
 
@@ -1005,8 +1059,8 @@ export const PROVIDER_TYPES: ProviderType[] = [
 
 export const PROVIDER_TYPE_LABELS: Record<ProviderType, string> = {
   doctor: "רופא/ה",
-  caregiver: "מטפל/ת",
-  store: "חנות",
+  caregiver: "מטפל רפואי",
+  store: "חנות לציוד רפואי",
   pharmacy: "בית מרקחת",
   hospital: "בית חולים",
   outpatient_clinic: "מרפאות חוץ",
@@ -1014,6 +1068,27 @@ export const PROVIDER_TYPE_LABELS: Record<ProviderType, string> = {
   lab: "מעבדה",
   medical_call_center: "מוקד רפואי",
   insurance_agency: "סוכנות ביטוח",
+};
+
+/**
+ * "All of this kind", written out in full rather than composed.
+ *
+ * A `כל ה${label}` template cannot work here: the labels are singular, several
+ * are construct-state ("בית מרקחת" → "כל בתי המרקחת", never "כל הבית מרקחת"),
+ * and one carries a slash ("רופא/ה"). Ten short strings beat a rule with eight
+ * exceptions.
+ */
+export const PROVIDER_TYPE_ALL_LABELS: Record<ProviderType, string> = {
+  doctor: "כל הרופאים",
+  caregiver: "כל המטפלים הרפואיים",
+  store: "כל החנויות לציוד רפואי",
+  pharmacy: "כל בתי המרקחת",
+  hospital: "כל בתי החולים",
+  outpatient_clinic: "כל מרפאות החוץ",
+  medical_institute: "כל המכונים הרפואיים",
+  lab: "כל המעבדות",
+  medical_call_center: "כל המוקדים הרפואיים",
+  insurance_agency: "כל סוכנויות הביטוח",
 };
 
 export const PROVIDER_TYPE_DESCRIPTIONS: Record<ProviderType, string> = {
@@ -1917,19 +1992,38 @@ export interface VisitRecord {
 // in the same tab but keep living in their own array — the documents page
 // adapts them into this shape for display instead of duplicating the data.
 export type DocumentCategory =
-  | "referral_personal"
-  | "receipt"
+  | "referral"
   | "visit_summary"
   | "questionnaire"
   | "lab_result"
+  | "prescription"
+  | "commitment"
+  | "imaging"
+  | "personal"
+  | "invoice"
+  | "receipt"
   | "other";
 
 export const DOCUMENT_CATEGORIES: { id: DocumentCategory; label: string }[] = [
-  { id: "referral_personal", label: "הפניות וטפסים" },
-  { id: "receipt", label: "קבלות" },
+  { id: "referral", label: "הפניות" },
   { id: "visit_summary", label: "סיכומי ביקור" },
   { id: "questionnaire", label: "שאלונים" },
-  { id: "lab_result", label: "תוצאות מעבדה" },
+  { id: "lab_result", label: "תוצאות בדיקות" },
+  { id: "prescription", label: "מרשמים" },
+  // The kupah's טופס 17 and an insurer's כתב התחייבות: paperwork that FUNDS a
+  // booking, which is why it is not filed with the referrals that authorise it.
+  { id: "commitment", label: "התחייבויות" },
+  { id: "imaging", label: "הדמיות" },
+  // The patient's own identity and cover papers — an ID/passport scan, the
+  // insurance policy. Hers rather than any one appointment's, and the only
+  // group here that isn't produced by a visit.
+  { id: "personal", label: "מסמכים אישיים" },
+  // Two separate papers, not one: a חשבונית מס is the tax document for the
+  // charge, a קבלה is the proof that it was paid. An accountant asks for the
+  // first and a refund claim needs the second, so filing them together would
+  // send her hunting through one drawer for whichever she doesn't have.
+  { id: "invoice", label: "חשבוניות מס" },
+  { id: "receipt", label: "קבלות" },
   { id: "other", label: "אחר" },
 ];
 

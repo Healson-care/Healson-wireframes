@@ -15,7 +15,13 @@ export const SEARCH_FLOW_STEPS = ["בחירה", "מיקום", "שעה", "תשל�
  * review of it. Only an approved referral opens the slot picker — picking a
  * time the unit might refuse would be an appointment made of nothing.
  */
-export const REFERRAL_FLOW_STEPS = ["בחירה", "הפניה", "אישור יחידה", "מיקום", "שעה", "תשלום", "סיום"];
+/**
+ * Location comes BEFORE the referral here, unlike the direct flow where it sits
+ * with the time. A referral is sent to a specific place for a specific unit to
+ * answer — so which branch has to be settled before there is anything to send,
+ * and it cannot wait for the slot picker the way a date can.
+ */
+export const REFERRAL_FLOW_STEPS = ["בחירה", "מיקום", "הפניה", "אישור יחידה", "שעה", "תשלום", "סיום"];
 
 /**
  * The route decides the journey. Where the payer settles by undertaking —

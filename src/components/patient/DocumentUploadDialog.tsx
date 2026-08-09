@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Upload } from "lucide-react";
-import { Dialog } from "@/components/ui/Dialog";
+import { ConfirmDialog, Dialog } from "@/components/ui/Dialog";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { FileDropzone } from "@/components/ui/FileDropzone";
@@ -42,6 +42,7 @@ export function DocumentUploadDialog({
   const [selectedIds, setSelectedIds] = useState<string[]>(defaultAppointmentIds);
   const [submitting, setSubmitting] = useState(false);
   const [wasOpen, setWasOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   // Re-seed the form (including the preselected appointment(s) for *this*
   // open) each time the dialog opens, without remounting the component.
@@ -50,6 +51,7 @@ export function DocumentUploadDialog({
     setTitle("");
     setFile(null);
     setSelectedIds(defaultAppointmentIds);
+    setConfirmOpen(false);
   } else if (!open && wasOpen) {
     setWasOpen(false);
   }
@@ -62,13 +64,24 @@ export function DocumentUploadDialog({
     [appointments, patientId]
   );
 
+  /** Who the linked appointments actually belong to — the confirmation names
+   * them rather than counting them. Deduped: two appointments with the same
+   * doctor are one recipient, and listing him twice would read as a bug. */
+  const selectedNames = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          patientAppointments.filter((a) => selectedIds.includes(a.id)).map((a) => a.provider_name)
+        )
+      ),
+    [patientAppointments, selectedIds]
+  );
+
   function toggleAppointment(id: string) {
     setSelectedIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!title.trim()) return;
+  async function save() {
     setSubmitting(true);
     addDocument({
       patient_id: patientId,
@@ -81,8 +94,23 @@ export function DocumentUploadDialog({
         : undefined,
     });
     setSubmitting(false);
+    setConfirmOpen(false);
     onClose();
     showToast("המסמך הועלה בהצלחה", { variant: "success" });
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!title.trim()) return;
+    // Linking is the one irreversible-feeling part of this form: it hands the
+    // document to the people delivering those appointments. An unlinked upload
+    // stays private to her file and needs no such step, so the confirmation
+    // appears only when there is actually something being shared.
+    if (selectedIds.length > 0) {
+      setConfirmOpen(true);
+      return;
+    }
+    void save();
   }
 
   return (
@@ -128,6 +156,17 @@ export function DocumentUploadDialog({
           <Upload className="h-4 w-4" /> העלה
         </Button>
       </form>
+
+      {/* Named, not counted: "המסמך ישויך ל-2 תורים" tells her how many but not
+          to whom, and the whole point of the step is knowing who will see it. */}
+      <ConfirmDialog
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        title="שיוך המסמך לתור"
+        description={`שיוך המסמך הופך אותו לזמין לנותני השירות של: ${selectedNames.join(", ")}. אפשר לבטל את השיוך בכל שלב מתוך המסמך.`}
+        confirmLabel="אישור ושיוך"
+        onConfirm={() => void save()}
+      />
     </Dialog>
   );
 }

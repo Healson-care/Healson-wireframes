@@ -58,10 +58,15 @@ export function PrimaryGates({
       performerId: null,
       organizationId: null,
       // Every part of this gate's own axis is cleared — the two anchors, the
-      // unit kind AND doctorDelivered. Leaving the last one in was what let
+      // unit kind AND the person kind. Leaving the last one in was what let
       // "כל הרופאים" grey out every institute the moment it was chosen, so the
       // gate could only be cleared and never changed.
-      filters: { ...query.filters, unitType: undefined, doctorDelivered: undefined },
+      filters: {
+        ...query.filters,
+        unitType: undefined,
+        performerType: undefined,
+        performerSpecialty: undefined,
+      },
     };
     return ctx.offers.filter((offer) => matchesQuery(offer, probe, ctx));
   }, [query, ctx]);

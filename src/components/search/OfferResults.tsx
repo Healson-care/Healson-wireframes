@@ -1,7 +1,7 @@
 "use client";
 
 import { Building2, FileText, MapPin, Star, Stethoscope } from "lucide-react";
-import { EmptyState } from "@/components/ui/Misc";
+import { Avatar, EmptyState } from "@/components/ui/Misc";
 import { InsurancePriceBlock } from "@/components/book/InsurancePriceBlock";
 import { requiresReferral } from "@/lib/referral";
 import { formatCurrency } from "@/lib/utils";
@@ -10,6 +10,7 @@ import {
   OfferPricing,
   domainLabel,
   offerDomainId,
+  offerLocations,
   offerPricing,
   offerSubdomainId,
   providerLabel,
@@ -66,12 +67,41 @@ export function OfferCard({
 }) {
   const pricing = offerPricing(offer, patient);
   const doctor = offer.doctor;
+  // Who the card is FOR: the person when there is one, otherwise the unit
+  // itself — said plainly rather than left blank, because an MRI really is
+  // performed by a station and pretending a doctor is behind it is a lie the
+  // patient discovers at the counter.
+  const performer = doctor ?? offer.organization ?? offer.provider;
+  const performerName = providerLabel(performer);
+  const performerDetail = doctor
+    ? [doctor.specialty, ...(doctor.sub_specialties ?? [])].filter(Boolean).join(" · ")
+    : performer.specialty;
 
   return (
     <button
       onClick={onSelect}
       className="focus-ring w-full rounded-2xl border border-white/70 bg-white/85 p-3.5 text-right shadow-[0_18px_40px_-30px_rgba(20,42,79,0.4)] backdrop-blur-sm transition-colors hover:border-[var(--brand-navy)]/25 sm:p-4"
     >
+      {/* WHO, first and across the full width. The performer used to be the
+          fourth line of a squeezed left column; it is the thing a patient
+          recognises and trusts, so it heads the card and everything else is
+          what that person is offering. */}
+      <div className="mb-2.5 flex items-center gap-2.5 border-b border-slate-100 pb-2.5">
+        <Avatar name={performerName} src={performer?.image_url} className="h-9 w-9 ring-1 ring-slate-100" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-bold leading-tight text-[var(--brand-navy)]">{performerName}</p>
+          {performerDetail && (
+            <p className="mt-0.5 truncate text-[11px] text-slate-500">{performerDetail}</p>
+          )}
+        </div>
+        {doctor?.rating !== undefined && (
+          <span className="flex shrink-0 items-center gap-0.5 text-[11px] font-semibold text-slate-600">
+            <Star className="h-3 w-3 fill-[var(--color-accent)] text-[var(--color-accent)]" />
+            {doctor.rating}
+          </span>
+        )}
+      </div>
+
       {/* Price beside the details from sm up, beneath them on a phone. Sharing
           the top line at every width meant the price column ate 42% of a 360px
           screen, and everything on the left — the item name, the doctor — was
@@ -102,38 +132,16 @@ export function OfferCard({
             she answers before she reads anything else. */}
         <BranchLine offer={offer} />
 
-        {/* 3 — who gives it. A person when there is one; otherwise the unit
-            itself, said plainly rather than left blank: an MRI is performed by
-            a station, and pretending a doctor is behind it would be a lie the
-            patient discovers at the counter. */}
-        {/* Wraps onto a second line rather than truncating: a long name and a
-            long specialty on one 190px line is exactly how "ד״ר אברהם אשכנזי ·
-            נוירולוגיה" became "ד״ר אברהם אשכ…". The rating stays pinned to the
-            first line so the name never has to fight it for room. */}
-        <p className="mt-1 flex items-start gap-1.5 text-xs text-slate-600">
-          {doctor ? (
-            <>
-              <Stethoscope className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--brand-navy)]/50" />
-              <span className="min-w-0 flex-1 break-words leading-snug">
-                <span className="font-medium text-slate-800">{providerLabel(doctor)}</span>
-                {doctor.specialty && <span className="text-slate-500"> · {doctor.specialty}</span>}
-              </span>
-              {doctor.rating !== undefined && (
-                <span className="flex shrink-0 items-center gap-0.5 text-[11px] font-medium text-slate-600">
-                  <Star className="h-3 w-3 fill-[var(--color-accent)] text-[var(--color-accent)]" />
-                  {doctor.rating}
-                </span>
-              )}
-            </>
-          ) : (
-            <>
-              <Building2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--brand-navy)]/50" />
-              <span className="min-w-0 flex-1 break-words font-medium leading-snug text-slate-800">
-                {providerLabel(offer.organization ?? offer.provider)}
-              </span>
-            </>
-          )}
-        </p>
+        {/* The performer moved to the card header — a doctor's name repeated
+            in the middle of the card was the same fact said twice. What stays
+            here is the unit BEHIND a named doctor, which the header can't
+            carry: "ד״ר לוי" alone doesn't say she is booking at הדסה. */}
+        {doctor && offer.organization && (
+          <p className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-500">
+            <Building2 className="h-3 w-3 shrink-0 text-[var(--brand-navy)]/50" />
+            <span className="min-w-0 truncate">{providerLabel(offer.organization)}</span>
+          </p>
+        )}
 
         <div className="mt-2 flex flex-wrap gap-1.5">
           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
@@ -234,17 +242,40 @@ function TaxonomyPath({ offer }: { offer: Offer }) {
  * specific עמדה, and that's the thing she'll be sent to at the counter.
  */
 function BranchLine({ offer }: { offer: Offer }) {
+  const locations = offerLocations(offer);
+
+  // Several places, priced alike (see Offer.alsoAt) — each named outright, one
+  // per line. Not "ועוד 2 סניפים": a count would ask her to open the card to
+  // find out whether any of them is near her, which is the one question this
+  // line exists to answer. A line each rather than a run-on, because two
+  // branch names separated by a bullet read as one long place name.
+  if (locations.length > 1) {
+    return (
+      <div className="mt-1 flex items-start gap-1.5 text-xs">
+        <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--brand-navy)]/60" />
+        <div className="min-w-0 space-y-0.5">
+          {locations.map((loc) => (
+            <p key={loc.id} className="break-words leading-snug">
+              <span className="font-semibold text-slate-800">{loc.city || "מיקום לא צוין"}</span>
+              {loc.name && <span className="text-slate-400"> · {loc.name}</span>}
+            </p>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   // The town leads. It's the coarse answer she's after — the branch name, the
   // unit and the station are the detail behind it, lighter on the same line.
   const { city, name, facilityName } = offer.clinic;
-  const detail = [offer.organization?.display_name, name, facilityName].filter(Boolean).join(" · ");
+  const detail = [name, facilityName].filter(Boolean).join(" · ");
 
   return (
     // Wraps rather than truncates: a branch name cut to "סניף רא…" is worse
     // than a second line, and this is the line she navigates by.
     <p className="mt-1 flex items-start gap-1.5 text-xs">
       <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--brand-navy)]/60" />
-      <span className="min-w-0">
+      <span className="min-w-0 break-words leading-snug">
         <span className="font-semibold text-slate-800">{city || "מיקום לא צוין"}</span>
         {detail && <span className="text-slate-400"> · {detail}</span>}
       </span>

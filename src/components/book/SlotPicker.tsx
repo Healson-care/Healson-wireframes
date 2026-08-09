@@ -23,19 +23,17 @@ export function SlotPicker({
   onSelectSlot,
   onJoinWaitlist,
   onClinicChange,
+  onLocationChosen,
+  initialClinicId,
   serviceId,
   performerName,
-  clinicPricing,
 }: {
   provider: ProviderProfile;
   /** Who the patient will actually see, when that isn't the provider record. */
   performerName?: string;
-  /**
-   * The funding route per clinic id. An agreement can cover only some of a
-   * provider's branches, so choosing a location IS choosing a price — this
-   * screen has to say so rather than let her discover it at payment.
-   */
-  clinicPricing?: Record<string, { amount?: string; note?: string }>;
+  // No price per branch here any more: this screen answers WHERE, and a figure
+  // beside each address turned a one-question screen into a comparison. The
+  // price is stated once, in full, on the payment screen.
   appointments: Appointment[];
   onSelectSlot: (date: string, time: string, label: string, clinicId: string) => void;
   // date/time/label/clinicId are omitted for a general "any time works" request.
@@ -44,6 +42,16 @@ export function SlotPicker({
   // the date/time picker, but the page's progress meter needs to know
   // whether the patient is still choosing a location or already past it.
   onClinicChange?: (clinicId: string | null) => void;
+  /**
+   * Set on the referral flow, where the location is its own stage BEFORE the
+   * referral is uploaded: picking a clinic hands control back to the page
+   * instead of revealing the calendar, so this component renders only its
+   * location screen. Omit it and the two stay one screen, as on a direct
+   * booking where nothing sits between them.
+   */
+  onLocationChosen?: (clinicId: string) => void;
+  /** Reopen already scoped to a clinic chosen on an earlier stage. */
+  initialClinicId?: string | null;
   // The service being booked. A provider can dedicate a shift to a subset of
   // their services (e.g. surgeries only in the afternoon shift) — passing this
   // restricts the offered slots to shifts that actually host that service.
@@ -65,7 +73,7 @@ export function SlotPicker({
   // Skipped entirely when there's only one bookable location — no need to
   // make patients pick between clinics that don't exist.
   const [selectedClinicId, setSelectedClinicId] = useState<string | null>(
-    bookableClinics.length === 1 ? bookableClinics[0].id : null
+    initialClinicId ?? (bookableClinics.length === 1 ? bookableClinics[0].id : null)
   );
   const [monthOffset, setMonthOffset] = useState(0);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -134,28 +142,19 @@ export function SlotPicker({
           {bookableClinics.map((clinic) => (
             <button
               key={clinic.id}
-              onClick={() => setSelectedClinicId(clinic.id)}
-              className="focus-ring flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-white p-4 text-right transition-colors hover:border-primary/40 hover:bg-primary/5"
+              onClick={() => {
+                setSelectedClinicId(clinic.id);
+                onLocationChosen?.(clinic.id);
+              }}
+              className="focus-ring flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-4 text-right transition-colors hover:border-primary/40 hover:bg-primary/5"
             >
-              <span className="flex min-w-0 items-start gap-3">
-                <MapPin className="h-5 w-5 shrink-0 mt-0.5 text-primary" />
-                <span className="min-w-0">
-                  <span className="block font-semibold text-slate-900">{clinic.name}</span>
-                  <span className="block text-sm text-slate-500">
-                    {clinic.address}, {clinic.city}
-                  </span>
+              <MapPin className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+              <span className="min-w-0">
+                <span className="block font-semibold text-slate-900">{clinic.name}</span>
+                <span className="block text-sm text-slate-500">
+                  {clinic.address}, {clinic.city}
                 </span>
               </span>
-              {clinicPricing?.[clinic.id] && (
-                <span className="shrink-0 text-left">
-                  {clinicPricing[clinic.id].amount && (
-                    <span className="block text-sm font-bold text-slate-900">{clinicPricing[clinic.id].amount}</span>
-                  )}
-                  {clinicPricing[clinic.id].note && (
-                    <span className="block text-[11px] text-slate-500">{clinicPricing[clinic.id].note}</span>
-                  )}
-                </span>
-              )}
             </button>
           ))}
         </div>

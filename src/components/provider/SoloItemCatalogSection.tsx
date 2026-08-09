@@ -12,6 +12,11 @@ import { defaultRequiresReferral, requiresReferral as requiresReferralOf } from 
 import {
   ANESTHESIA_TYPE_LABELS,
   ANESTHESIA_TYPES,
+  AGE_GROUPS,
+  AGE_GROUP_LABELS,
+  AgeGroup,
+  ageGroupOfRange,
+  ageGroupToRange,
   AnesthesiaType,
   BRANCH_TYPE_LABELS,
   CONSULTATION_SUBTYPES,
@@ -58,10 +63,7 @@ interface KRowState {
 }
 
 function ageLabel(item: ConsultationType): string {
-  if (item.min_age == null && item.max_age == null) return "ללא הגבלת גיל";
-  if (item.min_age != null && item.max_age != null) return `גילאי ${item.min_age}–${item.max_age}`;
-  if (item.min_age != null) return `מגיל ${item.min_age}`;
-  return `עד גיל ${item.max_age}`;
+  return AGE_GROUP_LABELS[ageGroupOfRange(item.min_age, item.max_age)];
 }
 
 /**
@@ -129,9 +131,7 @@ export function SoloItemCatalogSection({
   const [serviceSubtype, setServiceSubtype] = useState<string>(CONSULTATION_SUBTYPES[0]);
   const [subSpecialty, setSubSpecialty] = useState("");
   const [linkedClinicIds, setLinkedClinicIds] = useState<string[]>([]);
-  const [noAgeLimit, setNoAgeLimit] = useState(true);
-  const [minAge, setMinAge] = useState("");
-  const [maxAge, setMaxAge] = useState("");
+  const [ageGroup, setAgeGroup] = useState<AgeGroup>("all");
   const [requiredDocs, setRequiredDocs] = useState<RequiredDocument[]>([]);
   const [requiresReferral, setRequiresReferral] = useState(false);
   // Until the provider touches the checkbox it keeps following the item type's
@@ -169,9 +169,7 @@ export function SoloItemCatalogSection({
     // case, so the default costs no clicks — but it is a real, visible value
     // the provider can narrow, not an empty field that means "everywhere".
     setLinkedClinicIds(clinics.map((c) => c.id));
-    setNoAgeLimit(true);
-    setMinAge("");
-    setMaxAge("");
+    setAgeGroup("all");
     setRequiredDocs([]);
     setRequiresReferral(defaultRequiresReferral("consultation"));
     setReferralTouched(false);
@@ -208,9 +206,7 @@ export function SoloItemCatalogSection({
     setLinkedClinicIds(
       (item.linked_clinic_ids?.length ?? 0) > 0 ? item.linked_clinic_ids! : clinics.map((c) => c.id)
     );
-    setNoAgeLimit(item.min_age == null && item.max_age == null);
-    setMinAge(item.min_age != null ? String(item.min_age) : "");
-    setMaxAge(item.max_age != null ? String(item.max_age) : "");
+    setAgeGroup(ageGroupOfRange(item.min_age, item.max_age));
     setRequiredDocs(item.required_documents ?? []);
     // An item saved before the flag was editable carries the old type rule —
     // open it on exactly what patients experience today, then let it change.
@@ -299,8 +295,7 @@ export function SoloItemCatalogSection({
       service_type: serviceType,
       service_subtype: serviceType === "consultation" ? serviceSubtype : undefined,
       sub_specialty: subSpecialty || undefined,
-      min_age: noAgeLimit || minAge === "" ? undefined : Number(minAge),
-      max_age: noAgeLimit || maxAge === "" ? undefined : Number(maxAge),
+      ...ageGroupToRange(ageGroup),
       required_documents: requiredDocs.filter((d) => d.label.trim()).length
         ? requiredDocs.filter((d) => d.label.trim())
         : undefined,
@@ -556,34 +551,28 @@ export function SoloItemCatalogSection({
 
           {/* 3 — age range. */}
           <div className="flex flex-col gap-2 rounded-lg border border-slate-200 p-3">
-            <span className="text-xs font-medium text-slate-600">טווח גילאים</span>
-            <label className="flex cursor-pointer items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={noAgeLimit}
-                onChange={(e) => setNoAgeLimit(e.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 accent-primary"
-              />
-              ללא הגבלת גיל
-            </label>
-            {!noAgeLimit && (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Input
-                  type="number"
-                  min={0}
-                  label="מגיל"
-                  value={minAge}
-                  onChange={(e) => setMinAge(e.target.value)}
-                />
-                <Input
-                  type="number"
-                  min={0}
-                  label="עד גיל"
-                  value={maxAge}
-                  onChange={(e) => setMaxAge(e.target.value)}
-                />
-              </div>
-            )}
+            {/* Four groups, not two number fields. The patient filters by the
+                same four (see AGE_GROUPS), and free numbers produced a filter
+                list as long as the catalogue — "16+", "18+", "עד 12" — where no
+                two items ever grouped together. */}
+            <span className="text-xs font-medium text-slate-600">קבוצת גיל</span>
+            <div className="flex flex-wrap gap-2">
+              {AGE_GROUPS.map((g) => (
+                <button
+                  key={g.value}
+                  type="button"
+                  onClick={() => setAgeGroup(g.value)}
+                  className={cn(
+                    "focus-ring rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                    ageGroup === g.value
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                  )}
+                >
+                  {g.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* 4 — where it is given. Assigned here, not on the branches screen,

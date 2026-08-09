@@ -15,6 +15,8 @@ import { MonthlyReportSection } from "@/components/provider/MonthlyReportSection
 import { BranchArraysManager } from "@/components/units/BranchArraysManager";
 import { formatDateHe } from "@/lib/utils";
 import {
+  AGE_GROUP_LABELS,
+  ageGroupOfRange,
   DOCTOR_SUBTYPE_LABELS,
   OrganizationBranch,
   ORGANIZATION_MEMBER_TYPES,
@@ -280,11 +282,9 @@ function SelfEnteredItemsCard({ provider }: { provider: ProviderProfile }) {
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
               {item.service_subtype && <Badge tone="slate">{item.service_subtype}</Badge>}
               {item.sub_specialty && <Badge tone="purple">{item.sub_specialty}</Badge>}
-              <Badge tone="slate">
-                {item.min_age == null && item.max_age == null
-                  ? "ללא הגבלת גיל"
-                  : `גילאי ${item.min_age ?? 0}–${item.max_age ?? 120}`}
-              </Badge>
+              {/* The same four groups the provider picked from and the patient
+                  filters by — see AGE_GROUPS. */}
+              <Badge tone="slate">{AGE_GROUP_LABELS[ageGroupOfRange(item.min_age, item.max_age)]}</Badge>
               <span className="text-[11px] text-slate-500">
                 {item.duration_minutes} דק׳{item.buffer_minutes ? ` + ${item.buffer_minutes} באפר` : ""}
               </span>
