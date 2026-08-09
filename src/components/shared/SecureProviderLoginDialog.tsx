@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ShieldCheck,
@@ -19,9 +20,11 @@ import {
   Network,
   HardHat,
   ChevronLeft,
+  UserPlus,
 } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
+import { GoogleGlyph } from "@/components/shared/ProviderGoogleSignIn";
 import { cn } from "@/lib/utils";
 import {
   DEMO_INSTITUTE_USER,
@@ -144,6 +147,11 @@ function maskPhone(phone?: string) {
 // pick which unit; then the existing credentials → OTP → verify → success run.
 type Stage = "kind" | "account" | "form" | "otp" | "verifying" | "success";
 
+// How the first factor was cleared. Both routes land on the same SMS step:
+// Google proves who owns the mailbox, never who holds the phone, so a provider
+// portal reaching patient records asks for the second factor either way.
+type LoginMethod = "password" | "google";
+
 export function SecureProviderLoginDialog({
   open,
   onClose,
@@ -166,6 +174,7 @@ export function SecureProviderLoginDialog({
   const [otpCode, setOtpCode] = useState("");
   const [otpError, setOtpError] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
+  const [method, setMethod] = useState<LoginMethod>("password");
 
   const accountProfile = profileFor(account);
 
@@ -175,7 +184,17 @@ export function SecureProviderLoginDialog({
     setOtpCode("");
     setOtpError(null);
     setResendCooldown(0);
+    setMethod("password");
     onClose();
+  }
+
+  /** Both first factors converge on the same SMS step. */
+  function goToOtp(via: LoginMethod) {
+    setMethod(via);
+    setOtpCode("");
+    setOtpError(null);
+    setResendCooldown(OTP_RESEND_SECONDS);
+    setStage("otp");
   }
 
   function selectKind(nextKind: AccountKind) {
@@ -219,10 +238,7 @@ export function SecureProviderLoginDialog({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setOtpCode("");
-    setOtpError(null);
-    setResendCooldown(OTP_RESEND_SECONDS);
-    setStage("otp");
+    goToOtp("password");
   }
 
   function handleResend() {
@@ -312,6 +328,28 @@ export function SecureProviderLoginDialog({
                         </button>
                       ))}
                     </div>
+                    {/* This dialog only opens EXISTING accounts, so without
+                        this line the join flow (/apply → activation mail →
+                        application) has no door on the home page at all. */}
+                    <Link
+                      href="/apply"
+                      onClick={onClose}
+                      className="mt-2.5 flex items-center gap-3 rounded-xl border border-dashed border-slate-300 px-3.5 py-3 text-right transition-all hover:border-primary hover:bg-primary/5"
+                    >
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500">
+                        <UserPlus className="h-5 w-5" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-semibold text-slate-900">
+                          עדיין לא רשומים? הצטרפות כנותן שירות
+                        </span>
+                        <span className="block text-xs text-slate-500">
+                          פתיחת חשבון חדש, הפעלה במייל ומילוי בקשת ההצטרפות
+                        </span>
+                      </span>
+                      <ChevronLeft className="h-4 w-4 shrink-0 text-slate-400" />
+                    </Link>
+
                     <p className="mt-4 text-center text-[11px] leading-relaxed text-slate-400">
                       מצב הדגמה — כל חשבונות ההדגמה פעילים בפלטפורמה
                     </p>
@@ -400,6 +438,31 @@ export function SecureProviderLoginDialog({
                       </button>
                     </div>
 
+                    {/* Google first — for a provider who opened the account
+                        with it, typing a password they never set is a dead end.
+                        It clears the first factor only: the SMS step below
+                        follows either way. */}
+                    <button
+                      type="button"
+                      onClick={() => goToOtp("google")}
+                      className="flex w-full items-center justify-center gap-2.5 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+                    >
+                      <GoogleGlyph />
+                      <span className="min-w-0 truncate">
+                        המשך עם Google
+                        <span className="text-slate-400" dir="ltr">
+                          {" · "}
+                          {email}
+                        </span>
+                      </span>
+                    </button>
+
+                    <div className="my-3.5 flex items-center gap-3">
+                      <span className="h-px flex-1 bg-slate-200" />
+                      <span className="text-[11px] text-slate-400">או עם סיסמה</span>
+                      <span className="h-px flex-1 bg-slate-200" />
+                    </div>
+
                     <form onSubmit={handleSubmit} className="flex flex-col gap-3">
                       <Input
                         type="email"
@@ -439,6 +502,14 @@ export function SecureProviderLoginDialog({
                     <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-info-bg text-info">
                       <Smartphone className="h-5 w-5" />
                     </div>
+                    {/* Named explicitly on the Google route: otherwise a code
+                        arriving after a one-click sign-in reads like an error. */}
+                    {method === "google" && (
+                      <p className="mx-auto mb-3 flex w-fit items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600">
+                        <GoogleGlyph className="h-3.5 w-3.5" />
+                        זוהית עם Google · נדרש גם הגורם השני
+                      </p>
+                    )}
                     <p className="text-center text-sm text-slate-600 leading-relaxed mb-4">
                       לאבטחת חשבונך שלחנו קוד אימות בן 6 ספרות ב-SMS למספר
                       <br />

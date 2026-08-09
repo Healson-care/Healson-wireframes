@@ -230,10 +230,14 @@ interface AuthState {
   beginProviderVerification: (providerId: string) => { ok: boolean; error?: string; otpHint?: string };
   verifyProviderPhoneOtp: (code: string) => { ok: boolean; error?: string; providerId?: string };
   resendProviderPhoneOtp: () => string | null;
-  // NOTE: there is deliberately no provider email-verification action. The
-  // mail sent when a provider account is created is a welcome notification,
-  // not a gate — unlike the patient flow, nothing in the join journey waits
-  // on it being opened.
+  // Email activation — the first gate of רישום, right after the account is
+  // created. No code param: opening the (simulated) link is itself the proof,
+  // same as verifyRegistrationEmailLink on the patient side. Acts on the
+  // signed-in provider, since that's the only one who could have opened it.
+  verifyProviderEmailLink: () => { ok: boolean; error?: string };
+  // Nothing is actually sent (demo) — the non-false return is just a
+  // sent-successfully signal for the caller's toast.
+  resendProviderActivationEmail: () => boolean;
   // Provider signup step 3 — called once the applicant has filled out the
   // rest of the application (license, catalog basics, etc. — already
   // persisted incrementally via upsertProviderProfile) and clicks "שליחת
@@ -767,6 +771,10 @@ export const useStore = create<Store>()(
           providers: s.providers.filter((p) => p.user_id !== GOOGLE_PROVIDER_ID),
           currentUser: user,
         }));
+        // No email_verified_at: this path lands on the activation notice too
+        // (see ProviderEmailActivation). A real Google sign-in would arrive
+        // with the address already asserted and could skip it — the demo keeps
+        // the gate on both routes so the step is always demonstrable.
         get().upsertProviderProfile(GOOGLE_PROVIDER_ID, { display_name: user.full_name });
       },
 
@@ -989,6 +997,20 @@ export const useStore = create<Store>()(
       resendProviderPhoneOtp: () => {
         const pending = get().pendingProviderSubmission;
         return pending ? pending.otp : null;
+      },
+
+      verifyProviderEmailLink: () => {
+        const user = get().currentUser;
+        const provider = user ? get().providers.find((p) => p.user_id === user.id) : undefined;
+        if (!provider) return { ok: false, error: "לא נמצא פרופיל ספק" };
+        if (provider.email_verified_at) return { ok: true };
+        get().updateProviderById(provider.id, { email_verified_at: new Date().toISOString() });
+        return { ok: true };
+      },
+
+      resendProviderActivationEmail: () => {
+        const user = get().currentUser;
+        return !!user && get().providers.some((p) => p.user_id === user.id);
       },
 
       finalizeProviderApplication: (providerId) => {

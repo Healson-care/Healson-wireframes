@@ -25,6 +25,7 @@ import { Avatar } from "@/components/ui/Misc";
 import { useRequireRole } from "@/lib/useRequireRole";
 import { useCurrentProvider } from "@/lib/useCurrentPatient";
 import { getProviderSetupConfig } from "@/lib/provider-setup";
+import { needsEmailActivation } from "@/lib/provider-phases";
 import { getProfileSections } from "@/components/provider/profile-sections";
 import { ProfilePhotoDialog, ProfilePhotoMenuLabel } from "@/components/provider/ProfilePhoto";
 
@@ -79,7 +80,10 @@ export function ProviderLayout({ children }: { children: ReactNode }) {
   const onDashboard = pathname === "/provider/dashboard";
   const onRegister = pathname === "/provider/register";
   const onProfile = pathname.startsWith("/provider/profile");
-  const redirectingPending = isPendingReview && !onRegister && !onDashboard;
+  // Before the emailed activation link is opened even the application form is
+  // out of reach — the dashboard's activation notice is the whole portal.
+  const awaitingActivation = !!provider && needsEmailActivation(provider);
+  const redirectingPending = isPendingReview && !onDashboard && !(onRegister && !awaitingActivation);
   const redirectingOnboarding = isOnboarding && !onDashboard && !onProfile;
 
   useEffect(() => {
@@ -118,7 +122,9 @@ export function ProviderLayout({ children }: { children: ReactNode }) {
   // the stage confusing. `application_submitted_at` is the real divider.
   const applicationSubmitted = !!provider?.application_submitted_at;
   const stageBadge = isPendingReview
-    ? applicationSubmitted
+    ? awaitingActivation
+      ? "החשבון לא הופעל"
+      : applicationSubmitted
       ? "בקשה בבדיקה"
       : "בקשה בהכנה"
     : isOnboarding

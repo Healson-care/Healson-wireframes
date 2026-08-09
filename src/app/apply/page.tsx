@@ -120,13 +120,14 @@ export default function ProviderApplyPage() {
         setError(result.error ?? "שגיאה ביצירת החשבון");
         return;
       }
-      // The welcome mail is a notification, not a gate — nothing waits on it.
-      showToast("החשבון נוצר · שלחנו לך מייל ברוך הבא", {
-        description: `נשלח לכתובת ${email} עם קישור לפורטל שלך.`,
+      // The mail IS a gate — the portal shows nothing but the activation
+      // notice until its link is opened (see ProviderEmailActivation).
+      showToast("החשבון נוצר · שלחנו לך מייל להפעלת החשבון", {
+        description: `נשלח לכתובת ${email} עם קישור הפעלה.`,
         variant: "success",
       });
-      // Straight to the portal home, where the draft application is waiting
-      // to be started (see RegistrationProgress on the dashboard).
+      // Straight to the portal home, where the activation notice — and after
+      // it the draft application — is waiting (see the provider dashboard).
       router.push("/provider/dashboard");
     }, 300);
   }
