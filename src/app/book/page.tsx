@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
@@ -22,7 +22,7 @@ import { SlotPicker } from "@/components/book/SlotPicker";
 import { PaymentPanel } from "@/components/book/PaymentPanel";
 import { BookingConfirmation } from "@/components/book/BookingConfirmation";
 import { WaitlistJoinDialog } from "@/components/book/WaitlistJoinDialog";
-import { buildIcsDataUrl, formatCurrency } from "@/lib/utils";
+import { buildIcsDataUrl } from "@/lib/utils";
 import { serviceOfferedAt } from "@/lib/scheduling";
 import { fileToDataUrl } from "@/lib/file";
 import { requiresReferral } from "@/lib/referral";
@@ -138,28 +138,9 @@ export default function BookPage() {
       : 0;
   const singleLocation = bookableClinicCount === 1;
 
-  // The location screen shows each branch's price. For a doctor that's the
-  // same everywhere — which is worth showing rather than hiding, so nobody
-  // travels further hoping for a better price. For a station-run service it
-  // genuinely differs, because the site's agreement can.
-  const clinicPricing: Record<string, { amount?: string; note?: string }> = {};
-  if (selectedProvider && consultation) {
-    for (const clinic of selectedProvider.clinic_locations) {
-      const breakdown = resolvePriceBreakdown(
-        consultation.prices,
-        doctorAgreements ?? selectedProvider.agreements,
-        patient,
-        consultation.price_full,
-        consultation,
-        doctorAgreements ? undefined : clinic.id
-      );
-      if (!breakdown) continue;
-      clinicPricing[clinic.id] =
-        breakdown.kind === "basket"
-          ? { note: breakdown.label }
-          : { amount: formatCurrency(breakdown.price), note: breakdown.label };
-    }
-  }
+  // The location screen no longer prices each branch — it answers WHERE, and a
+  // figure beside every address turned one question into a comparison. The
+  // price is stated once, in full, on the payment screen.
   const flowSteps = flowStepsFor({ referral: referralFlow, commitment: commitmentFlow, singleLocation });
 
   // Built from the rail itself rather than hard-coded indices, so dropping
@@ -174,6 +155,8 @@ export default function BookPage() {
       ? discoveryClinicId || singleLocation
         ? stageIndex("שעה")
         : stageIndex("מיקום")
+      : step === 7
+      ? stageIndex("מיקום")
       : step === 5
       ? stageIndex("אישור יחידה")
       : step === 3
@@ -193,12 +176,26 @@ export default function BookPage() {
     // Map back through the rail's own labels, for the same reason.
     const label = flowSteps[index];
     const target =
-      label === "בחירה" ? 0 : label === "הפניה" ? 1 : label === "אישור יחידה" ? 5 : label === "מיקום" || label === "שעה" ? 2 : 3;
+      label === "בחירה"
+        ? 0
+        : label === "מיקום"
+        ? // On a referred booking the location is a stage of its own, before
+          // the referral; on a direct one it is the picker's first half.
+          referralFlow
+          ? 7
+          : 2
+        : label === "הפניה"
+        ? 1
+        : label === "אישור יחידה"
+        ? 5
+        : label === "שעה"
+        ? 2
+        : 3;
     // How far back she goes decides how much is given up. Back to the picker
     // releases the slot but keeps the request — on a referred item that means
     // keeping the unit's answer, which is the expensive part. Back past the
     // referral screen abandons the request itself.
-    if (target <= 1) abandonRequest();
+    if (target === 0 || target === 7 || target === 1) abandonRequest();
     else if (step === 3 && target === 2) abandonHold();
     setStep(target);
   }
@@ -218,11 +215,23 @@ export default function BookPage() {
     // A result IS a branch, so the branch she tapped carries straight through
     // — the price on the card and the price at payment are then the same
     // number by construction. SlotPicker still lets her change it from here.
-    setDiscoveryClinicId(offer.clinic.id);
+    // Only preselect when the offer names ONE place. A merged offer covers
+    // several equally-priced branches, and choosing one for her would skip the
+    // location step she still has to answer.
+    setDiscoveryClinicId(offer.alsoAt?.length ? null : offer.clinic.id);
     setReferralFile(null);
     setCommitmentFile(null);
-    // Non-consultations must produce a referral before a slot is even shown.
-    setStep(requiresReferral(offer.service) ? 1 : 2);
+    // A referred item settles WHERE before anything else: the referral goes to
+    // a named place for its unit to answer. Only when the item is given at one
+    // location is there nothing to ask, and the referral screen comes first.
+    if (requiresReferral(offer.service)) {
+      const places = offer.provider.clinic_locations.filter((c) =>
+        serviceOfferedAt(offer.provider, offer.service.id, c.id)
+      ).length;
+      setStep(places > 1 ? 7 : 1);
+      return;
+    }
+    setStep(2);
   }
 
   // Resume straight at the slot picker for whichever provider/service the
@@ -294,7 +303,7 @@ export default function BookPage() {
       if (patientId) {
         addDocument({
           patient_id: patientId,
-          category: "referral_personal",
+          category: "referral",
           title: "הפניה תקפה מקופת החולים",
           uploaded_by: "patient",
           appointment_id: appointment.id,
@@ -416,7 +425,9 @@ export default function BookPage() {
       if (patientId) {
         addDocument({
           patient_id: patientId,
-          category: "referral_personal",
+          // Paperwork that FUNDS the booking, not paperwork that authorises it
+          // — its own drawer, beside the referrals rather than inside them.
+          category: "commitment",
           title: commitment?.formLabel ?? "התחייבות",
           uploaded_by: "patient",
           appointment_id: pendingAppointmentId,
@@ -472,23 +483,31 @@ export default function BookPage() {
         commission_amount: commissionAmount,
         provider_payout_amount: price - commissionAmount,
       });
-      // The receipt and (if the service requires one) the pre-visit
-      // questionnaire are created the moment the deposit clears, linked to
+      // Both financial papers, and (if the service requires one) the pre-visit
+      // questionnaire, are created the moment the deposit clears, linked to
       // this appointment — same as the confirmation email/SMS a real clinic
       // would send at this point.
       const patientId = patient?.id ?? currentUser?.id;
       if (patientId) {
+        const paidAt = new Date().toISOString();
+        // Two documents for one payment, because they answer different
+        // questions: the חשבונית מס is the tax document for the charge, the
+        // קבלה is the proof it was paid.
+        addDocument({
+          patient_id: patientId,
+          category: "invoice",
+          title: `חשבונית מס על מקדמה - ${consultation?.name ?? "ייעוץ"}`,
+          uploaded_by: "system",
+          appointment_id: pendingAppointmentId,
+          file: { file_name: "חשבונית_מס.pdf", uploaded_at: paidAt, data_url: "data:application/pdf;base64," },
+        });
         addDocument({
           patient_id: patientId,
           category: "receipt",
           title: `קבלה על מקדמה - ${consultation?.name ?? "ייעוץ"}`,
           uploaded_by: "system",
           appointment_id: pendingAppointmentId,
-          file: {
-            file_name: "קבלה.pdf",
-            uploaded_at: new Date().toISOString(),
-            data_url: "data:application/pdf;base64,",
-          },
+          file: { file_name: "קבלה.pdf", uploaded_at: paidAt, data_url: "data:application/pdf;base64," },
         });
         if (consultation?.requires_questionnaire) {
           const questionnaireTitle = consultation.questionnaire_title ?? "שאלון לפני התור";
@@ -504,7 +523,7 @@ export default function BookPage() {
         for (const doc of consultation?.required_documents ?? []) {
           addDocument({
             patient_id: patientId,
-            category: "referral_personal",
+            category: "referral",
             title: doc.label,
             uploaded_by: "system",
             appointment_id: pendingAppointmentId,
@@ -640,9 +659,34 @@ export default function BookPage() {
               onSelectSlot={selectSlot}
               onJoinWaitlist={(date, time, label) => setWaitlistSlot({ date, time, label })}
               onClinicChange={setDiscoveryClinicId}
+              // Already answered on its own stage in the referral flow, so the
+              // picker opens straight on the calendar rather than asking again.
+              initialClinicId={referralFlow ? discoveryClinicId : undefined}
               serviceId={consultation?.id}
               performerName={selectedDoctor ? providerLabel(selectedDoctor) : undefined}
-              clinicPricing={clinicPricing}
+            />
+          </motion.div>
+        )}
+
+        {/* Referral flow only: WHERE, before there is a referral to send. */}
+        {step === 7 && selectedProvider && (
+          <motion.div key="step7" variants={stepVariants} initial="initial" animate="animate" exit="exit" transition={stepTransition} className="max-w-2xl mx-auto">
+            <button onClick={() => setStep(0)} className="text-sm text-primary mb-4 flex items-center gap-1">
+              <ArrowRight className="h-3.5 w-3.5" /> חזרה לבחירה
+            </button>
+            <SlotPicker
+              provider={selectedProvider}
+              appointments={appointments}
+              onSelectSlot={selectSlot}
+              onJoinWaitlist={(date, time, label) => setWaitlistSlot({ date, time, label })}
+              // Hands control back instead of revealing the calendar — the
+              // referral and the unit's answer come between the two.
+              onLocationChosen={(clinicId) => {
+                setDiscoveryClinicId(clinicId);
+                setStep(1);
+              }}
+              serviceId={consultation?.id}
+              performerName={selectedDoctor ? providerLabel(selectedDoctor) : undefined}
             />
           </motion.div>
         )}

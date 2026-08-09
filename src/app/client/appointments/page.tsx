@@ -33,7 +33,6 @@ import {
   CreditCard,
   FileText,
   ListFilter,
-  MapPin,
   Phone,
   ShieldCheck,
   Smartphone,
@@ -522,8 +521,19 @@ function AppointmentListCard({
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18, delay: index * 0.03 }}>
       <Card id={`appt-${item.data.id}`} className={cn("p-4", highlightId === item.data.id && "ring-2 ring-primary")}>
         <div className="flex flex-wrap items-start justify-between gap-2">
+          {/* WHAT, then WHO, then WHEN. The date used to lead, which made a
+              list of appointments read as a list of dates — but she already
+              knows she has something on Tuesday; what she is scanning for is
+              which treatment it was and with whom. The date stays bold, one
+              line down. */}
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-1.5 text-sm font-bold text-slate-900">
+            {item.kind === "appointment" && (
+              <p className="text-sm font-bold leading-snug text-slate-900">{item.data.service_name}</p>
+            )}
+            <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-500">
+              <Stethoscope className="h-3 w-3 shrink-0" /> {item.data.provider_name}
+            </p>
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-sm font-semibold text-slate-800">
               {item.data.date ? (
                 <>
                   <Calendar className="h-4 w-4 shrink-0 text-primary" /> {formatAppointmentDate(item.data.date)}
@@ -545,10 +555,6 @@ function AppointmentListCard({
                 </>
               )}
             </div>
-            {item.kind === "appointment" && <p className="text-sm text-slate-700 mt-1">{item.data.service_name}</p>}
-            <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
-              <MapPin className="h-3 w-3" /> {item.data.provider_name}
-            </p>
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1.5">
             {item.kind === "appointment" ? (
@@ -1351,17 +1357,24 @@ function ClientAppointmentsPageContent() {
           updateAppointment(id, { status: "מאושר", deposit_paid_at: new Date().toISOString() });
           const patientId = patient?.id ?? currentUser?.id;
           if (patientId && payDepositAppointment) {
+            // Both papers, as the booking flow does: paying here and paying
+            // during booking are the same act and must leave the same trail.
+            const paidAt = new Date().toISOString();
+            addDocument({
+              patient_id: patientId,
+              category: "invoice",
+              title: `חשבונית מס על מקדמה - ${payDepositAppointment.service_name}`,
+              uploaded_by: "system",
+              appointment_id: id,
+              file: { file_name: "חשבונית_מס.pdf", uploaded_at: paidAt, data_url: "data:application/pdf;base64," },
+            });
             addDocument({
               patient_id: patientId,
               category: "receipt",
               title: `קבלה על מקדמה - ${payDepositAppointment.service_name}`,
               uploaded_by: "system",
               appointment_id: id,
-              file: {
-                file_name: "קבלה.pdf",
-                uploaded_at: new Date().toISOString(),
-                data_url: "data:application/pdf;base64,",
-              },
+              file: { file_name: "קבלה.pdf", uploaded_at: paidAt, data_url: "data:application/pdf;base64," },
             });
           }
           showToast("התשלום התקבל, התור אושר", { variant: "success" });
@@ -1376,17 +1389,22 @@ function ClientAppointmentsPageContent() {
           updateAppointment(id, { status: "שולם במלואו" });
           const patientId = patient?.id ?? currentUser?.id;
           if (patientId && payBalanceAppointment) {
+            const paidAt = new Date().toISOString();
+            addDocument({
+              patient_id: patientId,
+              category: "invoice",
+              title: `חשבונית מס על יתרה - ${payBalanceAppointment.service_name}`,
+              uploaded_by: "system",
+              appointment_id: id,
+              file: { file_name: "חשבונית_מס.pdf", uploaded_at: paidAt, data_url: "data:application/pdf;base64," },
+            });
             addDocument({
               patient_id: patientId,
               category: "receipt",
               title: `קבלה על יתרה - ${payBalanceAppointment.service_name}`,
               uploaded_by: "system",
               appointment_id: id,
-              file: {
-                file_name: "קבלה.pdf",
-                uploaded_at: new Date().toISOString(),
-                data_url: "data:application/pdf;base64,",
-              },
+              file: { file_name: "קבלה.pdf", uploaded_at: paidAt, data_url: "data:application/pdf;base64," },
             });
           }
           showToast("היתרה שולמה במלואה", { variant: "success" });

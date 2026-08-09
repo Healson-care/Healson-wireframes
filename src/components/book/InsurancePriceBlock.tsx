@@ -55,28 +55,35 @@ export function InsurancePriceBlock({ breakdown }: { breakdown: PriceBreakdown }
     const accent = LAYER_ACCENT[breakdown.layer ?? "K"];
     return (
       <div className="flex flex-col items-start gap-0.5">
-        <motion.span
-          initial={reduceMotion ? false : { opacity: 0, y: -3 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25, delay: 0.15 }}
-          className="text-xs text-slate-400 line-through decoration-slate-300"
-        >
-          {formatCurrency(breakdown.basePrice)}
-        </motion.span>
-        <motion.span
-          initial={reduceMotion ? false : { scale: 1.05 }}
-          animate={{ scale: 1 }}
-          transition={{ duration: 0.25 }}
-          className="text-lg font-bold leading-none text-slate-900"
-        >
-          {formatCurrency(breakdown.price)}
-        </motion.span>
-        <span className={`flex items-center gap-1.5 text-[11px] font-medium ${accent.text}`}>
+        {/* The route ABOVE the amount: "מכבי שלי" is why this number is what it
+            is, and reading the cover first makes the price land as a
+            consequence rather than as a figure to be explained afterwards. */}
+        <span className={`flex items-center gap-1.5 text-[11px] font-semibold ${accent.text}`}>
           {/* The insurer's own mark, ringed in its layer colour — the same
               pair the patient is wearing in the profile strip above. */}
           <InsuranceLogo name={breakdown.label} layers={[breakdown.layer ?? "K"]} size={14} />
           {breakdown.label}
         </span>
+        <div className="flex items-baseline gap-1.5">
+          <motion.span
+            initial={reduceMotion ? false : { scale: 1.05 }}
+            animate={{ scale: 1 }}
+            transition={{ duration: 0.25 }}
+            className="text-lg font-bold leading-none text-slate-900"
+          >
+            {formatCurrency(breakdown.price)}
+          </motion.span>
+          {/* Beside the price rather than above it — one line saved, and the
+              saving reads as a comparison instead of a separate fact. */}
+          <motion.span
+            initial={reduceMotion ? false : { opacity: 0, y: -3 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25, delay: 0.15 }}
+            className="text-xs text-slate-400 line-through decoration-slate-300"
+          >
+            {formatCurrency(breakdown.basePrice)}
+          </motion.span>
+        </div>
       </div>
     );
   }
@@ -84,10 +91,10 @@ export function InsurancePriceBlock({ breakdown }: { breakdown: PriceBreakdown }
   if (breakdown.kind === "tourist") {
     return (
       <div className="flex flex-col items-start gap-0.5">
-        <span className="text-lg font-bold leading-none text-slate-900">{formatCurrency(breakdown.price)}</span>
-        <span className="flex items-center gap-1 text-[11px] font-medium text-slate-600">
+        <span className="flex items-center gap-1 text-[11px] font-semibold text-slate-600">
           <Plane className="h-3 w-3 shrink-0" /> מחיר תייר
         </span>
+        <span className="text-lg font-bold leading-none text-slate-900">{formatCurrency(breakdown.price)}</span>
       </div>
     );
   }
@@ -95,8 +102,8 @@ export function InsurancePriceBlock({ breakdown }: { breakdown: PriceBreakdown }
   // kind === "base"
   return (
     <div className="flex flex-col items-start gap-0.5">
+      <span className="text-[11px] font-semibold text-slate-500">מחיר מלא · ללא כיסוי</span>
       <span className="text-lg font-bold leading-none text-slate-900">{formatCurrency(breakdown.price)}</span>
-      <span className="text-[11px] text-slate-500">מחיר מלא</span>
       {breakdown.reimbursementHint && breakdown.reimbursementHint.length > 0 && (
         <>
           <span className="flex items-center gap-1 rounded-full border border-info-border px-2 py-0.5 text-[11px] font-medium text-info-text">

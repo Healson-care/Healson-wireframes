@@ -2323,7 +2323,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: "healson-platform-store",
-      version: 42,
+      version: 46,
       // The v1 -> v2 schema change (SKBH pricing, skill taxonomy, consent
       // records), the v2 -> v3 addition of the DEMO_NEW_PATIENT_USER seed
       // account, the v3 -> v4 AppointmentStatus rename ("ממתין לאישור" ->
@@ -2474,7 +2474,20 @@ export const useStore = create<Store>()(
       // v41 -> v42 adds the real נותני שירות יחידים list (18 doctors at מרכז
       // הילסון בית שמש, with their ביקורי בית / אונליין branches) and drops two
       // invented demo doctors — reseed clean so the fake ones are gone.
-      migrate: (persistedState, version) => (version < 42 ? ({} as Store) : (persistedState as Store)),
+      // v42 -> v43 adds the first מטפל רפואי (a physiotherapist) to the seeded
+      // providers. A persisted v42 blob has no such provider and never will —
+      // seeds are read on first hydration only — so the performer gate would
+      // keep offering "רופא/ה" alone. Reseed clean.
+      // v43 -> v44 adds a doula beside the physiotherapist, so מטפל רפואי holds
+      // two professions — which is what makes the performer gate's middle level
+      // appear at all. Reseed clean.
+      // v44 -> v45 reworks the document categories: "referral_personal" became
+      // "referral", and מרשמים / התחייבויות / הדמיות / מסמכים אישיים each got a
+      // drawer of their own. A persisted v44 blob files documents under a key
+      // that no longer exists, so they would show as uncategorised. Reseed.
+      // v45 -> v46 splits the financial drawer in two — חשבונית מס beside
+      // קבלה — and seeds an invoice so the new one isn't empty. Reseed.
+      migrate: (persistedState, version) => (version < 46 ? ({} as Store) : (persistedState as Store)),
       // Uploaded files (photos/PDFs) are stored as base64 data URLs inside
       // this same persisted blob (no real backend — see file.ts). If a
       // single write ever still exceeds the browser's localStorage quota

@@ -7,6 +7,7 @@ import { ChevronDown, ChevronLeft, ChevronUp, Plane, Plus } from "lucide-react";
 import { InsuranceLogo } from "@/components/search/InsuranceLogo";
 import { insuranceMarks } from "@/components/search/InsuranceProfileStrip";
 import { useStore } from "@/lib/store";
+import { cn } from "@/lib/utils";
 import { useCurrentPatient } from "@/lib/useCurrentPatient";
 import { InsuranceLayer, Patient } from "@/types";
 
@@ -83,18 +84,6 @@ function initials(fullName: string) {
     .slice(0, 2)
     .map((w) => w[0])
     .join("");
-}
-
-// Whole years, floored — only rendered when the patient actually has a
-// date_of_birth on file (seeded patients don't).
-function ageFrom(dateOfBirth: string) {
-  const birth = new Date(dateOfBirth);
-  if (Number.isNaN(birth.getTime())) return null;
-  const now = new Date();
-  let age = now.getFullYear() - birth.getFullYear();
-  const monthDiff = now.getMonth() - birth.getMonth();
-  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < birth.getDate())) age -= 1;
-  return age >= 0 ? age : null;
 }
 
 function heldLayers(patient: Patient): Record<PatientLayer, boolean> {
@@ -262,15 +251,19 @@ export function PatientHeroCard() {
   const patient = useCurrentPatient();
 
   const fullName = patient?.full_name ?? currentUser?.full_name ?? "מטופל";
-  const age = patient?.date_of_birth ? ageFrom(patient.date_of_birth) : null;
   const phone = patient?.phone ?? currentUser?.phone;
-  const idLabel = patient?.id_document_type === "passport" ? "דרכון" : "ת.ז";
+  const email = patient?.email ?? currentUser?.email;
+  const idLabel = patient?.id_document_type === "passport" ? "מספר דרכון" : "תעודת זהות";
 
-  const details = [
-    patient?.id_number && `${idLabel} ${patient.id_number}`,
-    age !== null && `בן/בת ${age}`,
-    phone,
-  ].filter(Boolean) as string[];
+  // The three identifying facts a membership card carries, each labelled.
+  // Labelled rather than run together on one line: "012345678 · 050-1234567"
+  // asks the reader to work out which is which, and this is precisely the card
+  // someone holds up at a counter to be identified by.
+  const identity = [
+    { label: idLabel, value: patient?.id_number },
+    { label: "טלפון", value: phone },
+    { label: 'דוא"ל', value: email, wide: true },
+  ].filter((f) => !!f.value) as { label: string; value: string; wide?: boolean }[];
 
   return (
     <motion.div
@@ -298,9 +291,6 @@ export function PatientHeroCard() {
                 האזור האישי
               </span>
               <h1 className="font-display text-[22px] font-bold leading-tight sm:text-[26px]">{fullName}</h1>
-              {details.length > 0 && (
-                <p className="mt-0.5 truncate text-[12px] text-white/55">{details.join(" · ")}</p>
-              )}
             </div>
           </div>
 
@@ -316,6 +306,28 @@ export function PatientHeroCard() {
         </div>
 
         <div className="my-4 h-px bg-gradient-to-l from-transparent via-[var(--brand-gold)]/45 to-transparent" />
+
+        {/* The identifying fields, as a membership card sets them out: a small
+            gold label over the value. Two columns, with the email spanning
+            both — an address is long enough that a half-width column would
+            truncate the one field nobody can guess the rest of. */}
+        {identity.length > 0 && (
+          <dl className="mb-4 grid grid-cols-2 gap-x-4 gap-y-3">
+            {identity.map((field) => (
+              <div key={field.label} className={cn("min-w-0", field.wide && "col-span-2")}>
+                <dt className="text-[10px] font-semibold tracking-wide text-[var(--brand-gold-soft)]/70">
+                  {field.label}
+                </dt>
+                {/* dir=ltr on the value only: a phone number or an email read
+                    backwards in an RTL paragraph, while the Hebrew label above
+                    must stay RTL. */}
+                <dd dir="ltr" className="truncate text-right text-[13px] font-medium tabular-nums text-white/90">
+                  {field.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        )}
 
         {/* No Patient record at all (the "מטופל חדש" demo login) — there's no
             insurance profile to draw yet, so the panel collapses into the same

@@ -77,7 +77,7 @@ function AdminPatientChartPageContent() {
   const [bookOpen, setBookOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadTitle, setUploadTitle] = useState("");
-  const [uploadCategory, setUploadCategory] = useState<DocumentCategory>("referral_personal");
+  const [uploadCategory, setUploadCategory] = useState<DocumentCategory>("referral");
   const [uploadApptId, setUploadApptId] = useState("");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -255,7 +255,7 @@ function AdminPatientChartPageContent() {
       showToast("המסמך הועלה בהצלחה", { variant: "success" });
       setUploadOpen(false);
       setUploadTitle("");
-      setUploadCategory("referral_personal");
+      setUploadCategory("referral");
       setUploadApptId("");
       setUploadFile(null);
     } catch (err) {

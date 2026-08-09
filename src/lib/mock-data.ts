@@ -1,4 +1,4 @@
-import {
+﻿import {
   AffiliatedDoctor,
   Appointment,
   B_INSURANCE_COMPANIES,
@@ -2950,7 +2950,218 @@ export const SEED_FIXED_FEE_RULES: FixedFeeRule[] = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// מטפל רפואי — the first non-physician PERSON in the catalogue (§PRV-01).
+//
+// Search puts a caregiver on `offer.doctor` exactly like a doctor (both are
+// people, see PERSON_PROVIDER_TYPES in lib/search.ts), which is precisely why
+// the performer gate reads its kinds off `provider_type` rather than labelling
+// every person "רופא/ה" — see performerTypeOf().
+//
+// TODO(product): בית מרקחת and חנות לציוד רפואי are still missing, on purpose.
+// Both sell PRODUCTS rather than time, and this platform books appointments —
+// modelling a walker as a 15-minute slot at the counter forces a purchase into
+// a shape that doesn't fit it. They come back once there is a way to sell an
+// item that isn't a booking.
+// ---------------------------------------------------------------------------
+
+const physioClinicId = "clinic_physio_1";
+const physioServiceIds = {
+  session: "ct_physio_session",
+  pain: "ct_physio_pain",
+  homeProgram: "ct_physio_home_program",
+};
+
+const providerPhysio: ProviderProfile = {
+  id: "prov_physio",
+  provider_type: "caregiver",
+  display_name: "ענת שרעבי",
+  title: "פיזיותרפיסטית",
+  specialty: "פיזיותרפיה",
+  sub_specialties: ["שיקום אורתופדי", "כאבי גב וצוואר"],
+  bio: "פיזיותרפיסטית מוסמכת עם התמחות בשיקום לאחר ניתוחים אורתופדיים ובטיפול בכאבי גב וצוואר כרוניים.",
+  languages: ["עברית", "אנגלית", "ערבית"],
+  rating: 4.8,
+  review_count: 96,
+  license_number: "PT-30918",
+  license_issuer: "משרד הבריאות",
+  license_issue_date: isoDateDaysFromNow(-1400),
+  license_expiry_date: isoDateDaysFromNow(800),
+  is_published: true,
+  status: "approved",
+  commission_rate: 13,
+  created_date: isoDateDaysFromNow(-180),
+  // Physiotherapy is the classic שב"ן benefit — a co-pay under the plan, full
+  // price otherwise. No basket route: this is not a hospital service.
+  agreements: [
+    { id: generateId("agr"), provider_id: "prov_physio", layer: "K", kupah_list: ["כללית", "מכבי"] },
+    { id: generateId("agr"), provider_id: "prov_physio", layer: "H" },
+  ],
+  kupah_arrangements: [
+    { kupah: "כללית", level: "כללית מושלם" },
+    { kupah: "מכבי", level: "מכבי שלי" },
+  ],
+  consultation_types: [
+    {
+      id: physioServiceIds.session,
+      name: "טיפול פיזיותרפיה",
+      is_custom: true,
+      service_type: "treatment",
+      sub_specialty: "שיקום אורתופדי",
+      duration_minutes: 45,
+      buffer_minutes: 10,
+      price_full: 280,
+      prices: [
+        { layer: "K", price: 60 },
+        { layer: "H", price: 280 },
+      ],
+      linked_clinic_ids: [physioClinicId],
+    },
+    {
+      id: physioServiceIds.pain,
+      name: "טיפול בכאבי גב וצוואר",
+      is_custom: true,
+      service_type: "treatment",
+      sub_specialty: "כאבי גב וצוואר",
+      duration_minutes: 60,
+      buffer_minutes: 10,
+      price_full: 360,
+      prices: [
+        { layer: "K", price: 80 },
+        { layer: "H", price: 360 },
+      ],
+      linked_clinic_ids: [physioClinicId],
+      required_documents: [{ id: "reqdoc_physio_imaging", label: "הדמיה של עמוד השדרה, אם קיימת" }],
+    },
+    {
+      id: physioServiceIds.homeProgram,
+      name: "הדרכת תרגול ביתי",
+      is_custom: true,
+      service_type: "treatment",
+      duration_minutes: 30,
+      price_full: 190,
+      prices: [{ layer: "H", price: 190 }],
+      linked_clinic_ids: [physioClinicId],
+    },
+  ],
+  exam_types: [],
+  clinic_locations: [
+    clinicWithSchedule({
+      id: physioClinicId,
+      name: "קליניקת פיזיותרפיה רמת גן",
+      address: "ז'בוטינסקי 35",
+      city: "רמת גן",
+      phone: "03-6120044",
+      is_primary: true,
+      location_type: "clinic",
+      schedule: weekly({
+        sunday: [
+          shift("sh_physio_sun", "08:00", "16:00", {
+            label: "מרפאת טיפולים",
+            slot_minutes: 45,
+            breaks: [{ id: "br_physio_sun", start: "12:00", end: "12:45", label: "הפסקת צהריים" }],
+          }),
+        ],
+        monday: [shift("sh_physio_mon", "08:00", "16:00", { label: "מרפאת טיפולים", slot_minutes: 45 })],
+        wednesday: [shift("sh_physio_wed", "08:00", "16:00", { label: "מרפאת טיפולים", slot_minutes: 45 })],
+        thursday: [shift("sh_physio_thu", "12:00", "19:00", { label: "משמרת אחר הצהריים", slot_minutes: 45 })],
+      }),
+    }),
+  ],
+  referral_forms: [],
+};
+
+
+// A second מטפל רפואי of a DIFFERENT profession — which is the whole point of
+// her existing. The performer gate splits מטפל רפואי by `specialty` only when
+// the data holds more than one, so a doula next to a physiotherapist is what
+// turns that middle level on. `specialty` carries the profession; no separate
+// field was added for it.
+const doulaClinicId = "clinic_doula_1";
+const doulaServiceIds = {
+  birthPlan: "ct_doula_birth_plan",
+  support: "ct_doula_support",
+  postpartum: "ct_doula_postpartum",
+};
+
+const providerDoula: ProviderProfile = {
+  id: "prov_doula",
+  provider_type: "caregiver",
+  display_name: "הודיה מזרחי",
+  title: "דולה",
+  specialty: "ליווי לידה (דולה)",
+  sub_specialties: ["הכנה ללידה", "ליווי אחרי לידה"],
+  bio: "דולה מוסמכת המלווה נשים לאורך ההיריון, בלידה ובשבועות שאחריה, בגישה מותאמת אישית ובשיתוף הצוות הרפואי.",
+  languages: ["עברית", "אנגלית"],
+  rating: 4.9,
+  review_count: 58,
+  license_number: "DL-2274",
+  is_published: true,
+  status: "approved",
+  commission_rate: 12,
+  created_date: isoDateDaysFromNow(-120),
+  // Doula work is rarely covered — a private policy sometimes reimburses the
+  // receipt, which is the B hint on the card and never a sum we calculate.
+  agreements: [{ id: generateId("agr"), provider_id: "prov_doula", layer: "H" }],
+  consultation_types: [
+    {
+      id: doulaServiceIds.birthPlan,
+      name: "פגישת הכנה ותוכנית לידה",
+      is_custom: true,
+      service_type: "treatment",
+      sub_specialty: "הכנה ללידה",
+      duration_minutes: 90,
+      price_full: 450,
+      prices: [{ layer: "H", price: 450 }],
+      linked_clinic_ids: [doulaClinicId],
+    },
+    {
+      id: doulaServiceIds.support,
+      name: "ליווי דולה ללידה",
+      is_custom: true,
+      service_type: "treatment",
+      sub_specialty: "הכנה ללידה",
+      duration_minutes: 60,
+      price_full: 3200,
+      prices: [{ layer: "H", price: 3200 }],
+      linked_clinic_ids: [doulaClinicId],
+      required_documents: [{ id: "reqdoc_doula_pregnancy", label: "מעקב היריון עדכני" }],
+    },
+    {
+      id: doulaServiceIds.postpartum,
+      name: "ליווי אחרי לידה — פגישת בית",
+      is_custom: true,
+      service_type: "treatment",
+      sub_specialty: "ליווי אחרי לידה",
+      duration_minutes: 75,
+      price_full: 380,
+      prices: [{ layer: "H", price: 380 }],
+      linked_clinic_ids: [doulaClinicId],
+    },
+  ],
+  exam_types: [],
+  clinic_locations: [
+    clinicWithSchedule({
+      id: doulaClinicId,
+      name: "סטודיו ליווי לידה — תל אביב",
+      address: "הרצל 62",
+      city: "תל אביב",
+      phone: "052-8830199",
+      is_primary: true,
+      location_type: "clinic",
+      schedule: weekly({
+        sunday: [shift("sh_doula_sun", "09:00", "14:00", { label: "פגישות הכנה", slot_minutes: 90 })],
+        tuesday: [shift("sh_doula_tue", "09:00", "14:00", { label: "פגישות הכנה", slot_minutes: 90 })],
+        wednesday: [shift("sh_doula_wed", "16:00", "20:00", { label: "משמרת אחר הצהריים", slot_minutes: 75 })],
+      }),
+    }),
+  ],
+  referral_forms: [],
+};
+
 export const SEED_PROVIDERS: ProviderProfile[] = [
+  providerPhysio,
+  providerDoula,
   provider1,
   provider2,
   provider5,
@@ -4434,7 +4645,7 @@ export const SEED_DOCUMENTS: PatientDocument[] = [
   {
     id: generateId("doc"),
     patient_id: demoPatient.id,
-    category: "referral_personal",
+    category: "referral",
     title: "הפניה לבדיקת MRI מוח",
     uploaded_by: "patient",
     appointment_id: demoDocAppointments[0]?.id,
@@ -4444,7 +4655,7 @@ export const SEED_DOCUMENTS: PatientDocument[] = [
   {
     id: generateId("doc"),
     patient_id: demoPatient.id,
-    category: "referral_personal",
+    category: "referral",
     title: "צילום תעודת זהות",
     uploaded_by: "patient",
     created_date: isoDateDaysFromNow(-30),
@@ -4454,6 +4665,23 @@ export const SEED_DOCUMENTS: PatientDocument[] = [
   // status "שולם במלואו"/"בוצע") gets its own two receipts — one per
   // payment — matching what PayDepositDialog/PayBalanceDialog now create
   // for real when a patient pays live in the demo.
+  //
+  // And one חשבונית מס beside them: a payment produces both papers, and the
+  // invoice drawer has to hold something for the demo to be worth opening.
+  {
+    id: generateId("doc"),
+    patient_id: demoPatient.id,
+    category: "invoice",
+    title: `חשבונית מס על מקדמה - ${demoDocAppointments[1]?.service_name ?? "ייעוץ"}`,
+    uploaded_by: "system",
+    appointment_id: demoDocAppointments[1]?.id,
+    created_date: isoDateDaysFromNow(-16),
+    file: {
+      file_name: "חשבונית_מס_1042.pdf",
+      uploaded_at: isoDateDaysFromNow(-16),
+      data_url: "data:application/pdf;base64,",
+    },
+  },
   {
     id: generateId("doc"),
     patient_id: demoPatient.id,
@@ -4521,7 +4749,7 @@ export const SEED_DOCUMENTS: PatientDocument[] = [
   {
     id: generateId("doc"),
     patient_id: demoPatient.id,
-    category: "referral_personal",
+    category: "referral",
     title: "הפניה מרופא מטפל",
     uploaded_by: "system",
     appointment_id: demoDocAppointments[1]?.id,
@@ -4531,7 +4759,7 @@ export const SEED_DOCUMENTS: PatientDocument[] = [
   {
     id: generateId("doc"),
     patient_id: demoPatient.id,
-    category: "referral_personal",
+    category: "referral",
     title: "צילומי רנטגן קודמים (אם קיימים)",
     uploaded_by: "system",
     appointment_id: demoDocAppointments[1]?.id,
@@ -4568,7 +4796,7 @@ export const SEED_DOCUMENTS: PatientDocument[] = [
   // Spread a few documents across other patients too, so the tab isn't
   // demo-patient-only.
   ...SEED_PATIENTS.slice(1, 4).map((patient, i) => {
-    const category = (["referral_personal", "receipt", "visit_summary"] as DocumentCategory[])[i];
+    const category = (["referral", "receipt", "visit_summary"] as DocumentCategory[])[i];
     const title = ["הפניה לבדיקת דם", "חשבונית - בדיקת מאמץ", "סיכום ביקור - ייעוץ נוירולוגי"][i];
     const uploadedBy = (["patient", "system", "provider"] as PatientDocument["uploaded_by"][])[i];
     const createdDate = isoDateDaysFromNow(-(i + 1) * 8);

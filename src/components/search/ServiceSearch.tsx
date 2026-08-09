@@ -42,7 +42,6 @@ import { PrimaryGates } from "@/components/search/PrimaryGates";
  */
 const QUICK_CHIPS: { key: string; value: FilterValue; label: string }[] = [
   { key: "availability", value: "week", label: "השבוע הקרוב" },
-  { key: "noReferral", value: true, label: "ללא הפניה" },
 ];
 
 /**
@@ -125,7 +124,7 @@ export function ServiceSearch({
 
   /**
    * The FULL index, always. "Only what a doctor delivers" is now the
-   * `doctorDelivered` filter and narrows the results like any other — it no
+   * `performerType` filter and narrows the results like any other — it no
    * longer shrinks the index the controls themselves are drawn from.
    *
    * That distinction is the whole fix. While it shrank the index, a station-run
@@ -169,10 +168,15 @@ export function ServiceSearch({
     : undefined;
   const filterCount = activeFilterCount(query);
   const gateChips = useMemo(() => activeGateChips(query, ctx), [query, ctx]);
-  const doctorOnly = query.filters.doctorDelivered === true;
-  // Station-run imaging and lab work have no doctor, so "רק שירותים שרופא
-  // מבצע" can't hold them. Worth one line of explanation, since the totals
-  // differ — but no number, which would describe nothing on screen.
+  // A KIND of person is anchored ("כל הרופאים", "כל המטפלים") — as opposed to
+  // one named person, which is `performerId`.
+  const personTypes = Array.isArray(query.filters.performerType)
+    ? (query.filters.performerType as string[])
+    : [];
+  const doctorOnly = personTypes.length > 0;
+  // Station-run imaging and lab work have no person behind them at all, so a
+  // person-kind filter can't hold them. Worth one line of explanation, since
+  // the totals differ — but no number, which would describe nothing on screen.
   const hasDoctorlessOffers = doctorOnly && offersWithoutDoctor(offers).length > 0;
   // Which kind of entity leads the omnibox list. Every kind is always offered;
   // this only picks the order. Derived rather than stored, so it cannot drift
@@ -282,7 +286,12 @@ export function ServiceSearch({
               setQuery((q) => ({
                 ...q,
                 performerId: null,
-                filters: { ...q.filters, unitType: undefined, doctorDelivered: undefined },
+                filters: {
+                  ...q.filters,
+                  unitType: undefined,
+                  performerType: undefined,
+                  performerSpecialty: undefined,
+                },
               }))
             }
           />
@@ -294,7 +303,12 @@ export function ServiceSearch({
               setQuery((q) => ({
                 ...q,
                 organizationId: null,
-                filters: { ...q.filters, unitType: undefined, doctorDelivered: undefined },
+                filters: {
+                  ...q.filters,
+                  unitType: undefined,
+                  performerType: undefined,
+                  performerSpecialty: undefined,
+                },
               }))
             }
           />
@@ -375,7 +389,8 @@ export function ServiceSearch({
 
       {hasDoctorlessOffers && (
         <p className="mb-3 rounded-lg border border-info-border bg-info-bg px-3 py-2 text-[11px] text-info-text">
-          מוצגים רק פריטים שרופא נותן. בדיקות שמבוצעות במכשיר במכון יופיעו כשתסירו את הבחירה בנותן שירות.
+          מוצגים רק פריטים שנותן שירות מסוג זה מבצע. בדיקות שמבוצעות במכשיר במכון יופיעו כשתסירו את הבחירה
+          בנותן שירות רפואי.
         </p>
       )}
 

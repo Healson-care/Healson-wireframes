@@ -4,15 +4,18 @@ import { useMemo, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { Dialog } from "@/components/ui/Dialog";
 import { OptionSearch } from "@/components/search/OptionSearch";
-import { cn } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 import {
   FilterDef,
   FilterValue,
+  PRICE_STEP,
   SearchContext,
   SearchQuery,
   facetCount,
   filterOptions,
   isActive,
+  parseRange,
+  priceBoundsOf,
   toggleMulti,
   visibleFilters,
 } from "@/lib/search";
@@ -145,6 +148,116 @@ export function FilterSheet({
   );
 }
 
+/**
+ * A two-handle price range, in shekels.
+ *
+ * Built from two stacked native `range` inputs rather than a slider library:
+ * they are keyboard-operable and screen-reader-labelled for free, and the only
+ * thing they can't do alone is share one track — which is what the absolute
+ * positioning and the `pointer-events` juggling below are for. The handles are
+ * kept from crossing by clamping each against the other on change.
+ */
+function RangeControl({
+  def,
+  query,
+  ctx,
+  onSetValue,
+}: {
+  def: FilterDef;
+  query: SearchQuery;
+  ctx: SearchContext;
+  onSetValue: (key: string, value: FilterValue) => void;
+}) {
+  const bounds = useMemo(() => priceBoundsOf(ctx.offers, ctx.patient), [ctx.offers, ctx.patient]);
+  const current = parseRange(query.filters[def.key]);
+  const [min, max] = current ?? [bounds.min, bounds.max];
+  const touched = !!current;
+
+  // Prices here are personal — they depend on the patient's own kupah, שב"ן
+  // and policies. Without a profile there is nothing to slide along, and the
+  // cards say as much, so this says the same rather than showing a dead track.
+  if (!bounds.priced) {
+    return (
+      <div>
+        <p className="mb-1.5 text-xs text-slate-500">{def.label}</p>
+        <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-[11px] leading-relaxed text-slate-500">
+          המחירים מותאמים לכיסוי הביטוחי שלכם. לאחר התחברות יוצג כאן טווח המחירים שרלוונטי עבורכם.
+        </p>
+      </div>
+    );
+  }
+
+  const set = (nextMin: number, nextMax: number) => {
+    // Back to the full span means "no preference" — stored as undefined so the
+    // filter stops counting as active and "נקה הכל" has nothing to clear.
+    if (nextMin <= bounds.min && nextMax >= bounds.max) {
+      onSetValue(def.key, undefined);
+      return;
+    }
+    onSetValue(def.key, [String(nextMin), String(nextMax)]);
+  };
+
+  const pct = (v: number) => ((v - bounds.min) / (bounds.max - bounds.min || 1)) * 100;
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between text-xs">
+        <span className="text-slate-500">{def.label}</span>
+        <span className="font-semibold text-[var(--brand-navy)]">
+          {touched ? `${formatCurrency(min)} – ${formatCurrency(max)}` : "כל המחירים"}
+        </span>
+      </div>
+
+      <div className="relative h-6">
+        {/* Track, and the chosen span highlighted on it. */}
+        <div className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-slate-200" />
+        <div
+          className="absolute top-1/2 h-1 -translate-y-1/2 rounded-full bg-[var(--brand-navy)]"
+          style={{ right: `${pct(min)}%`, left: `${100 - pct(max)}%` }}
+        />
+        {/* pointer-events-none on the wrapper, auto on the thumb: otherwise the
+            upper input's full-width track swallows every click meant for the
+            lower one, and the min handle becomes unreachable. */}
+        <input
+          type="range"
+          aria-label="מחיר מזערי"
+          min={bounds.min}
+          max={bounds.max}
+          step={PRICE_STEP}
+          value={min}
+          onChange={(e) => set(Math.min(Number(e.target.value), max - PRICE_STEP), max)}
+          className="range-thumb absolute inset-x-0 top-1/2 h-6 w-full -translate-y-1/2 appearance-none bg-transparent"
+        />
+        <input
+          type="range"
+          aria-label="מחיר מרבי"
+          min={bounds.min}
+          max={bounds.max}
+          step={PRICE_STEP}
+          value={max}
+          onChange={(e) => set(min, Math.max(Number(e.target.value), min + PRICE_STEP))}
+          className="range-thumb absolute inset-x-0 top-1/2 h-6 w-full -translate-y-1/2 appearance-none bg-transparent"
+        />
+      </div>
+
+      <div className="mt-1 flex items-center justify-between text-[11px] text-slate-400">
+        <span>{formatCurrency(bounds.min)}</span>
+        <span>{formatCurrency(bounds.max)}</span>
+      </div>
+
+      {touched && (
+        <button
+          type="button"
+          onClick={() => onSetValue(def.key, undefined)}
+          className="focus-ring mt-1.5 text-[11px] font-medium text-[var(--brand-navy)] underline decoration-dotted underline-offset-2"
+        >
+          ניקוי טווח המחיר
+        </button>
+      )}
+    </div>
+  );
+}
+
 function FilterControl({
   def,
   query,
@@ -172,6 +285,10 @@ function FilterControl({
         onClick={() => onSetValue(def.key, active ? undefined : true)}
       />
     );
+  }
+
+  if (def.type === "range") {
+    return <RangeControl def={def} query={query} ctx={ctx} onSetValue={onSetValue} />;
   }
 
   const all = filterOptions(def, ctx);
