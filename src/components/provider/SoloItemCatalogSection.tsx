@@ -22,8 +22,11 @@ import {
   CONSULTATION_SUBTYPES,
   Clinic,
   ConsultationType,
+  ITEM_BUFFER_OPTIONS,
+  ITEM_DURATION_OPTIONS,
   KupahArrangement,
   LAYER_LABELS,
+  minutesLabel,
   PROVIDER_SERVICE_TYPE_LABELS,
   PayerPrice,
   ProviderServiceType,
@@ -35,6 +38,7 @@ import {
   RequiredDocumentKind,
   RequiredDocumentTiming,
   soloServiceTypes,
+  withCurrentOption,
 } from "@/types";
 import {
   Plus,
@@ -948,22 +952,25 @@ export function SoloItemCatalogSection({
           <div className="flex flex-col gap-2.5 rounded-lg border border-slate-200 p-3">
             <p className="text-xs font-medium text-slate-600">משך ותזמון</p>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Input
-                label="משך הפריט (דקות)"
-                type="number"
-                min={5}
-                value={duration}
-                onChange={(e) => setDuration(e.target.value)}
-                required
-              />
-              <Input
-                label="באפר אחרי הפריט (דקות)"
-                type="number"
-                min={0}
+              <Select label="משך הפריט" value={duration} onChange={(e) => setDuration(e.target.value)} required>
+                {withCurrentOption(ITEM_DURATION_OPTIONS, Number(duration)).map((m) => (
+                  <option key={m} value={m}>
+                    {minutesLabel(m)}
+                  </option>
+                ))}
+              </Select>
+              <Select
+                label="באפר אחרי הפריט"
                 value={buffer}
                 onChange={(e) => setBuffer(e.target.value)}
                 hint="זמן חסום שלא ניתן להזמנה — סיכום, ניקיון, הכנה לתור הבא."
-              />
+              >
+                {withCurrentOption(ITEM_BUFFER_OPTIONS, Number(buffer)).map((m) => (
+                  <option key={m} value={m}>
+                    {minutesLabel(m)}
+                  </option>
+                ))}
+              </Select>
             </div>
           </div>
 

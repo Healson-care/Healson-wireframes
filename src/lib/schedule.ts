@@ -17,11 +17,13 @@ import {
   ClinicHours,
   DayKey,
   DEFAULT_SLOT_MINUTES,
+  SHIFT_EXPIRY_WARNING_DAYS,
   ScheduleException,
   ScheduleShift,
   WeeklySchedule,
   emptyWeeklySchedule,
 } from "@/types";
+import { toLocalDateKey } from "@/lib/utils";
 
 /** Anything that owns a weekly schedule: a location, a facility, a doctor. */
 export interface ScheduleHolder {
@@ -111,22 +113,52 @@ export function findException(clinic: ScheduleHolder | undefined, date: string):
   return (clinic?.schedule_exceptions ?? []).find((e) => e.date === date);
 }
 
-/** Whether a shift is in force on a concrete date. A permanent shift always is;
- * a temporary one only inside its [valid_from, valid_until] window — that is
- * the whole difference between the two (see ShiftRecurrence). */
+/** Whether a shift is in force on a concrete date — purely a question of its
+ * [valid_from, valid_until] window, whatever its recurrence. A temporary shift
+ * always has both ends; a permanent one has neither (runs until removed) or
+ * just an end date (a standing week committed to for 3/6/12 months, see
+ * SHIFT_VALIDITY_PRESETS). Missing end = open-ended. */
 export function isShiftActiveOn(shift: ScheduleShift, date: string): boolean {
-  if (shift.recurrence !== "temporary") return true;
   if (shift.valid_from && date < shift.valid_from) return false;
   if (shift.valid_until && date > shift.valid_until) return false;
   return true;
 }
 
+/** Where a shift stands relative to its end date, for the chip label and the
+ * renewal banner. `days` is signed: positive = days still left, 0 = expires
+ * today, negative = already lapsed. `null` for an open-ended shift. */
+export function shiftValidityState(
+  shift: ScheduleShift,
+  today: string = toLocalDateKey(new Date())
+): { validUntil: string; days: number; expired: boolean; expiring: boolean } | null {
+  if (!shift.valid_until) return null;
+  const days = Math.round(
+    (new Date(`${shift.valid_until}T00:00:00`).getTime() - new Date(`${today}T00:00:00`).getTime()) / 86_400_000
+  );
+  return {
+    validUntil: shift.valid_until,
+    days,
+    expired: days < 0,
+    expiring: days >= 0 && days <= SHIFT_EXPIRY_WARNING_DAYS,
+  };
+}
+
+/** `valid_until` for "from today, N months forward" — what a validity chip
+ * stores. Clamped to the last day of the target month, so a 6-month commitment
+ * made on the 31st ends on the 30th rather than rolling into the next month. */
+export function shiftValidUntilInMonths(months: number, from: Date = new Date()): string {
+  const target = new Date(from.getFullYear(), from.getMonth() + months, 1);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(from.getDate(), lastDay));
+  return toLocalDateKey(target);
+}
+
 /** Two shifts can only clash if they overlap in TIME on a day both are in force
  * on — a temporary January-only evening shift doesn't collide with a permanent
- * one that runs the rest of the year. */
+ * one that runs the rest of the year, and neither does a permanent shift whose
+ * validity ended before the replacement one starts. A missing end of a window
+ * is open in that direction, so an open-ended shift overlaps everything. */
 function validityOverlaps(a: ScheduleShift, b: ScheduleShift): boolean {
-  // A permanent shift is in force on every date, so it overlaps everything.
-  if (a.recurrence !== "temporary" || b.recurrence !== "temporary") return true;
   const aStart = a.valid_from ?? "0000-00-00";
   const aEnd = a.valid_until ?? "9999-12-31";
   const bStart = b.valid_from ?? "0000-00-00";

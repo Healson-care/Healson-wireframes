@@ -20,8 +20,10 @@ import {
   ScheduleBreak,
   ScheduleException,
   ScheduleShift,
+  SHIFT_EXPIRY_WARNING_DAYS,
   SHIFT_RECURRENCES,
   SHIFT_RECURRENCE_LABELS,
+  SHIFT_VALIDITY_PRESETS,
   ShiftRecurrence,
   SLOT_MINUTE_OPTIONS,
   WeeklySchedule,
@@ -33,6 +35,8 @@ import {
   formatShift,
   getWeeklySchedule,
   minutesToTime,
+  shiftValidUntilInMonths,
+  shiftValidityState,
   slotTimesForShift,
   timeToMinutes,
   totalWeeklyHours,
@@ -301,6 +305,30 @@ export function ScheduleEditor<T extends ScheduleHolder>({
     return true;
   }
 
+  /** Permanent shifts whose end date is here or nearly here. Without this the
+   * diary would simply stop offering times on a date nobody remembers setting,
+   * so it is surfaced on the screen that owns the week — with the one-click fix
+   * next to it. */
+  const expiringShifts = useMemo(
+    () =>
+      DAY_KEYS.flatMap((dayKey) =>
+        (schedule[dayKey] ?? [])
+          .filter((s) => s.recurrence !== "temporary")
+          .map((shift) => ({ dayKey, shift, validity: shiftValidityState(shift) }))
+          .filter((row) => row.validity?.expired || row.validity?.expiring)
+      ),
+    [schedule]
+  );
+
+  function extendShift(dayKey: DayKey, shiftId: string, months = 12) {
+    saveSchedule({
+      ...schedule,
+      [dayKey]: (schedule[dayKey] ?? []).map((s) =>
+        s.id === shiftId ? { ...s, valid_until: shiftValidUntilInMonths(months) } : s
+      ),
+    });
+  }
+
   function removeShift(dayKey: DayKey, shiftId: string) {
     saveSchedule({ ...schedule, [dayKey]: (schedule[dayKey] ?? []).filter((s) => s.id !== shiftId) });
   }
@@ -345,6 +373,37 @@ export function ScheduleEditor<T extends ScheduleHolder>({
         </div>
         {activeDays === 0 && <Badge tone="warning">{emptyLabel}</Badge>}
       </Card>
+
+      {expiringShifts.length > 0 && (
+        <div
+          className={cn(
+            "flex flex-col gap-2 rounded-lg border px-3 py-2.5",
+            expiringShifts.some((r) => r.validity?.expired)
+              ? "border-danger-border bg-danger-bg"
+              : "border-warning-border bg-warning-bg"
+          )}
+        >
+          <p className="flex items-center gap-2 text-sm font-medium text-slate-800">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            משמרות שהתוקף שלהן נגמר
+          </p>
+          {expiringShifts.map(({ dayKey, shift, validity }) => (
+            <div key={shift.id} className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span className="text-slate-700">
+                {DAY_LABELS[dayKey]} · <span dir="ltr">{formatShift(shift)}</span> ·{" "}
+                {validity!.expired
+                  ? `פגה ב-${formatDateHe(validity!.validUntil)} ואינה מציעה תורים`
+                  : validity!.days === 0
+                    ? "פגה היום"
+                    : `פגה בעוד ${validity!.days} ימים (${formatDateHe(validity!.validUntil)})`}
+              </span>
+              <Button size="sm" variant="outline" onClick={() => extendShift(dayKey, shift.id)}>
+                הארך בשנה
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* While the shift dialog is open the same error is shown inside it —
           the page is behind the modal backdrop. */}
@@ -586,6 +645,16 @@ export function ScheduleEditor<T extends ScheduleHolder>({
 
 const DAY_END_MINUTES = 23 * 60 + 59;
 
+/** How a permanent shift's end date was picked: open-ended, one of the presets
+ * (value = months), or a date the provider chose. */
+type ValidityChoice = "open" | "custom" | number;
+
+const VALIDITY_CHOICES: { value: ValidityChoice; label: string }[] = [
+  { value: "open", label: "ללא תאריך סיום" },
+  ...SHIFT_VALIDITY_PRESETS.map((p) => ({ value: p.months as ValidityChoice, label: p.label })),
+  { value: "custom", label: "תאריך מותאם" },
+];
+
 /** A sensible default for a brand-new shift: a standard morning on an empty
  * day, otherwise a slot that starts after the last existing shift ends. It
  * must never overlap what's already there — an overlapping default would make
@@ -617,22 +686,54 @@ function ShiftChip({
 }) {
   const slotCount = slotTimesForShift(shift).length;
   const scopedCount = shift.service_ids?.length ?? 0;
+  const isTemporary = shift.recurrence === "temporary";
+  // A permanent shift with an end date needs that date on the chip itself —
+  // it is the only thing distinguishing it from one that runs forever.
+  const validity = isTemporary ? null : shiftValidityState(shift);
   return (
-    <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1.5">
+    <div
+      className={cn(
+        "flex items-center gap-1.5 rounded-lg border bg-white px-2 py-1.5",
+        validity?.expired
+          ? "border-danger-border bg-danger-bg/40"
+          : validity?.expiring
+            ? "border-warning-border bg-warning-bg/40"
+            : "border-slate-200"
+      )}
+    >
       <button type="button" onClick={onEdit} className="flex flex-col items-start text-right">
         <span className="flex items-center gap-1.5 text-xs font-medium text-slate-800">
           <span dir="ltr">{formatShift(shift)}</span>
           {shift.label && <span className="text-slate-400">· {shift.label}</span>}
-          {shift.recurrence === "temporary" && (
+          {isTemporary && (
             <span className="rounded-full bg-warning-bg px-1.5 py-px text-[9px] font-semibold text-warning-text">
               זמנית
             </span>
           )}
+          {validity?.expired && (
+            <span className="rounded-full bg-danger-bg px-1.5 py-px text-[9px] font-semibold text-danger-text">
+              פגה
+            </span>
+          )}
         </span>
         <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-slate-500">
-          {shift.recurrence === "temporary" && (shift.valid_from || shift.valid_until) && (
+          {isTemporary && (shift.valid_from || shift.valid_until) && (
             <span dir="ltr">
               {shift.valid_from} → {shift.valid_until}
+            </span>
+          )}
+          {validity && (
+            <span
+              className={cn(
+                "font-medium",
+                validity.expired
+                  ? "text-danger-text"
+                  : validity.expiring
+                    ? "text-warning-text"
+                    : "text-slate-500"
+              )}
+            >
+              בתוקף עד {formatDateHe(validity.validUntil)}
             </span>
           )}
           <span>{slotCount} תורים</span>
@@ -740,6 +841,28 @@ export function ShiftForm({
   const [recurrence, setRecurrence] = useState<ShiftRecurrence>(initial.recurrence ?? "permanent");
   const [validFrom, setValidFrom] = useState(initial.valid_from ?? "");
   const [validUntil, setValidUntil] = useState(initial.valid_until ?? "");
+  // A permanent shift's end date is picked as a preset ("6 חודשים") or as a
+  // concrete date; an existing one always reopens as "custom", since the stored
+  // value is a date and re-deriving "which preset made it" would be guesswork.
+  const [validityChoice, setValidityChoice] = useState<ValidityChoice>(
+    (initial.recurrence ?? "permanent") === "permanent" && initial.valid_until ? "custom" : "open"
+  );
+
+  function chooseValidity(choice: ValidityChoice) {
+    setValidityChoice(choice);
+    if (choice === "open") setValidUntil("");
+    else if (typeof choice === "number") setValidUntil(shiftValidUntilInMonths(choice));
+  }
+
+  /** Both shift types write the same `valid_until`, so switching between them
+   * has to re-apply the target type's own answer — otherwise a temporary
+   * window's end date would survive into a shift the chips call open-ended. */
+  function chooseRecurrence(next: ShiftRecurrence) {
+    setRecurrence(next);
+    // Going the other way, a permanent end date is a sensible starting value
+    // for the temporary window's "עד תאריך" — so it is left alone.
+    if (next === "permanent") chooseValidity(validityChoice);
+  }
 
   const preview: ScheduleShift = {
     ...initial,
@@ -749,7 +872,12 @@ export function ShiftForm({
     breaks,
   };
   const slotCount = slotTimesForShift(preview).length;
-  const temporaryIncomplete = recurrence === "temporary" && (!validFrom || !validUntil);
+  const incomplete =
+    recurrence === "temporary" && (!validFrom || !validUntil)
+      ? "יש להגדיר תאריך התחלה וסיום למשמרת זמנית"
+      : recurrence === "permanent" && validityChoice === "custom" && !validUntil
+        ? "יש לבחור תאריך תוקף למשמרת"
+        : null;
 
   return (
     <div className="flex flex-col gap-3">
@@ -764,7 +892,7 @@ export function ShiftForm({
             <button
               key={option}
               type="button"
-              onClick={() => setRecurrence(option)}
+              onClick={() => chooseRecurrence(option)}
               aria-pressed={recurrence === option}
               className={cn(
                 "flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
@@ -779,10 +907,51 @@ export function ShiftForm({
         </div>
         <p className="text-[11px] leading-relaxed text-slate-500">
           {recurrence === "permanent"
-            ? "חוזרת כל שבוע עד שתוסר."
+            ? "חוזרת כל שבוע. אפשר להשאיר ללא תאריך סיום, או להתחייב לתקופה."
             : "פעילה רק בין התאריכים שתגדירו, ואחריהם נעלמת מהלו״ז לבד."}
         </p>
       </div>
+
+      {/* Validity of a standing week. Presets compute a real date; "ללא תאריך
+          סיום" stays the default, so a provider who ignores this section keeps
+          exactly the old behaviour and never finds their diary closed. */}
+      {recurrence === "permanent" && (
+        <div className="flex flex-col gap-2 rounded-lg border border-slate-200 p-3">
+          <span className="text-sm font-medium text-slate-700">תוקף המשמרת</span>
+          <div className="flex flex-wrap gap-1.5">
+            {VALIDITY_CHOICES.map((choice) => (
+              <button
+                key={String(choice.value)}
+                type="button"
+                onClick={() => chooseValidity(choice.value)}
+                aria-pressed={validityChoice === choice.value}
+                className={cn(
+                  "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                  validityChoice === choice.value
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-slate-200 text-slate-600 hover:border-slate-300"
+                )}
+              >
+                {choice.label}
+              </button>
+            ))}
+          </div>
+          {validityChoice === "custom" && (
+            <Input
+              type="date"
+              label="בתוקף עד"
+              value={validUntil}
+              onChange={(e) => setValidUntil(e.target.value)}
+              required
+            />
+          )}
+          <p className="text-[11px] leading-relaxed text-slate-500">
+            {validUntil
+              ? `אחרי ${formatDateHe(validUntil)} המשמרת תפסיק להציע תורים. נזכיר לכם ${SHIFT_EXPIRY_WARNING_DAYS} ימים מראש עם אפשרות להאריך.`
+              : "המשמרת תמשיך לייצר תורים עד שתסירו אותה."}
+          </p>
+        </div>
+      )}
 
       {recurrence === "temporary" && (
         <div className="grid gap-3 rounded-lg border border-slate-200 p-3 sm:grid-cols-2">
@@ -948,8 +1117,8 @@ export function ShiftForm({
       </p>
 
       <Button
-        disabled={temporaryIncomplete}
-        title={temporaryIncomplete ? "יש להגדיר תאריך התחלה וסיום למשמרת זמנית" : undefined}
+        disabled={!!incomplete}
+        title={incomplete ?? undefined}
         onClick={() =>
           onSave({
             ...initial,
@@ -961,7 +1130,9 @@ export function ShiftForm({
             service_ids: allServices ? [] : serviceIds,
             recurrence,
             valid_from: recurrence === "temporary" ? validFrom : undefined,
-            valid_until: recurrence === "temporary" ? validUntil : undefined,
+            // A permanent shift keeps only an end date (or none); a temporary
+            // one always carries both ends of its window.
+            valid_until: validUntil || undefined,
           })
         }
       >

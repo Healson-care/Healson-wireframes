@@ -24,6 +24,7 @@ import {
   CatalogKind,
   CatalogRequest,
   CatalogRequestStatus,
+  ITEM_DURATION_OPTIONS,
   K_LEVELS_BY_KUPAH,
   KUPOT,
   PAYER_ARRANGEMENT_MODES,
@@ -39,6 +40,8 @@ import {
   ServiceType,
   SkillDomain,
   SkillSubdomain,
+  minutesLabel,
+  withCurrentOption,
 } from "@/types";
 import {
   RotateCcw,
@@ -672,12 +675,21 @@ function CatalogItemForm({
         />
       )}
 
-      <Input
-        label="משך טיפול ממוצע (דקות)"
-        type="number"
+      {/* Picked, never typed — this value seeds duration_minutes on every
+          provider item created from this catalog row (see pickCatalogItem in
+          ServiceCatalogSection), so an off-grid number here propagates. */}
+      <Select
+        label="משך טיפול ממוצע"
         value={form.typical_duration_min}
         onChange={(e) => setForm({ ...form, typical_duration_min: e.target.value })}
-      />
+      >
+        <option value="">ללא משך מוגדר</option>
+        {withCurrentOption(ITEM_DURATION_OPTIONS, Number(form.typical_duration_min)).map((m) => (
+          <option key={m} value={m}>
+            {minutesLabel(m)}
+          </option>
+        ))}
+      </Select>
       <Select
         label="ספק (אופציונלי)"
         value={form.provider_id}

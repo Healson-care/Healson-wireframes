@@ -558,7 +558,6 @@ const provider1: ProviderProfile = {
     },
   ],
   exam_types: [],
-  location_count: 2,
   // A headache neurologist's real week: consultation clinics on a 30-minute
   // grid, and separate treatment clinics for the injections — a 45-minute
   // botox session must never be offered inside a consultation slot. Wednesday
@@ -1106,7 +1105,7 @@ const instituteDoctor2: ProviderProfile = {
   contact_phone: "052-4410100",
   contact_email: "omer.navo@asuta-demo.co.il",
   doctor_subtype: "surgeon",
-  surgical_privileges_hospital: "מרכז רפואי הדסה",
+  surgical_privileges_hospital: "hosp_hadassah",
   is_published: false,
   status: "approved",
   organization_provider_ids: ["prov_institute"],
@@ -1140,7 +1139,6 @@ const providerInstitute: ProviderProfile = {
   is_published: true,
   status: "approved",
   commission_rate: 11,
-  location_count: 1,
   created_date: isoDateDaysFromNow(-260),
   agreements: [
     { id: generateId("agr"), provider_id: "prov_institute", layer: "K", kupah_list: ["מכבי", "כללית"] },
@@ -1747,7 +1745,6 @@ function soloProviderProfile(doctor: SoloDoctorRow, index: number): ProviderProf
     is_published: true,
     status: "approved",
     commission_rate: 15,
-    location_count: clinics.length,
     created_date: isoDateDaysFromNow(-150),
     agreements: [
       ...(hasUnited
@@ -2251,7 +2248,6 @@ const providerOutpatient: ProviderProfile = {
   // This unit collects the balance at its own counter (payments meeting §5) —
   // the מכון opposite it keeps the Healson default, so the demo shows both.
   balance_collector: "unit",
-  location_count: 1,
   created_date: isoDateDaysFromNow(-210),
   agreements: [
     { id: generateId("agr"), provider_id: "prov_outpatient", layer: "S", kupah_list: ["כללית", "מכבי", "מאוחדת", "לאומית"] },
