@@ -22,7 +22,6 @@ import {
   Upload,
   CheckCircle2,
   ChevronRight,
-  MapPin,
   Layers,
   PartyPopper,
   FileText,
@@ -87,8 +86,13 @@ import {
 // account, and this is where the applicant's own data starts being stored.
 type Phase = "category" | "type" | "form" | "otp" | "review" | "success";
 
-/** The form's own sub-steps, in order. "identity" and "license" always exist. */
-type FormStepKey = "identity" | "license" | "extras" | "area";
+/** The form's own sub-steps, in order. "identity" and "license" always exist.
+ *
+ * There is deliberately no "פריסה" step any more: asking "how many sites do you
+ * have?" produced a number nothing could act on, ahead of the branches it was
+ * meant to describe. Locations are declared exactly one way — by adding them in
+ * הקמה (ClinicsSection), where each one carries a real address. */
+type FormStepKey = "identity" | "license" | "extras";
 
 /** Fields whose validation can't be expressed with native `required` — the
  * error message is echoed inline next to the control it belongs to. */
@@ -312,7 +316,6 @@ interface TypeFieldConfig {
   showKupot?: boolean;
   showPrivateInsurance?: boolean;
   showSubSpecialties?: boolean;
-  showLocationCount?: boolean;
   // Hospitals are composed of other provider types, but the applicant doesn't
   // declare them: Healson's ops team maps and links them after onboarding.
   // This renders that as a read-only explanation, never as a picker.
@@ -387,7 +390,6 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
     showBusinessRegNumber: true,
     licenseNumberLabel: "מספר רישיון עסק",
     licenseFileLabel: "רישיון עסק (PDF / JPG / PNG)",
-    showLocationCount: true,
   },
   hospital: {
     icon: <Hospital className="h-5 w-5" />,
@@ -405,7 +407,6 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
     licenseFileLabel: "רישיון משרד הבריאות (PDF / JPG / PNG)",
     showKupot: true,
     showPrivateInsurance: true,
-    showLocationCount: true,
     showOrganizationCompositionNote: true,
     excludeOnlineServiceArea: true,
   },
@@ -424,7 +425,6 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
     licenseFileLabel: "רישיון משרד הבריאות (PDF / JPG / PNG)",
     showKupot: true,
     showPrivateInsurance: true,
-    showLocationCount: true,
     parentOrganizationNote:
       "מרפאות חוץ משויכות לארגון רפואי. לאחר השלמת ההצטרפות, צוות Healson יקשר את המרפאה לארגון הרלוונטי במערכת.",
     excludeOnlineServiceArea: true,
@@ -444,7 +444,6 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
     licenseFileLabel: "תעודת התאגדות (PDF / JPG / PNG)",
     showKupot: true,
     showPrivateInsurance: true,
-    showLocationCount: true,
     excludeOnlineServiceArea: true,
   },
   lab: {
@@ -462,7 +461,6 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
     licenseFileLabel: "רישיון מעבדה ממשרד הבריאות (PDF / JPG / PNG)",
     showKupot: true,
     showPrivateInsurance: true,
-    showLocationCount: true,
     excludeOnlineServiceArea: true,
   },
   medical_call_center: {
@@ -480,7 +478,6 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
     licenseFileLabel: "רישיון עסק / אישור הפעלה (PDF / JPG / PNG)",
     showKupot: true,
     showPrivateInsurance: true,
-    showLocationCount: true,
   },
   insurance_agency: {
     icon: <Shield className="h-5 w-5" />,
@@ -496,7 +493,6 @@ const TYPE_CONFIG: Partial<Record<ProviderType, TypeFieldConfig>> = {
     licenseNumberLabel: "מספר רישיון סוכן ביטוח (רשות שוק ההון)",
     licenseFileLabel: "רישיון סוכן ביטוח (PDF / JPG / PNG)",
     showPrivateInsurance: true,
-    showLocationCount: true,
   },
 };
 
@@ -796,8 +792,6 @@ export default function ProviderRegisterPage() {
   const [privateInsurers, setPrivateInsurers] = useState<string[]>([]);
   const [subSpecialties, setSubSpecialties] = useState<string[]>([]);
   const [otherSubSpecialty, setOtherSubSpecialty] = useState("");
-  const [locationCount, setLocationCount] = useState("");
-  const [storeStructure, setStoreStructure] = useState<"single" | "chain">("single");
   const [otpCode, setOtpCode] = useState("");
   const [error, setErrorMessage] = useState("");
   const [errorField, setErrorField] = useState<ErrorField | null>(null);
@@ -896,8 +890,6 @@ export default function ProviderRegisterPage() {
       if (granted.size) {
         setConsents(Object.fromEntries([...granted].map((t) => [t, true])));
       }
-      setLocationCount(provider.location_count != null ? String(provider.location_count) : "");
-      setStoreStructure(type === "store" && (provider.location_count ?? 1) > 1 ? "chain" : "single");
       // Resume into the form, at the first sub-step that still has work: the
       // identity details until the phone is verified, the licensing details
       // once it is. Never straight into "otp" — the OTP is only ever entered
@@ -956,11 +948,6 @@ export default function ProviderRegisterPage() {
 
   const showInsuranceSection = !!config && (config.showKupot || config.showPrivateInsurance) && extraFieldsGate;
   const hasExtrasStep = showInsuranceSection;
-  // The "coverage" sub-step only exists when there's actually a coverage field
-  // to fill (store branch structure, or a location count) — service areas were
-  // removed from the application (real address→map linkage happens later, when
-  // adding clinics), so a type with neither skips this step entirely.
-  const hasAreaStep = !!config && (providerType === "store" || config.showLocationCount === true);
   // "identity" collects who you are and — crucially — the phone number the
   // OTP is then sent to; "license" is everything Ops needs to verify you.
   // Both always exist, so their indices (0 and 1) are stable enough to resume
@@ -969,7 +956,6 @@ export default function ProviderRegisterPage() {
     { key: "identity", label: "פרטים אישיים" },
     { key: "license", label: "זיהוי, מקצוע ורישוי" },
     ...(hasExtrasStep ? ([{ key: "extras", label: "כיסוי ביטוחי" }] as const) : []),
-    ...(hasAreaStep ? ([{ key: "area", label: "פריסה" }] as const) : []),
   ];
   const safeFormStep = Math.min(formStep, formSteps.length - 1);
   const currentFormStepKey = formSteps[safeFormStep].key;
@@ -1059,7 +1045,6 @@ export default function ProviderRegisterPage() {
       // queued as a SubSpecialtyRequest above and only joins this list once
       // Healson approves it.
       sub_specialties: config.showSubSpecialties ? subSpecialties.filter((s) => s !== "אחר") : undefined,
-      location_count: config.showLocationCount && locationCount ? Number(locationCount) : undefined,
     });
     // Mirror the (editable) identity details back onto the login account, so
     // the name/phone the applicant corrected here are the ones the platform
@@ -1254,8 +1239,6 @@ export default function ProviderRegisterPage() {
     setPrivateInsurers([]);
     setSubSpecialties([]);
     setOtherSubSpecialty("");
-    setLocationCount("");
-    setStoreStructure("single");
     // Persist the type immediately — not just on the form's first "המשך" —
     // so the dashboard shows the application as started, and a resumed
     // session has a type to rebuild the per-type form config from.
@@ -1420,17 +1403,8 @@ export default function ProviderRegisterPage() {
       window.scrollTo({ top: 0, behavior: "smooth" });
     };
     const extrasIndex = formSteps.findIndex((s) => s.key === "extras");
-    const areaIndex = formSteps.findIndex((s) => s.key === "area");
     const licenseFileName = licenseFile?.name ?? provider?.license_file?.file_name;
     const specialtyText = config.multiSpecialty ? specialtyMulti.join(", ") : specialty;
-    const areaText =
-      providerType === "store"
-        ? storeStructure === "single"
-          ? "סניף יחיד"
-          : `רשת של ${locationCount || "—"} סניפים`
-        : locationCount
-        ? `${locationCount} מוקדי קבלה`
-        : "";
 
     const groups: { title: string; onEdit: () => void; rows: { label: string; value: string }[] }[] = [
       {
@@ -1508,9 +1482,6 @@ export default function ProviderRegisterPage() {
               ],
             },
           ]
-        : []),
-      ...(areaIndex >= 0
-        ? [{ title: "פריסה", onEdit: editTo(areaIndex), rows: [{ label: "מוקדי פעילות", value: areaText }] }]
         : []),
     ];
 
@@ -2239,62 +2210,6 @@ export default function ProviderRegisterPage() {
           </FormSection>
         )}
         </>
-        )}
-
-        {currentFormStepKey === "area" && (
-        <FormSection icon={<MapPin className="h-4 w-4" />} title="פריסה">
-          {providerType === "store" ? (
-            <div className="flex flex-col gap-2">
-              <span className="text-sm font-medium text-slate-700">מבנה העסק</span>
-              <div className="flex gap-2">
-                {(
-                  [
-                    ["single", "סניף יחיד"],
-                    ["chain", "רשת סניפים"],
-                  ] as const
-                ).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => {
-                      setStoreStructure(value);
-                      if (value === "single") setLocationCount("1");
-                      else if (locationCount === "1" || !locationCount) setLocationCount("");
-                    }}
-                    className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-                      storeStructure === value
-                        ? "border-primary bg-primary/5 text-primary"
-                        : "border-slate-200 text-slate-600 hover:border-slate-300"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              {storeStructure === "chain" && (
-                <Input
-                  type="number"
-                  min={2}
-                  label="כמה סניפים יש ברשת?"
-                  icon={<MapPin className="h-4 w-4" />}
-                  value={locationCount}
-                  onChange={(e) => setLocationCount(e.target.value)}
-                />
-              )}
-            </div>
-          ) : (
-            config.showLocationCount && (
-              <Input
-                type="number"
-                min={1}
-                label="כמה מוקדי קבלה / מרפאות יש לך?"
-                icon={<MapPin className="h-4 w-4" />}
-                value={locationCount}
-                onChange={(e) => setLocationCount(e.target.value)}
-              />
-            )
-          )}
-        </FormSection>
         )}
 
         <div className="mt-1 flex gap-2">

@@ -18,6 +18,8 @@ import {
   CATALOG_KIND_LABELS,
   CatalogItem,
   ConsultationType,
+  ITEM_BUFFER_OPTIONS,
+  ITEM_DURATION_OPTIONS,
   InsuranceLayer,
   LAYER_LABELS,
   PROVIDER_SERVICE_TYPE_LABELS,
@@ -29,7 +31,9 @@ import {
   catalogKindForProviderType,
   getProviderServiceCategories,
   isUnitProviderType,
+  minutesLabel,
   payerPriceLabel,
+  withCurrentOption,
 } from "@/types";
 import { Plus, Pencil, Trash2, Stethoscope, MapPin, MonitorCog, Search, Lock } from "lucide-react";
 
@@ -181,6 +185,7 @@ export function ServiceCatalogSection({
   const [query, setQuery] = useState("");
   const [catalogItemId, setCatalogItemId] = useState("");
   const [duration, setDuration] = useState("30");
+  const [buffer, setBuffer] = useState("0");
   const [priceFull, setPriceFull] = useState("");
   const [serviceType, setServiceType] = useState<ProviderServiceType>(defaultServiceType);
   const [serviceCategory, setServiceCategory] = useState<string>("");
@@ -303,6 +308,7 @@ export function ServiceCatalogSection({
     setQuery("");
     setCatalogItemId("");
     setDuration("30");
+    setBuffer("0");
     setPriceFull("");
     setServiceType(defaultServiceType);
     setServiceCategory(serviceCategories?.[0] ?? "");
@@ -333,6 +339,7 @@ export function ServiceCatalogSection({
     setCatalogItemId(catalogItem?.id ?? "");
     setQuery(catalogItem ? `${catalogItem.tavar_code ?? ""} — ${catalogItem.name_he}` : item.name);
     setDuration(String(item.duration_minutes));
+    setBuffer(String(item.buffer_minutes ?? 0));
     setPriceFull(item.price_full != null ? String(item.price_full) : "");
     setServiceType(item.service_type ?? defaultServiceType);
     setServiceCategory(item.service_category ?? serviceCategories?.[0] ?? "");
@@ -395,6 +402,7 @@ export function ServiceCatalogSection({
       id,
       name: refItem?.name_he ?? editingExisting?.name ?? "",
       duration_minutes: Number(duration) || 30,
+      buffer_minutes: Number(buffer) || undefined,
       prices,
       price_full:
         catalogKind === "healson" && priceFull !== "" ? Number(priceFull) || 0 : undefined,
@@ -530,7 +538,10 @@ export function ServiceCatalogSection({
                       ) : (
                         item.service_type && <Badge tone="blue">{PROVIDER_SERVICE_TYPE_LABELS[item.service_type]}</Badge>
                       )}
-                      <span className="text-xs text-slate-500">{item.duration_minutes} דק׳</span>
+                      <span className="text-xs text-slate-500">
+                        {minutesLabel(item.duration_minutes)}
+                        {!!item.buffer_minutes && ` + ${item.buffer_minutes} דק׳ באפר`}
+                      </span>
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                       {requiresReferralOf(item) && <Badge tone="amber">דורש הפניה</Badge>}
@@ -689,7 +700,25 @@ export function ServiceCatalogSection({
                 ))}
               </Select>
             )}
-            <Input label="משך (דקות)" type="number" value={duration} onChange={(e) => setDuration(e.target.value)} required />
+            <Select label="משך" value={duration} onChange={(e) => setDuration(e.target.value)} required>
+              {withCurrentOption(ITEM_DURATION_OPTIONS, Number(duration)).map((m) => (
+                <option key={m} value={m}>
+                  {minutesLabel(m)}
+                </option>
+              ))}
+            </Select>
+            <Select
+              label="באפר אחרי הפריט"
+              value={buffer}
+              onChange={(e) => setBuffer(e.target.value)}
+              hint="זמן חסום שלא ניתן להזמנה — ניקיון, סידור החדר, הכנה לתור הבא."
+            >
+              {withCurrentOption(ITEM_BUFFER_OPTIONS, Number(buffer)).map((m) => (
+                <option key={m} value={m}>
+                  {minutesLabel(m)}
+                </option>
+              ))}
+            </Select>
           </div>
 
           {/* The category above drives the patient-facing grouping; the

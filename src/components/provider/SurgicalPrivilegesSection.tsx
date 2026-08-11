@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { Building2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Input";
 import { FileDropzone } from "@/components/ui/FileDropzone";
 import { fileToDataUrl } from "@/lib/file";
+import { SURGICAL_HOSPITALS } from "@/types";
 import type { ProviderProfile, UploadedFile } from "@/types";
 
 /**
@@ -34,21 +35,22 @@ export function SurgicalPrivilegesSection({
   const [malpracticeFile, setMalpracticeFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const selectedHospital = SURGICAL_HOSPITALS.find((h) => h.id === hospital);
 
   async function toRecord(file: File): Promise<UploadedFile> {
     return { file_name: file.name, uploaded_at: new Date().toISOString(), data_url: await fileToDataUrl(file) };
   }
 
   async function handleSave() {
-    if (!hospital.trim()) {
-      setError("נא לציין את בית החולים או מרכז הניתוחים שבו קיימת ההרשאה");
+    if (!hospital) {
+      setError("נא לבחור את בית החולים או מרכז הניתוחים שבו קיימת ההרשאה");
       return;
     }
     setSaving(true);
     setError("");
     try {
       onSave({
-        surgical_privileges_hospital: hospital.trim(),
+        surgical_privileges_hospital: hospital,
         surgical_board_certificate: boardFile
           ? await toRecord(boardFile)
           : provider.surgical_board_certificate,
@@ -69,7 +71,8 @@ export function SurgicalPrivilegesSection({
       <p className="flex items-start gap-2 rounded-xl border border-info-border bg-info-bg px-3.5 py-2.5 text-xs leading-relaxed text-info-text">
         <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         ניתוחים מוזמנים דרך Healson רק במוסד שבו יש לך הרשאת ניתוח. הפרטים כאן נבדקים על ידי צוות Healson
-        לפני אישור הפרסום.
+        לפני אישור הפרסום. כל המוסדות ברשימה נחשבים למסגרת פרטית — גם שערי צדק והדסה, שבהם ההזמנה היא
+        לשר״פ.
       </p>
 
       {error && (
@@ -78,16 +81,38 @@ export function SurgicalPrivilegesSection({
         </div>
       )}
 
-      <Input
-        label="בית חולים / מרכז ניתוחים בו קיימת הרשאת ניתוח"
-        icon={<Building2 className="h-4 w-4" />}
-        value={hospital}
-        onChange={(e) => {
-          setHospital(e.target.value);
-          if (error) setError("");
-        }}
-        required
-      />
+      {/* Closed list — see SURGICAL_HOSPITALS. The address is shown under the
+          picker so the surgeon confirms they mean this site (three of the
+          hospitals sit on the same street in רמת החייל). */}
+      <div className="flex flex-col gap-1.5">
+        <Select
+          label="בית חולים / מרכז ניתוחים בו קיימת הרשאת ניתוח"
+          value={hospital}
+          onChange={(e) => {
+            setHospital(e.target.value);
+            if (error) setError("");
+          }}
+          required
+        >
+          <option value="">בחר/י בית חולים</option>
+          {SURGICAL_HOSPITALS.map((h) => (
+            <option key={h.id} value={h.id}>
+              {h.name}
+            </option>
+          ))}
+          {/* A value saved before the list existed stays selectable rather than
+              silently emptying the field on the next save. */}
+          {hospital && !SURGICAL_HOSPITALS.some((h) => h.id === hospital) && (
+            <option value={hospital}>{hospital}</option>
+          )}
+        </Select>
+        {selectedHospital && (
+          <p className="flex items-center gap-1.5 text-xs text-slate-500">
+            <Building2 className="h-3.5 w-3.5 shrink-0" />
+            {selectedHospital.address}, {selectedHospital.city}
+          </p>
+        )}
+      </div>
 
       <div className="flex flex-col gap-1.5">
         <span className="text-sm font-medium text-slate-700">תעודת מומחה בתחום ניתוחי / בורד (לא חובה)</span>

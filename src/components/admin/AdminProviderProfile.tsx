@@ -27,6 +27,7 @@ import {
   PROVIDER_TYPE_LABELS,
   ProviderType,
   SUB_SPECIALTY_REQUEST_STATUS_LABELS,
+  surgicalHospitalLabel,
   UploadedFile,
 } from "@/types";
 import {
@@ -709,7 +710,7 @@ export function AdminProviderProfile({
               <DocRow label="תעודת מומחה בתחום ניתוחי (בורד)" file={provider.surgical_board_certificate} />
               <DocRow label="ביטוח אחריות מקצועית" file={provider.malpractice_insurance_file} />
               <InfoTile label="הרשאת ניתוח (נקבעת בשלב ההקמה)">
-                {provider.surgical_privileges_hospital || "—"}
+                {surgicalHospitalLabel(provider.surgical_privileges_hospital) || "—"}
               </InfoTile>
             </>
           )}

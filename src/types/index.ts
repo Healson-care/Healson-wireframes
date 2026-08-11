@@ -595,12 +595,32 @@ export interface ScheduleShift {
   // Undefined = "permanent" (every shift created before this existed).
   recurrence?: ShiftRecurrence;
   valid_from?: string; // yyyy-MM-dd — temporary shifts only
-  valid_until?: string; // yyyy-MM-dd — temporary shifts only
+  // yyyy-MM-dd. On a temporary shift this closes its window and is required.
+  // On a permanent one it is OPTIONAL — a standing week the provider only
+  // commits to for a while (SHIFT_VALIDITY_PRESETS: 3/6/12 months, or a date
+  // they pick). Either way isShiftActiveOn stops producing slots after it, so
+  // a permanent shift with a valid_until quietly empties the diary once it
+  // passes — always surface it with shiftValidityState + a way to extend.
+  valid_until?: string;
   // ConsultationType ids bookable in this shift. Empty/undefined means "every
   // service offered at this location" — the common case, so a provider who
   // doesn't care about per-shift service scoping never has to touch it.
   service_ids?: string[];
 }
+
+// How long a permanent shift is committed to. Offered as chips rather than a
+// typed number of months: a provider who types "6" has to work out the end date
+// in their head, and a mistake there closes the diary without anyone noticing.
+// The chip only COMPUTES valid_until — what is stored is always a real date, so
+// the slot engine needs no notion of "months".
+export const SHIFT_VALIDITY_PRESETS: { months: number; label: string }[] = [
+  { months: 3, label: "3 חודשים" },
+  { months: 6, label: "6 חודשים" },
+  { months: 12, label: "שנה" },
+];
+
+/** How many days before valid_until the provider is nudged to extend. */
+export const SHIFT_EXPIRY_WARNING_DAYS = 14;
 
 export type WeeklySchedule = Record<DayKey, ScheduleShift[]>;
 
@@ -903,6 +923,35 @@ const REQUIRED_DOCUMENT_CATEGORY: Record<RequiredDocumentKind, DocumentCategory>
 /** Which drawer of the patient's documents tab this checklist row files into. */
 export function requiredDocumentCategory(doc: RequiredDocument): DocumentCategory {
   return REQUIRED_DOCUMENT_CATEGORY[doc.kind ?? "other"];
+}
+
+// How long an item takes, and how much dead time follows it. Both are PICKED
+// from these lists everywhere an item is created or edited — never typed. A
+// hand-typed 37 or 52 minutes produces a slot grid nothing else lines up with:
+// the engine lays slots end-to-end from the shift start (slotTimesForShift),
+// so an off-grid item leaves unusable stubs at the end of every shift and makes
+// two providers' diaries impossible to compare. 15-minute steps divide cleanly
+// into every SLOT_MINUTE_OPTIONS value.
+export const ITEM_DURATION_OPTIONS = [15, 30, 45, 60, 75, 90, 105, 120, 150, 180, 240];
+export const ITEM_BUFFER_OPTIONS = [0, 5, 10, 15, 20, 30, 45, 60];
+
+/** The option list with `current` folded in. Items saved before these lists
+ * existed (seed data, the old free-text fields) can hold an off-grid 20 or 25;
+ * without this the select would render blank and silently rewrite the value on
+ * the next save. New values are still only ever picked from the list. */
+export function withCurrentOption(options: number[], current?: number): number[] {
+  if (!current || options.includes(current)) return options;
+  return [...options, current].sort((a, b) => a - b);
+}
+
+/** "45 דק׳" / "1:30 שעות" — labels for the two option lists above. */
+export function minutesLabel(minutes: number): string {
+  if (minutes === 0) return "ללא באפר";
+  if (minutes < 60) return `${minutes} דק׳`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (rest === 0) return hours === 1 ? "שעה" : `${hours} שעות`;
+  return `${hours}:${String(rest).padStart(2, "0")} שעות`;
 }
 
 export interface ConsultationType {
@@ -1493,6 +1542,42 @@ export const DOCTOR_SUBTYPE_LABELS: Record<DoctorSubtype, string> = {
   surgeon: "רופא/ה מנתח/ת",
 };
 
+// The institutions a surgeon may hold Healson-bookable surgical privileges at.
+//
+// A closed list, not free text. The hospital is where the patient physically
+// goes and what Healson credentials the surgeon against, and "אסותא" typed as
+// "אסותא ת״א" / "בי״ח אסותא" / "Assuta" is three different places to search,
+// to ops review and to the confirmation the patient receives.
+//
+// EVERY entry here is treated as a PRIVATE surgical setting — including שערי
+// צדק and הדסה, which are public hospitals: what Healson books into there is
+// the private wing (שר"פ), so the procedure is priced and consented to exactly
+// like one at אסותא or רפאל.
+export interface SurgicalHospital {
+  id: string;
+  name: string;
+  /** Street address, for the patient-facing confirmation and the ops review. */
+  address: string;
+  city: string;
+}
+
+export const SURGICAL_HOSPITALS: SurgicalHospital[] = [
+  { id: "hosp_medica_tlv", name: "בית חולים מדיקה תל אביב", address: "הברזל 28", city: "תל אביב" },
+  { id: "hosp_raphael_tlv", name: "בית חולים רפאל תל אביב", address: "פארק עתידים, בניין 3", city: "תל אביב" },
+  { id: "hosp_assuta_tlv", name: "בית חולים אסותא תל אביב", address: "הברזל 20", city: "תל אביב" },
+  { id: "hosp_hmc_herzliya", name: "בית חולים הרצליה מדיקל סנטר", address: "שדרות אלי לנדאו 7", city: "הרצליה פיתוח" },
+  { id: "hosp_tlv_medical", name: "בית חולים מדיקל TLV תל אביב", address: "הברזל 15", city: "תל אביב" },
+  { id: "hosp_shaare_zedek", name: "המרכז הרפואי שערי צדק", address: "שמואל בייט 12", city: "ירושלים" },
+  { id: "hosp_hadassah", name: "המרכז הרפואי הדסה עין כרם", address: "קריית הדסה, עין כרם", city: "ירושלים" },
+];
+
+/** Display name for a stored `surgical_privileges_hospital`. Falls back to the
+ * raw value, which is how records written before the closed list still read. */
+export function surgicalHospitalLabel(value?: string): string {
+  if (!value) return "";
+  return SURGICAL_HOSPITALS.find((h) => h.id === value)?.name ?? value;
+}
+
 // ---------------------------------------------------------------------------
 // "אחר" sub-specialty requests — a provider whose sub-specialty isn't on the
 // list types it in, and Healson approves it as PART of the license review
@@ -1635,13 +1720,18 @@ export interface ProviderProfile {
   doctor_subtype?: DoctorSubtype;
   surgical_board_certificate?: UploadedFile;
   malpractice_insurance_file?: UploadedFile;
+  // A SurgicalHospital id — picked from SURGICAL_HOSPITALS, never typed. Read
+  // it for display through surgicalHospitalLabel(), which also carries the
+  // free-text values saved before the list existed.
   surgical_privileges_hospital?: string;
   medical_resume_file?: UploadedFile;
   kupah_arrangements?: KupahArrangement[];
   private_insurance_companies?: string[];
   service_areas?: string[];
   sub_specialties?: string[];
-  location_count?: number;
+  // NOTE: there is deliberately no `location_count`. How many sites a provider
+  // works from is `clinic_locations.length` — asking for the number separately
+  // produced a second, always-drifting answer to the same question.
   member_provider_types?: ProviderType[]; // organization only — which provider types operate under it (set by Healson ops, not self-declared)
   // Admin-managed organizations (ניהול ספקים): Healson ops creates each real
   // organization by hand, then creates its medical units (each unit is a full
