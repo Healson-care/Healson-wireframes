@@ -13,6 +13,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/Tabs";
 import { ConfirmDialog, Dialog } from "@/components/ui/Dialog";
 import { Input, Select, Textarea } from "@/components/ui/Input";
 import { PatientForm, PatientFormValues } from "@/components/admin/PatientForm";
+import { fromStoredKLevel, toStoredKLevel } from "@/components/patient/InsuranceProfileForm";
 import { AppointmentForm, AppointmentFormValues } from "@/components/admin/AppointmentForm";
 import { fileToDataUrl } from "@/lib/file";
 import { cn, formatDateHe } from "@/lib/utils";
@@ -680,7 +681,7 @@ function AdminPatientChartPageContent() {
             ...values,
             gender: values.gender || undefined,
             kupah: values.kupah || undefined,
-            k_level: values.k_level || undefined,
+            k_level: toStoredKLevel(values.k_level),
             b_insurances: values.b_insurances.length > 0 ? values.b_insurances : undefined,
             address: values.address || undefined,
           });
@@ -697,7 +698,7 @@ function AdminPatientChartPageContent() {
           gender: patient.gender ?? "",
           parent_name: patient.parent_name ?? "",
           kupah: patient.kupah ?? "",
-          k_level: patient.k_level ?? "",
+          k_level: fromStoredKLevel(patient.k_level),
           b_insurances: patient.b_insurances ?? [],
           address: patient.address ?? "",
           status: patient.status,

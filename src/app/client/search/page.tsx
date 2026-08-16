@@ -407,7 +407,7 @@ export default function ClientSearchPage() {
         description: "כדי לראות מחירים ולקבוע תור נדרש פרופיל מטופל",
       });
       sessionStorage.setItem(POST_REGISTER_REDIRECT_KEY, "/client/search");
-      router.push("/register");
+      router.push("/client/login");
       return;
     }
     setSelectedService(offer.service);

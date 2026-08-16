@@ -4,8 +4,8 @@ import { useState } from "react";
 import { Dialog } from "@/components/ui/Dialog";
 import { Input, Select } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
-import { InsuranceProfileForm, InsuranceProfileValue } from "@/components/patient/InsuranceProfileForm";
-import { GENDERS, Gender, KLevel, Kupah, PATIENT_STATUSES, Patient, PatientInsurance } from "@/types";
+import { InsuranceProfileForm, InsuranceProfileValue, KLevelChoice } from "@/components/patient/InsuranceProfileForm";
+import { GENDERS, Gender, Kupah, PATIENT_STATUSES, Patient, PatientInsurance } from "@/types";
 
 export interface PatientFormValues {
   full_name: string;
@@ -17,7 +17,7 @@ export interface PatientFormValues {
   gender: Gender | "";
   parent_name: string;
   kupah: Kupah | "";
-  k_level: KLevel | "";
+  k_level: KLevelChoice;
   b_insurances: PatientInsurance[];
   address: string;
   status: Patient["status"];

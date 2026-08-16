@@ -48,11 +48,15 @@ export const COMMUNICATION_LANGUAGE_LABELS: Record<CommunicationLanguage, string
   en: "אנגלית",
 };
 
-export type NotificationChannel = "email" | "whatsapp";
-export const NOTIFICATION_CHANNELS: NotificationChannel[] = ["email", "whatsapp"];
+// How appointment reminders and other notices reach the patient. "voice" is
+// an automated phone call — kept as a first-class option because a share of
+// patients here are elderly and don't read SMS or email at all.
+export type NotificationChannel = "email" | "sms" | "voice";
+export const NOTIFICATION_CHANNELS: NotificationChannel[] = ["email", "sms", "voice"];
 export const NOTIFICATION_CHANNEL_LABELS: Record<NotificationChannel, string> = {
   email: "מייל",
-  whatsapp: "וואטסאפ",
+  sms: "SMS",
+  voice: "הודעה קולית",
 };
 
 // ---------------------------------------------------------------------------

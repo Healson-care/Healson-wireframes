@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Mail, Lock, User as UserIcon, Phone, IdCard, Calendar, ArrowRight, Upload, FileText, Eye, EyeOff } from "lucide-react";
@@ -17,7 +17,7 @@ import { isValidIsraeliId, isValidEmail, isValidIsraeliPhone } from "@/lib/utils
 import { fileToDataUrl } from "@/lib/file";
 import { homeForRole } from "@/lib/useRequireRole";
 import { cn } from "@/lib/utils";
-import { POST_REGISTER_REDIRECT_KEY, CITIES, STREETS_BY_CITY, DEFAULT_STREETS } from "@/lib/constants";
+import { POST_REGISTER_REDIRECT_KEY, CITIES, STREETS_BY_CITY, DEFAULT_STREETS, formatAddress } from "@/lib/constants";
 import { Gender, GENDERS, UploadedFile } from "@/types";
 import { useOtpAttemptGuard, ResendControl, BlockedPanel, WrongAttemptsLockoutNotice } from "@/components/shared/OtpAttemptGuard";
 import {
@@ -29,6 +29,7 @@ import {
   EMPTY_INSURANCE_PROFILE,
   InsuranceProfileForm,
   InsuranceProfileValue,
+  toStoredKLevel,
 } from "@/components/patient/InsuranceProfileForm";
 
 type Mode = "new" | "existing";
@@ -118,6 +119,7 @@ export default function ClientLoginPage() {
   const patients = useStore((s) => s.patients);
   const currentUser = useStore((s) => s.currentUser);
   const logout = useStore((s) => s.logout);
+  const hasHydrated = useStore((s) => s.hasHydrated);
   const currentPatient = useCurrentPatient();
 
   // New-patient registration
@@ -177,6 +179,7 @@ export default function ClientLoginPage() {
   // single string Patient.address expects) when leaving this step.
   const [addressCity, setAddressCity] = useState("");
   const [addressStreet, setAddressStreet] = useState("");
+  const [addressHouseNumber, setAddressHouseNumber] = useState("");
   const [consents, setConsents] = useState<ConsentValues>({});
 
   // Existing-patient form fields
@@ -225,6 +228,38 @@ export default function ClientLoginPage() {
     ? "מספר הטלפון הנוסף זהה למספר הראשי"
     : undefined;
 
+  // A patient can already be authenticated without ever having registered —
+  // "מטופל חדש" in the internal demo, or anyone gated from booking in
+  // /client/search — so an account and a verified email already exist, but
+  // there's no Patient record and no phone on file. Asking such a user for
+  // an email and password again would create a second account, so the flow
+  // starts one step in, at identity proofing. (This case used to live on
+  // the separate /register page, which this one replaces.)
+  //
+  // Decided once, on the first hydrated render, and then frozen: registering
+  // through this very page ALSO produces a signed-in user with no Patient
+  // record (that's created only by the final completePatientRegistration), so
+  // a live check would flip to true halfway through an ordinary registration
+  // and restart it at the SMS step.
+  const leadOnArrivalRef = useRef<boolean | null>(null);
+  if (hasHydrated && leadOnArrivalRef.current === null) {
+    leadOnArrivalRef.current = !!currentUser && currentUser.role === "patient" && !currentPatient;
+  }
+  const isUnregisteredLead = leadOnArrivalRef.current === true;
+
+  const leadStartedRef = useRef(false);
+  useEffect(() => {
+    if (!isUnregisteredLead || leadStartedRef.current) return;
+    leadStartedRef.current = true;
+    setMode("new");
+    // A pendingRegistrationVerification left over from a registration
+    // abandoned in an earlier session (this store persists to localStorage)
+    // would make the SMS screen skip its phone prompt and wait for a code
+    // that was never sent — same guard as handleCredentialsSubmit.
+    resetRegistrationVerification();
+    setPhase("otp-sms");
+  }, [isUnregisteredLead, resetRegistrationVerification]);
+
   function switchMode(next: Mode) {
     setMode(next);
     setPhase(next === "new" ? "new-credentials" : "existing-form");
@@ -244,6 +279,10 @@ export default function ClientLoginPage() {
   // component's state, so re-visiting a step shows what was already filled.
   function goToStep(index: number) {
     setError("");
+    // Step 0 is the credentials form, which a lead never passed through and
+    // must not reach — submitting it would register a second account on top
+    // of the one they're already signed into.
+    if (isUnregisteredLead && index === 0) return;
     const target = NEW_STEP_PHASES[index];
     if (target === "otp-sms") {
       // The previous verification session is already consumed (or never
@@ -280,8 +319,9 @@ export default function ClientLoginPage() {
       setDateOfBirth(GOOGLE_DEMO_NEW.date_of_birth);
       setPassword(GOOGLE_DEMO_NEW.password);
       setConfirmPassword(GOOGLE_DEMO_NEW.password);
-      setAddressStreet("הרצל 12");
       setAddressCity("תל אביב");
+      setAddressStreet("הרצל");
+      setAddressHouseNumber("12");
     } else {
       setExistingEmail(GOOGLE_DEMO_EXISTING.email);
       setExistingPassword(GOOGLE_DEMO_EXISTING.password);
@@ -304,7 +344,7 @@ export default function ClientLoginPage() {
   // before that final step, currentUser stays set with no Patient behind
   // it — useRequireRole("patient") would then happily let them into
   // /client with a broken, patient-less session. Clear it here so leaving
-  // mid-registration really starts fresh, same as /register's handleClose.
+  // mid-registration really starts fresh.
   function handleClose() {
     if (currentUser && !currentPatient) logout();
     router.push("/");
@@ -378,13 +418,13 @@ export default function ClientLoginPage() {
       setError(secondaryPhoneError);
       return;
     }
-    if (!addressCity || !addressStreet) {
-      setError("יש לבחור עיר ורחוב");
+    if (!addressCity || !addressStreet || !addressHouseNumber.trim()) {
+      setError("יש לבחור עיר ורחוב ולהזין מספר בית");
       return;
     }
     setInsurance((prev) => ({
       ...prev,
-      address: [addressStreet.trim(), addressCity.trim()].filter(Boolean).join(", "),
+      address: formatAddress({ street: addressStreet, houseNumber: addressHouseNumber, city: addressCity }),
     }));
     // Identity (email+phone) is already verified at this point — see
     // handleCredentialsSubmit — so just move on to insurance.
@@ -437,7 +477,7 @@ export default function ClientLoginPage() {
         gender: gender || undefined,
         parent_name: parentName.trim() || undefined,
         kupah: insurance.kupah || undefined,
-        k_level: insurance.k_level || undefined,
+        k_level: toStoredKLevel(insurance.k_level),
         b_insurances: insurance.b_insurances.length > 0 ? insurance.b_insurances : undefined,
         address: insurance.address || undefined,
       },
@@ -754,9 +794,13 @@ export default function ClientLoginPage() {
       <PageShell onClose={handleClose}>
         <Stepper steps={NEW_STEPS} step={NEW_PHASE_INDEX["new-profile"]!} onStepClick={goToStep} />
         <p className="text-xs text-slate-400 mb-4">{NEW_STEPS[2]}</p>
-        <button onClick={() => setPhase("new-credentials")} className="text-sm text-primary mb-3 flex items-center gap-1">
-          <ArrowRight className="h-3.5 w-3.5" /> חזרה
-        </button>
+        {/* Same reason as goToStep's step-0 guard — a lead has no credentials
+            step behind them to go back to. */}
+        {!isUnregisteredLead && (
+          <button onClick={() => setPhase("new-credentials")} className="text-sm text-primary mb-3 flex items-center gap-1">
+            <ArrowRight className="h-3.5 w-3.5" /> חזרה
+          </button>
+        )}
         {errorBox}
         <form onSubmit={handleProfileSubmit} className="flex flex-col gap-3">
           <Input label="שם מלא" icon={<UserIcon className="h-4 w-4" />} value={fullName} onChange={(e) => setFullName(e.target.value)} required />
@@ -898,7 +942,7 @@ export default function ClientLoginPage() {
               ))}
             </Select>
             <Select
-              label="רחוב ומספר"
+              label="רחוב"
               required
               value={addressStreet}
               onChange={(e) => setAddressStreet(e.target.value)}
@@ -912,6 +956,17 @@ export default function ClientLoginPage() {
               ))}
             </Select>
           </div>
+          {/* Free text, not a picker: house numbers carry letters and slashes
+              ("12א", "5/3"), so there's no closed list to pick from the way
+              there is for city and street. */}
+          <Input
+            label="מספר בית"
+            inputMode="numeric"
+            placeholder="12"
+            value={addressHouseNumber}
+            onChange={(e) => setAddressHouseNumber(e.target.value)}
+            required
+          />
           <p className="text-xs text-slate-400 -mt-2">
             הרשימה לצורך הדגמה בלבד — באתר אמיתי שדה זה יתחבר למאגר כתובות חיצוני מלא
           </p>

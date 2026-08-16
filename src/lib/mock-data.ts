@@ -68,7 +68,7 @@ export const DEMO_PATIENT_USER: User = {
 
 // A patient-role user with no linked Patient record — used by the "מטופל
 // חדש" demo login so the demo can show the pre-registration experience
-// (no insurance profile yet => no prices, booking gated to /register).
+// (no insurance profile yet => no prices, booking gated to /client/login).
 export const DEMO_NEW_PATIENT_USER: User = {
   id: "user_patient_new",
   email: "new-patient@demo.co.il",
