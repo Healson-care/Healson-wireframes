@@ -14,8 +14,10 @@ import { StepUpReauthDialog } from "@/components/shared/StepUpReauthDialog";
 import { useOtpAttemptGuard, ResendControl, BlockedPanel, WrongAttemptsLockoutNotice } from "@/components/shared/OtpAttemptGuard";
 import {
   EMPTY_INSURANCE_PROFILE,
+  fromStoredKLevel,
   InsuranceProfileForm,
   InsuranceProfileValue,
+  toStoredKLevel,
 } from "@/components/patient/InsuranceProfileForm";
 import {
   CONSENT_DOCUMENT_VERSION,
@@ -34,26 +36,10 @@ import {
   Patient,
 } from "@/types";
 import { cn, formatDateHe, isValidEmail, isValidIsraeliId, isValidIsraeliPhone } from "@/lib/utils";
-import { CITIES, STREETS_BY_CITY, DEFAULT_STREETS } from "@/lib/constants";
+import { CITIES, STREETS_BY_CITY, DEFAULT_STREETS, formatAddress, parseAddress } from "@/lib/constants";
 import { ShieldOff, FileDown, Lock, Pencil, UserRound, SlidersHorizontal, ShieldCheck, ShieldPlus } from "lucide-react";
 
 const OPEN_DSR_STATUSES = ["ממתין", "בטיפול"];
-
-// Reverses the "street, city" join registration uses to store Patient.address
-// as a single string, so the profile page can prefill the same city/street
-// pickers. Best-effort only — falls back to blank fields if it doesn't match
-// a known city (e.g. addresses set before this field existed).
-function parseAddress(address: string): { city: string; street: string } {
-  const parts = address.split(",").map((p) => p.trim()).filter(Boolean);
-  if (parts.length >= 2) {
-    const [street, city] = parts;
-    return { city: CITIES.includes(city) ? city : "", street };
-  }
-  if (parts.length === 1) {
-    return CITIES.includes(parts[0]) ? { city: parts[0], street: "" } : { city: "", street: parts[0] };
-  }
-  return { city: "", street: "" };
-}
 
 // Segmented toggle for a short, fixed set of options — used instead of a
 // native <select> where there are only 2-3 choices. iOS renders <select>
@@ -276,6 +262,7 @@ export default function ClientProfilePage() {
   const [insurance, setInsurance] = useState<InsuranceProfileValue>(EMPTY_INSURANCE_PROFILE);
   const [addressCity, setAddressCity] = useState("");
   const [addressStreet, setAddressStreet] = useState("");
+  const [addressHouseNumber, setAddressHouseNumber] = useState("");
   const [error, setError] = useState("");
   const [rectifyOpen, setRectifyOpen] = useState(false);
   const [insuranceVerifyOpen, setInsuranceVerifyOpen] = useState(false);
@@ -294,13 +281,14 @@ export default function ClientProfilePage() {
       });
       setInsurance({
         kupah: patient.kupah ?? "",
-        k_level: patient.k_level ?? "",
+        k_level: fromStoredKLevel(patient.k_level),
         b_insurances: patient.b_insurances ?? [],
         address: patient.address ?? "",
       });
       const parsed = parseAddress(patient.address ?? "");
       setAddressCity(parsed.city);
       setAddressStreet(parsed.street);
+      setAddressHouseNumber(parsed.houseNumber);
     }
   }
 
@@ -324,6 +312,22 @@ export default function ClientProfilePage() {
     e.preventDefault();
     setError("");
     if (!patient) return;
+    // These fields are required at registration, so they're required here
+    // too. Native `required` can't carry that alone: the "פרטים אישיים"
+    // panel unmounts whenever another tab is open (see TabsContent), which
+    // takes its constraints out of the form — and a disabled Select (רחוב,
+    // before a city is picked) is exempt from validation regardless. So
+    // re-check them here and switch back to the tab holding the problem.
+    const missing = !form.gender
+      ? "יש לבחור מגדר"
+      : !addressCity || !addressStreet || !addressHouseNumber.trim()
+      ? "יש לבחור עיר ורחוב ולהזין מספר בית"
+      : undefined;
+    if (missing) {
+      setActiveTab("personal");
+      setError(missing);
+      return;
+    }
     if (secondaryPhoneError) {
       setError(secondaryPhoneError);
       return;
@@ -333,7 +337,7 @@ export default function ClientProfilePage() {
       secondary_phone: form.secondary_phone.trim() || undefined,
       communication_language: preferences.communication_language,
       notification_channel: preferences.notification_channel,
-      address: [addressStreet.trim(), addressCity.trim()].filter(Boolean).join(", ") || undefined,
+      address: formatAddress({ street: addressStreet, houseNumber: addressHouseNumber, city: addressCity }),
     });
     showToast("השינויים נשמרו", { variant: "success" });
   }
@@ -345,7 +349,7 @@ export default function ClientProfilePage() {
     if (!patient) return;
     updatePatient(patient.id, {
       kupah: insurance.kupah || undefined,
-      k_level: insurance.k_level || undefined,
+      k_level: toStoredKLevel(insurance.k_level),
       b_insurances: insurance.b_insurances.length > 0 ? insurance.b_insurances : undefined,
     });
     showToast("הפרופיל הביטוחי עודכן בהצלחה", { variant: "success" });
@@ -445,8 +449,9 @@ export default function ClientProfilePage() {
                   label="מגדר"
                   value={form.gender}
                   onChange={(e) => setForm({ ...form, gender: e.target.value as Gender })}
+                  required
                 >
-                  <option value="">לא צוין</option>
+                  <option value="">בחרו מגדר</option>
                   {GENDERS.map((g) => (
                     <option key={g} value={g}>
                       {g}
@@ -464,14 +469,15 @@ export default function ClientProfilePage() {
                 />
                 <div className="grid grid-cols-2 gap-2">
                   <Select
-                    label="עיר (אופציונלי)"
+                    label="עיר"
                     value={addressCity}
                     onChange={(e) => {
                       setAddressCity(e.target.value);
                       setAddressStreet("");
                     }}
+                    required
                   >
-                    <option value="">לא צוין</option>
+                    <option value="">בחרו עיר</option>
                     {CITIES.map((c) => (
                       <option key={c} value={c}>
                         {c}
@@ -479,10 +485,11 @@ export default function ClientProfilePage() {
                     ))}
                   </Select>
                   <Select
-                    label="רחוב ומספר (אופציונלי)"
+                    label="רחוב"
                     value={addressStreet}
                     onChange={(e) => setAddressStreet(e.target.value)}
                     disabled={!addressCity}
+                    required
                   >
                     <option value="">{addressCity ? "בחרו רחוב" : "בחרו עיר קודם"}</option>
                     {(STREETS_BY_CITY[addressCity] ?? DEFAULT_STREETS).map((s) => (
@@ -492,6 +499,16 @@ export default function ClientProfilePage() {
                     ))}
                   </Select>
                 </div>
+                {/* Free text, not a picker — same reasoning as registration:
+                    house numbers carry letters and slashes ("12א", "5/3"). */}
+                <Input
+                  label="מספר בית"
+                  inputMode="numeric"
+                  placeholder="12"
+                  value={addressHouseNumber}
+                  onChange={(e) => setAddressHouseNumber(e.target.value)}
+                  required
+                />
                 <p className="text-xs text-slate-400 -mt-2">
                   הרשימה לצורך הדגמה בלבד — באתר אמיתי שדה זה יתחבר למאגר כתובות חיצוני מלא
                 </p>

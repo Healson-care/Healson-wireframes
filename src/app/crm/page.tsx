@@ -12,6 +12,7 @@ import { ConfirmDialog } from "@/components/ui/Dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/Tabs";
 import { DataTable, DataTableColumn } from "@/components/ui/DataTable";
 import { PatientForm, PatientFormValues } from "@/components/admin/PatientForm";
+import { fromStoredKLevel, toStoredKLevel } from "@/components/patient/InsuranceProfileForm";
 import { LeadForm, LeadFormValues } from "@/components/admin/LeadForm";
 import { KUPOT, LEAD_STATUSES, PATIENT_STATUSES, Patient, Lead, LeadStatus } from "@/types";
 import { cn } from "@/lib/utils";
@@ -155,7 +156,7 @@ function PatientsTab({
       ...values,
       gender: values.gender || undefined,
       kupah: values.kupah || undefined,
-      k_level: values.k_level || undefined,
+      k_level: toStoredKLevel(values.k_level),
       b_insurances: values.b_insurances.length > 0 ? values.b_insurances : undefined,
       address: values.address || undefined,
     };
@@ -330,7 +331,7 @@ function PatientsTab({
                 gender: editPatient.gender ?? "",
                 parent_name: editPatient.parent_name ?? "",
                 kupah: editPatient.kupah ?? "",
-                k_level: editPatient.k_level ?? "",
+                k_level: fromStoredKLevel(editPatient.k_level),
                 b_insurances: editPatient.b_insurances ?? [],
                 address: editPatient.address ?? "",
                 status: editPatient.status,

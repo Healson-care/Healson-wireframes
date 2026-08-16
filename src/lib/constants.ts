@@ -1,5 +1,5 @@
 // sessionStorage key used to send an unregistered lead back to the page
-// they were on (e.g. the booking flow) once they finish /register.
+// they were on (e.g. the booking flow) once they finish /client/login.
 export const POST_REGISTER_REDIRECT_KEY = "healson_post_register_redirect";
 
 // sessionStorage key holding the provider id a visitor had clicked on in
@@ -99,14 +99,46 @@ export const CITIES = [
   "עכו",
   "דימונה",
 ];
+// Street names only — the house number is its own field (see formatAddress
+// below), so numbers must not be baked into these options.
 export const STREETS_BY_CITY: Record<string, string[]> = {
-  "תל אביב": ["הרצל 12", "אבן גבירול 50", "דיזנגוף 100"],
-  "ירושלים": ["יפו 22", "בן יהודה 8", "עמק רפאים 15"],
-  "חיפה": ["הרצל 8", "הנביאים 30", "מוריה 45"],
-  "ראשון לציון": ["רוטשילד 20", "הרצל 5"],
-  "פתח תקווה": ["חובבי ציון 10", "רוטשילד 60"],
-  "רמת גן": ["ביאליק 12", "ז'בוטינסקי 40"],
-  "הרצליה": ["סוקולוב 25", "בן גוריון 90"],
-  "באר שבע": ["רגר 15", "הפלמח 33"],
+  "תל אביב": ["הרצל", "אבן גבירול", "דיזנגוף"],
+  "ירושלים": ["יפו", "בן יהודה", "עמק רפאים"],
+  "חיפה": ["הרצל", "הנביאים", "מוריה"],
+  "ראשון לציון": ["רוטשילד", "הרצל"],
+  "פתח תקווה": ["חובבי ציון", "רוטשילד"],
+  "רמת גן": ["ביאליק", "ז'בוטינסקי"],
+  "הרצליה": ["סוקולוב", "בן גוריון"],
+  "באר שבע": ["רגר", "הפלמח"],
 };
-export const DEFAULT_STREETS = ["הרחוב הראשי 1", "שדרות העצמאות 10"];
+export const DEFAULT_STREETS = ["הרחוב הראשי", "שדרות העצמאות"];
+
+/** Patient.address is a single string in the form "רחוב מספר, עיר".
+ * formatAddress/parseAddress are the only places that know that shape, so
+ * registration and the profile compose and re-read it identically. */
+export function formatAddress(parts: { street: string; houseNumber: string; city: string }): string {
+  const line = [parts.street.trim(), parts.houseNumber.trim()].filter(Boolean).join(" ");
+  return [line, parts.city.trim()].filter(Boolean).join(", ");
+}
+
+/** Best-effort inverse of formatAddress, used to prefill the profile's
+ * pickers. Falls back to blank fields for anything that doesn't match a
+ * known city (e.g. an address entered before this field existed). */
+export function parseAddress(address: string): { city: string; street: string; houseNumber: string } {
+  const parts = address.split(",").map((p) => p.trim()).filter(Boolean);
+  let city = "";
+  let line = "";
+  if (parts.length >= 2) {
+    line = parts[0];
+    city = CITIES.includes(parts[1]) ? parts[1] : "";
+  } else if (parts.length === 1) {
+    if (CITIES.includes(parts[0])) city = parts[0];
+    else line = parts[0];
+  }
+  // The street list carries no numbers, so a trailing number on this line
+  // can only have come from the house-number field.
+  const match = line.match(/^(.*?)\s+(\d+\S*)$/);
+  return match
+    ? { city, street: match[1], houseNumber: match[2] }
+    : { city, street: line, houseNumber: "" };
+}

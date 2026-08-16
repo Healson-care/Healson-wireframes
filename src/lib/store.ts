@@ -924,7 +924,7 @@ export const useStore = create<Store>()(
         }));
         // Note: the Patient record (insurance profile + consent) is created
         // afterwards via completePatientRegistration, once the multi-step
-        // /register flow collects those fields (§4.2).
+        // /client/login flow collects those fields (§4.2).
         return { ok: true };
       },
 

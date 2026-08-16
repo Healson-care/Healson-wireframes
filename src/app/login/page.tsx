@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { Mail, Lock, ChevronDown, Smartphone, PauseCircle, Ban, Phone } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { AuthLayout } from "@/components/layouts/AuthLayout";
-import { PatientTypeToggle } from "@/components/shared/PatientTypeToggle";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { useStore } from "@/lib/store";
@@ -180,9 +179,8 @@ export default function LoginPage() {
 
   return (
     <AuthLayout>
-      <PatientTypeToggle active="existing" />
       <h1 className="text-lg font-semibold text-slate-900 mb-1">התחברות</h1>
-      <p className="text-sm text-slate-500 mb-5">היכנסו לחשבון שלכם כדי להמשיך</p>
+      <p className="text-sm text-slate-500 mb-5">כניסת ספקים וצוות</p>
 
       {blockedStatus ? (
         <div className="mb-4 rounded-xl border border-danger-border bg-danger-bg p-4">
@@ -294,9 +292,9 @@ export default function LoginPage() {
       </div>
 
       <p className="mt-5 text-center text-sm text-slate-500">
-        אין לך חשבון?{" "}
-        <Link href="/register" className="text-primary font-medium hover:underline">
-          צור חשבון
+        מטופל?{" "}
+        <Link href="/client/login" className="text-primary font-medium hover:underline">
+          להתחברות והרשמה
         </Link>
       </p>
       <p className="mt-1.5 text-center text-sm text-slate-500">

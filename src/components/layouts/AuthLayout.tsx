@@ -11,7 +11,7 @@ export function AuthLayout({
 }: {
   children: ReactNode;
   /** Called instead of the default "/" navigation — used by multi-step
-   * flows (e.g. /register) that need to clear a partial session first so
+   * flows (e.g. /client/login) that need to clear a partial session first so
    * returning to the landing page shows it exactly as a fresh visitor would. */
   onClose?: () => void;
 }) {

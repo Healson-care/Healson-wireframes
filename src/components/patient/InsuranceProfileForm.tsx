@@ -22,13 +22,36 @@ const OTHER_AGENT = "אחר";
 
 const AGENTS_BY_COMPANY = INSURANCE_AGENTS_BY_COMPANY as Record<string, string[] | undefined>;
 
+// A שב"ן has no "basic" tier (see K_LEVELS_BY_KUPAH in types) — a member
+// either holds one of the paid plans or holds none at all. Patient.k_level
+// therefore stores `undefined` for "none", which a form can't distinguish
+// from "hasn't answered yet". These three states do:
+//   ""          — not answered (blocked by the Select's `required`)
+//   NO_K_LEVEL  — answered "I have no שב"ן"
+//   a KLevel    — answered with a plan
+export const NO_K_LEVEL = "none";
+export type KLevelChoice = KLevel | typeof NO_K_LEVEL | "";
+
+/** Form choice -> the value stored on Patient.k_level. */
+export function toStoredKLevel(choice: KLevelChoice): KLevel | undefined {
+  return choice && choice !== NO_K_LEVEL ? choice : undefined;
+}
+
+/** Patient.k_level -> form choice. An existing record's absent k_level is a
+ * real answer ("no שב"ן"), not an unanswered field, so it maps to NO_K_LEVEL
+ * — only a brand-new profile starts out blank (EMPTY_INSURANCE_PROFILE). */
+export function fromStoredKLevel(stored: KLevel | undefined): KLevelChoice {
+  return stored ?? NO_K_LEVEL;
+}
+
 export interface InsuranceProfileValue {
   // "" plays two roles: the not-yet-picked placeholder (blocked by the
   // Select's `required` for ת"ז holders, so it can never be submitted), and
   // the meaningful "no Israeli kupah" choice (tourist/no institutional
   // coverage) when the caller passes allowNoKupah (see below).
   kupah: Kupah | "";
-  k_level: KLevel | "";
+  // Three-state — see KLevelChoice above. Never assume "" means "no שב"ן".
+  k_level: KLevelChoice;
   // A patient can hold several private policies at once (unlike kupah,
   // which is single by law) — "has private insurance" is just
   // b_insurances.length > 0, not a separate field.
@@ -146,13 +169,18 @@ export function InsuranceProfileForm({
         {allowNoKupah && <option value="">אין לי קופת חולים (תייר)</option>}
       </Select>
 
+      {/* Required for the same reason kupah is: the old default was "no
+          שב"ן", so anyone who does hold one and clicked straight through was
+          saved without it — and silently lost layer K in pricing. */}
       {value.kupah && (
         <Select
-          label='רמת ביטוח קופה (שב"ן) — אופציונלי'
+          label='רמת ביטוח קופה (שב"ן)'
           value={value.k_level}
-          onChange={(e) => onChange({ ...value, k_level: e.target.value as KLevel | "" })}
+          onChange={(e) => onChange({ ...value, k_level: e.target.value as KLevelChoice })}
+          required
         >
-          <option value="">אין ביטוח קופה נוסף</option>
+          <option value="">בחרו רמת שב&quot;ן</option>
+          <option value={NO_K_LEVEL}>אין לי שב&quot;ן</option>
           {K_LEVELS_BY_KUPAH[value.kupah].map((level) => (
             <option key={level} value={level}>
               {level}

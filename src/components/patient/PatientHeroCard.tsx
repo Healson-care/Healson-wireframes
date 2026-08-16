@@ -338,7 +338,7 @@ export function PatientHeroCard() {
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.06] p-3.5">
             <p className="text-xs text-white/65">כדי לראות מחירים מותאמים אישית צריך פרופיל ביטוחי</p>
             <Link
-              href="/register"
+              href="/client/login"
               className="focus-ring flex items-center gap-1.5 rounded-full border border-[var(--brand-gold)]/40 bg-[var(--brand-gold)]/10 px-3 py-1.5 text-xs font-semibold text-[var(--brand-gold-soft)] transition-colors hover:bg-[var(--brand-gold)]/20"
             >
               <Plus className="h-3.5 w-3.5" />
